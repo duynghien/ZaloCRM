@@ -37,7 +37,8 @@ import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
-import { orderRoutes } from './modules/orders/order-routes.js';
+import { decryptData } from './shared/utils/crypto.js';
+import type { JwtPayload } from './modules/auth/auth-service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,8 +95,26 @@ async function bootstrap() {
   // Pass io to zalo pool for real-time event emission
   zaloPool.setIO(io);
 
+  // Authenticate socket connection via JWT token passed in auth or query
+  io.use((socket, next) => {
+    const token =
+      socket.handshake.auth?.token ||
+      (socket.handshake.query?.token as string);
+    if (!token) {
+      return next(new Error('Authentication error: Token required'));
+    }
+    try {
+      const user = app.jwt.verify<JwtPayload>(token);
+      socket.data.user = user;
+      socket.join(`org:${user.orgId}`);
+      next();
+    } catch {
+      next(new Error('Authentication error: Invalid or expired token'));
+    }
+  });
+
   io.on('connection', (socket) => {
-    logger.info(`Socket connected: ${socket.id}`);
+    logger.info(`Socket connected: ${socket.id} (user: ${socket.data.user?.id}, org: ${socket.data.user?.orgId})`);
     socket.on('disconnect', () => {
       logger.debug(`Socket disconnected: ${socket.id}`);
     });
@@ -180,11 +199,12 @@ async function bootstrap() {
     });
     logger.info(`Attempting reconnect for ${accounts.length} Zalo account(s)`);
     for (const account of accounts) {
-      const session = account.sessionData as {
+      const session = decryptData<{
         cookie: any;
         imei: string;
         userAgent: string;
-      } | null;
+      }>(account.sessionData, config.encryptionKey);
+
       if (session?.imei) {
         // Stagger reconnects: 10 seconds between each account to avoid rate limits
         await new Promise((r) => setTimeout(r, 10_000));

@@ -58,7 +58,7 @@ DB_PASSWORD=matkhau_cua_ban_o_day
 
 # Secret keys — chạy 2 lệnh bên dưới để tạo giá trị ngẫu nhiên
 JWT_SECRET=     # Dán kết quả lệnh: openssl rand -hex 32
-ENCRYPTION_KEY= # Dán kết quả lệnh: openssl rand -hex 16
+ENCRYPTION_KEY= # Dán kết quả lệnh: openssl rand -hex 32
 
 # URL công khai (nếu có domain)
 APP_URL=https://ten-domain-cua-ban.com
@@ -71,7 +71,7 @@ APP_URL=https://ten-domain-cua-ban.com
 openssl rand -hex 32
 
 # Chạy lệnh này, copy kết quả dán vào ENCRYPTION_KEY
-openssl rand -hex 16
+openssl rand -hex 32
 ```
 
 Lưu file: nhấn `Ctrl + X`, chọn `Y`, nhấn `Enter`.
@@ -125,11 +125,36 @@ docker compose ps
 
 ---
 
-## Cài đặt SSL (tuỳ chọn)
+## Bảo mật & Thiết lập Reverse Proxy (Nginx / Cloudflare Tunnel)
 
-Nếu bạn có domain, có thể dùng Cloudflare Tunnel hoặc Nginx + Let's Encrypt:
+Để đảm bảo an toàn, ứng dụng chỉ lắng nghe kết nối nội bộ tại `127.0.0.1:3080` (tránh lộ cổng trực tiếp ra mạng công cộng). Bạn nên sử dụng **Nginx** hoặc **Cloudflare Tunnel** để cấp chứng chỉ HTTPS (SSL/TLS):
 
-### Dùng Cloudflare Tunnel (đơn giản nhất)
+### Cách 1: Sử dụng Nginx + Let's Encrypt (Khuyên dùng)
+
+1. Cài đặt Nginx và Certbot:
+```bash
+sudo apt update
+sudo apt install nginx certbot python3-certbot-nginx -y
+```
+
+2. Đưa cấu hình Nginx mẫu vào hệ thống:
+```bash
+sudo cp docker/nginx.conf /etc/nginx/sites-available/zalocrm.conf
+sudo ln -s /etc/nginx/sites-available/zalocrm.conf /etc/nginx/sites-enabled/
+```
+
+3. Mở file và thay `your-domain.com` thành domain của bạn:
+```bash
+sudo nano /etc/nginx/sites-available/zalocrm.conf
+```
+
+4. Cấp chứng chỉ SSL miễn phí Let's Encrypt:
+```bash
+sudo certbot --nginx -d your-domain.com
+sudo systemctl reload nginx
+```
+
+### Cách 2: Dùng Cloudflare Tunnel (Đơn giản nhất cho máy cá nhân)
 
 ```bash
 # Cài cloudflared
@@ -143,21 +168,21 @@ cloudflared tunnel login
 # Tạo tunnel
 cloudflared tunnel create zalocrm
 
-# Cấu hình
+# Cấu hình ingress
 cat > ~/.cloudflared/config.yml << EOF
 tunnel: YOUR_TUNNEL_ID
 credentials-file: ~/.cloudflared/YOUR_TUNNEL_ID.json
 ingress:
   - hostname: crm.your-domain.com
-    service: http://localhost:3080
+    service: http://127.0.0.1:3080
   - service: http_status:404
 EOF
 
 # Thêm DNS
 cloudflared tunnel route dns YOUR_TUNNEL_ID crm.your-domain.com
 
-# Chạy tunnel
-cloudflared tunnel run
+# Chạy tunnel dưới dạng service
+sudo cloudflared service install
 ```
 
 ---

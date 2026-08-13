@@ -118,7 +118,11 @@ export function useChat() {
   }
 
   function initSocket() {
-    socket = io({ transports: ['websocket', 'polling'] });
+    const token = localStorage.getItem('token');
+    socket = io({
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
 
     socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
       // Add to messages if viewing this conversation

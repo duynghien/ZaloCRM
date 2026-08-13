@@ -68,6 +68,7 @@ async function resolveGroupName(api: any, groupId: string): Promise<string> {
 
 export interface ListenerContext {
   accountId: string;
+  orgId?: string;
   api: any;
   io: Server | null;
   userInfoCache: Map<string, UserInfoCacheEntry>;
@@ -79,8 +80,19 @@ export interface ListenerContext {
  * Calls listener.start() with retryOnClose at the end.
  */
 export function attachZaloListener(ctx: ListenerContext): void {
-  const { accountId, api, io, userInfoCache, onDisconnected } = ctx;
+  const { accountId, orgId, api, io, userInfoCache, onDisconnected } = ctx;
   const listener = api.listener;
+
+  // Helper to emit events either to org room or fallback to global
+  const emitScoped = (event: string, payload: any) => {
+    if (io) {
+      if (orgId) {
+        io.to(`org:${orgId}`).emit(event, payload);
+      } else {
+        io.emit(event, payload);
+      }
+    }
+  };
 
   listener.on('connected', () => {
     logger.info(`[zalo:${accountId}] Listener connected`);
@@ -127,7 +139,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
       });
 
       if (result) {
-        io?.emit('chat:message', {
+        emitScoped('chat:message', {
           accountId,
           message: result.message,
           conversationId: result.conversationId,
@@ -142,14 +154,14 @@ export function attachZaloListener(ctx: ListenerContext): void {
     const msgId = data.data?.msgId || data.msgId;
     if (msgId) {
       await handleMessageUndo(accountId, String(msgId));
-      io?.emit('chat:deleted', { accountId, msgId: String(msgId) });
+      emitScoped('chat:deleted', { accountId, msgId: String(msgId) });
     }
   });
 
   listener.on('closed', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener closed: ${code} ${reason}`);
     onDisconnected(accountId);
-    io?.emit('zalo:disconnected', { accountId, code, reason });
+    emitScoped('zalo:disconnected', { accountId, code, reason });
   });
 
   listener.on('error', (err: any) => {

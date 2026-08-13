@@ -7,16 +7,23 @@ import { logger } from '../../shared/utils/logger.js';
 
 export function registerZaloSocketHandlers(io: Server): void {
   io.on('connection', (socket: Socket) => {
-    // Client should send orgId after connecting to join org-level room
+    const user = socket.data.user;
+
+    // Automatically ensure user is in their org room
+    if (user?.orgId) {
+      socket.join(`org:${user.orgId}`);
+    }
+
+    // Client org:join check (ensures user only joins their own org room)
     socket.on('org:join', (data: { orgId: string }) => {
-      if (!data?.orgId) return;
-      socket.join(`org:${data.orgId}`);
-      logger.debug(`Socket ${socket.id} joined org:${data.orgId}`);
+      if (!user || user.orgId !== data?.orgId) return;
+      socket.join(`org:${user.orgId}`);
+      logger.debug(`Socket ${socket.id} joined org:${user.orgId}`);
     });
 
     // Subscribe to QR/status updates for a specific Zalo account
     socket.on('zalo:subscribe', (data: { accountId: string }) => {
-      if (!data?.accountId) return;
+      if (!user || !data?.accountId) return;
       socket.join(`account:${data.accountId}`);
       logger.debug(`Socket ${socket.id} joined account:${data.accountId}`);
     });

@@ -10,6 +10,8 @@ import { createRequire } from 'module';
 import type { Server } from 'socket.io';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { config } from '../../config/index.js';
+import { encryptData, decryptData } from '../../shared/utils/crypto.js';
 import { attachZaloListener, type UserInfoCacheEntry } from './zalo-listener-factory.js';
 import { emitWebhook } from '../api/webhook-service.js';
 
@@ -30,6 +32,7 @@ interface ZaloInstance {
   status: 'connected' | 'disconnected' | 'qr_pending' | 'connecting';
   displayName?: string;
   zaloUid?: string;
+  orgId?: string;
   lastActivity: Date;
 }
 
@@ -45,10 +48,26 @@ class ZaloAccountPool {
     this.io = io;
   }
 
+  // Emit event to org room if orgId is known, else broadcast
+  private emitToOrg(orgId: string | undefined, event: string, payload: any): void {
+    if (!this.io) return;
+    if (orgId) {
+      this.io.to(`org:${orgId}`).emit(event, payload);
+    } else {
+      this.io.emit(event, payload);
+    }
+  }
+
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string): Promise<void> {
+    const accountRec = await prisma.zaloAccount.findUnique({
+      where: { id: accountId },
+      select: { orgId: true },
+    });
+    const orgId = accountRec?.orgId;
+
     const zalo = new Zalo({ logging: false });
-    this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', lastActivity: new Date() });
+    this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() });
 
     try {
       const api = await zalo.loginQR({}, (event: any) => {
@@ -98,25 +117,31 @@ class ZaloAccountPool {
         }
       } catch {}
 
-      this.attachListener(accountId, api);
-      this.io?.emit('zalo:connected', { accountId, zaloUid: ownId });
+      this.attachListener(accountId, api, orgId);
+      this.emitToOrg(orgId, 'zalo:connected', { accountId, zaloUid: ownId });
       await this.updateAccountDB(accountId, 'connected', ownId);
-      // Emit webhook (orgId lookup is async, fire-and-forget)
-      prisma.zaloAccount.findUnique({ where: { id: accountId }, select: { orgId: true } })
-        .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.connected', { accountId }))
-        .catch(() => {});
+
+      if (orgId) {
+        emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+      }
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
-      this.io?.emit('zalo:error', { accountId, error: String(err) });
+      this.emitToOrg(orgId, 'zalo:error', { accountId, error: String(err) });
       throw err;
     }
   }
 
   // Reconnect using previously saved session credentials
   async reconnect(accountId: string, credentials: ZaloCredentials): Promise<void> {
+    const accountRec = await prisma.zaloAccount.findUnique({
+      where: { id: accountId },
+      select: { orgId: true },
+    });
+    const orgId = accountRec?.orgId;
+
     const zalo = new Zalo({ logging: false });
-    this.instances.set(accountId, { zalo, api: null, status: 'connecting', lastActivity: new Date() });
+    this.instances.set(accountId, { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() });
 
     try {
       const api = await zalo.login({
@@ -146,24 +171,26 @@ class ZaloAccountPool {
         }
       } catch {}
 
-      this.attachListener(accountId, api);
+      this.attachListener(accountId, api, orgId);
       await this.updateAccountDB(accountId, 'connected', ownId);
-      this.io?.emit('zalo:connected', { accountId, zaloUid: ownId });
-      prisma.zaloAccount.findUnique({ where: { id: accountId }, select: { orgId: true } })
-        .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.connected', { accountId }))
-        .catch(() => {});
+      this.emitToOrg(orgId, 'zalo:connected', { accountId, zaloUid: ownId });
+
+      if (orgId) {
+        emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+      }
     } catch (err) {
       const instance = this.instances.get(accountId);
       if (instance) instance.status = 'disconnected';
       await this.updateAccountDB(accountId, 'qr_pending', null);
-      this.io?.emit('zalo:reconnect-failed', { accountId, error: String(err) });
+      this.emitToOrg(orgId, 'zalo:reconnect-failed', { accountId, error: String(err) });
     }
   }
 
   // Delegate listener setup to zalo-listener-factory
-  private attachListener(accountId: string, api: any): void {
+  private attachListener(accountId: string, api: any, orgId?: string): void {
     attachZaloListener({
       accountId,
+      orgId,
       api,
       io: this.io,
       userInfoCache: this.userInfoCache,
@@ -171,10 +198,10 @@ class ZaloAccountPool {
         const inst = this.instances.get(id);
         if (inst) inst.status = 'disconnected';
         this.updateAccountDB(id, 'disconnected', null);
-        // Emit webhook for disconnect (fire-and-forget)
-        prisma.zaloAccount.findUnique({ where: { id }, select: { orgId: true } })
-          .then((rec) => rec && emitWebhook(rec.orgId, 'zalo.disconnected', { accountId: id }))
-          .catch(() => {});
+
+        if (orgId) {
+          emitWebhook(orgId, 'zalo.disconnected', { accountId: id }).catch(() => {});
+        }
 
         // Circuit breaker: track disconnect count per account
         const now = Date.now();
@@ -187,7 +214,7 @@ class ZaloAccountPool {
           // >5 disconnects in 5 min → stop reconnecting, require QR re-login
           logger.error(`[zalo:${id}] Circuit breaker: ${history.length} disconnects in 5 min — stopping auto-reconnect. QR re-login required.`);
           this.updateAccountDB(id, 'qr_pending', null);
-          this.io?.emit('zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
+          this.emitToOrg(orgId, 'zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
           this.disconnectHistory.delete(key);
           return; // DON'T reconnect
         }
@@ -198,10 +225,11 @@ class ZaloAccountPool {
     });
   }
 
-  // Persist session credentials to DB
+  // Persist session credentials to DB (encrypted with AES-256)
   private saveCredentials(accountId: string, credentials: ZaloCredentials): void {
+    const encrypted = encryptData(credentials, config.encryptionKey);
     prisma.zaloAccount
-      .update({ where: { id: accountId }, data: { sessionData: credentials as any } })
+      .update({ where: { id: accountId }, data: { sessionData: encrypted as any } })
       .catch((err) => logger.error(`[zalo:${accountId}] saveCredentials error:`, err));
   }
 
@@ -221,7 +249,7 @@ class ZaloAccountPool {
     }
   }
 
-  // Auto-reconnect using saved session from DB
+  // Auto-reconnect using saved session from DB (supports encrypted and legacy sessions)
   private async autoReconnect(accountId: string): Promise<void> {
     const inst = this.instances.get(accountId);
     // Skip if already reconnected or manually disconnected
@@ -230,15 +258,16 @@ class ZaloAccountPool {
     try {
       const account = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { sessionData: true },
+        select: { sessionData: true, orgId: true },
       });
-      const session = account?.sessionData as ZaloCredentials | null;
+
+      const session = decryptData<ZaloCredentials>(account?.sessionData, config.encryptionKey);
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);
         await this.reconnect(accountId, session);
       } else {
         logger.warn(`[zalo:${accountId}] No saved session, cannot auto-reconnect`);
-        this.io?.emit('zalo:reconnect-failed', { accountId, error: 'No saved session' });
+        this.emitToOrg(account?.orgId, 'zalo:reconnect-failed', { accountId, error: 'No saved session' });
       }
     } catch (err) {
       logger.error(`[zalo:${accountId}] Auto-reconnect failed:`, err);
