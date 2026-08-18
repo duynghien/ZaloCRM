@@ -1,0 +1,41 @@
+{
+  "name": "zalocrm-monorepo",
+  "version": "1.0.0",
+  "description": "ZaloCRM — Multi-Zalo Sales & Customer Relationship Management System",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "npm run dev --prefix backend",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev": "npm run dev:backend & npm run dev:frontend",
+    "build:backend": "npm run build --prefix backend",
+    "build:frontend": "npm run build --prefix frontend",
+    "build": "npm run build --workspaces",
+    "typecheck:backend": "npm run typecheck --prefix backend",
+    "typecheck:frontend": "npm run typecheck --prefix frontend",
+    "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
+    "db:migrate": "npm run db:migrate --prefix backend",
+    "db:push": "npm run db:push --prefix backend",
+    "db:seed": "npm run db:seed --prefix backend",
+    "docker:up": "docker compose up -d --build",
+    "docker:dev": "docker compose -f docker-compose.dev.yml up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app"
+  },
+  "keywords": [
+    "zalocrm",
+    "zalo",
+    "crm",
+    "fastify",
+    "vue3",
+    "prisma",
+    "postgresql",
+    "socket.io"
+  ],
+  "author": "ZaloCRM Team",
+  "license": "MIT"
+}
