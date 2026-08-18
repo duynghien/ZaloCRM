@@ -2,85 +2,66 @@
 
 Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, quản lý khách hàng, lịch hẹn, báo cáo, API & Webhook.
 
-## Tính năng
+---
 
-- **Quản lý nhiều Zalo** — Đăng nhập QR, tự kết nối lại, lưu phiên đăng nhập
-- **Chat real-time** — Gửi/nhận tin nhắn, ảnh, file, sticker, nhóm chat
-- **Quản lý khách hàng** — Pipeline (Mới → Đã liên hệ → Quan tâm → Chuyển đổi → Mất)
-- **Lịch hẹn** — Tạo, theo dõi, nhắc nhở tự động hàng ngày
-- **Dashboard** — Biểu đồ tin nhắn, KPI, nguồn khách hàng, trạng thái pipeline
-- **Báo cáo** — Xuất Excel, lọc theo thời gian
-- **Phân quyền** — Owner / Admin / Member, quản lý đội nhóm, phân quyền Zalo
-- **API công khai** — REST API với xác thực API key cho tích hợp bên ngoài
-- **Webhook** — Nhận thông báo khi có tin nhắn mới, khách hàng mới, Zalo kết nối/ngắt
-- **Chống block Zalo** — Giới hạn 200 tin/ngày, phát hiện gửi quá nhanh
-- **Thông báo** — Tin chưa trả lời >30 phút, lịch hẹn sắp tới, Zalo mất kết nối
-- **Tìm kiếm toàn hệ thống** — Tìm khách hàng, tin nhắn, lịch hẹn
-- **Giao diện** — Theme tối/sáng, thiết kế Liquid Silicon
+## 📚 Hệ Thống Tài Liệu Kỹ Thuật (Documentation)
 
-## Yêu cầu hệ thống
+Mã nguồn dự án được chuẩn hóa hệ thống tài liệu tại thư mục [`./docs/`](./docs/):
 
-| Thành phần | Tối thiểu | Khuyến nghị |
-|-----------|----------|------------|
-| CPU | 1 vCPU | 2-4 vCPU |
-| RAM | 1 GB | 4 GB |
-| Ổ cứng | 10 GB | 20 GB SSD |
-| Hệ điều hành | Ubuntu 20.04+ | Ubuntu 22.04 LTS |
-| Phần mềm | Docker + Docker Compose | Docker 24+ |
+- **[Project Overview & PRD](./docs/project-overview-pdr.md)** — Tổng quan dự án, phạm vi tính năng & yêu cầu sản phẩm.
+- **[System Architecture](./docs/system-architecture.md)** — Sơ đồ kiến trúc tổng thể, luồng dữ liệu & real-time Socket.IO.
+- **[Deployment & Operations Guide](./docs/deployment-guide.md)** — Hướng dẫn triển khai Production Docker, Nginx SSL, Cloudflare & Backup.
+- **[Coding Standards & Guidelines](./docs/code-standards.md)** — Quy chuẩn lập trình TypeScript, Fastify, Vue 3 & Bảo mật.
+- **[Codebase Summary](./docs/codebase-summary.md)** — Tổng hợp cấu trúc thư mục, danh sách API Endpoints & DB Schema.
+- **[Design Guidelines](./docs/design-guidelines.md)** — Quy chuẩn thiết kế UI/UX (Liquid Silicon Design System, Vuetify 3).
+- **[Product Roadmap](./docs/project-roadmap.md)** — Lộ trình phát triển tính năng, kiểm thử tự động & tích hợp AI Assistant.
 
-## Cài đặt nhanh
+> 📖 **Hướng dẫn dành cho người dùng:** [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md) | [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md)
 
-> Hướng dẫn chi tiết: [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md)
+---
+
+## ⚡ Cài Đặt & Khởi Chạy Nhanh
 
 ```bash
-git clone https://github.com/vuongnguyenbinh/ZaloCRM.git
+git clone https://github.com/duynghien/ZaloCRM.git
 cd ZaloCRM
+
+# Tạo file cấu hình biến môi trường
 cp .env.example .env
-# Sửa file .env — đặt mật khẩu và secret keys
-docker compose up -d --build
+# Sửa file .env — đặt mật khẩu DB và tạo 2 khóa secret bằng command: openssl rand -hex 32
+
+# Khởi chạy toàn bộ hệ thống bằng Docker Compose
+npm run docker:up
 ```
 
 Truy cập **http://IP-server:3080** → Tạo tài khoản admin lần đầu.
 
-## Công nghệ sử dụng
+---
+
+## 🛠️ Lệnh Phát Triển Đồng Bộ (Root Commands)
+
+```bash
+npm run dev         # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
+npm run build       # Build biên dịch mã nguồn Backend & Frontend
+npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
+npm run docker:dev  # Khởi chạy Docker môi trường Development (Hot Reload)
+```
+
+---
+
+## 🧱 Công Nghệ Sử Dụng
 
 | Thành phần | Công nghệ |
 |-----------|----------|
-| Backend | Node.js 20 / Fastify 5 / Prisma 7 |
-| Frontend | Vue 3 / Vuetify 3 / Chart.js / Pinia |
-| Cơ sở dữ liệu | PostgreSQL 16 |
-| Real-time | Socket.IO |
-| Zalo | zca-js 2.x |
-| Triển khai | Docker Compose |
+| **Backend** | Node.js 20 / Fastify 5 / Prisma 7 / TypeScript |
+| **Frontend** | Vue 3 / Vuetify 3 / Chart.js / Pinia |
+| **Cơ sở dữ liệu** | PostgreSQL 16 |
+| **Real-time** | Socket.IO |
+| **Zalo Engine** | zca-js 2.x |
+| **Triển khai** | Docker Compose / Nginx |
 
-## API & Webhook
+---
 
-> Hướng dẫn chi tiết: [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md)
-
-### Xác thực API
-```
-Header: X-API-Key: your-api-key
-```
-
-### Endpoint chính
-
-| Phương thức | Đường dẫn | Mô tả |
-|------------|----------|-------|
-| GET | `/api/public/contacts` | Danh sách khách hàng |
-| POST | `/api/public/contacts` | Tạo khách hàng mới |
-| POST | `/api/public/messages/send` | Gửi tin nhắn |
-| GET | `/api/public/appointments` | Danh sách lịch hẹn |
-
-### Sự kiện Webhook
-
-| Sự kiện | Mô tả |
-|---------|-------|
-| `message.received` | Tin nhắn mới đến |
-| `message.sent` | Tin nhắn gửi đi |
-| `contact.created` | Khách hàng mới |
-| `zalo.connected` | Zalo kết nối |
-| `zalo.disconnected` | Zalo mất kết nối |
-
-## Giấy phép
+## 🛡️ Giấy Phép (License)
 
 MIT — Miễn phí sử dụng và chỉnh sửa.

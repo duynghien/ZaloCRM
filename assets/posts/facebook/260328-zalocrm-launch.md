@@ -30,7 +30,7 @@ Tin nhắn bị bỏ lỡ, khách hàng rớt mất?
 ### 🚀 Cài đặt chỉ 3 phút
 
 ```
-git clone https://github.com/vuongnguyenbinh/ZaloCRM.git
+git clone https://github.com/duynghien/ZaloCRM.git
 cd ZaloCRM && cp .env.example .env
 docker compose up -d --build
 ```
@@ -84,7 +84,7 @@ Quét QR Zalo → Bắt đầu nhận tin nhắn.
 
 ```
 💬 Comment "CRM" để nhận hướng dẫn cài đặt chi tiết
-🔗 Link GitHub: github.com/vuongnguyenbinh/ZaloCRM
+🔗 Link GitHub: github.com/duynghien/ZaloCRM
 ⭐ Star repo nếu thấy hữu ích nhé!
 ```
 
@@ -97,7 +97,7 @@ Quét QR Zalo → Bắt đầu nhận tin nhắn.
 > 📊 Dashboard + Báo cáo
 > 🆓 100% miễn phí
 >
-> 👉 github.com/vuongnguyenbinh/ZaloCRM
+> 👉 github.com/duynghien/ZaloCRM
 
 ---
 
@@ -121,6 +121,6 @@ Mình vừa hoàn thành ZaloCRM — công cụ giúp quản lý nhiều tài kh
 
 **Cài đặt:** Docker — 3 phút.
 **Giá:** Miễn phí, open source, MIT license.
-**Link:** github.com/vuongnguyenbinh/ZaloCRM
+**Link:** github.com/duynghien/ZaloCRM
 
 Mọi người thử xem rồi cho mình feedback nhé! ⭐
