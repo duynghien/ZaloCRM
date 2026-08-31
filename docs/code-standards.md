@@ -39,12 +39,12 @@ if (!account) {
 
 ---
 
-## 4. Chuẩn Mực Frontend (Vue 3 + Vuetify 3)
+## 4. Chuẩn Mực Frontend (Vue 3 + Vuetify 4)
 
 ### 4.1. Vue 3 Standard
 - Bắt buộc dùng **Composition API** với cú pháp `<script setup lang="ts">`.
 - Tránh mutate trực tiếp state từ ngoài Pinia store.
-- Sử dụng Vuetify 3 grid system (`v-container`, `v-row`, `v-col`) thay vì viết CSS layout tĩnh với pixel cố định (`width: 350px`).
+- Sử dụng Vuetify 4 grid system (`v-container`, `v-row`, `v-col`) thay vì viết CSS layout tĩnh với pixel cố định (`width: 350px`).
 
 ### 4.2. Quản lý State với Pinia
 - Các store nằm tại `src/stores/<feature>-store.ts`.
@@ -81,3 +81,44 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 1. **Không Hardcode Secrets:** Không commit token, mật khẩu, JWT secret hoặc private key lên repository.
 2. **Xác thực Đầu vào:** Kiểm tra và làm sạch dữ liệu đầu vào (Input Sanitization) phòng chống XSS và SQL Injection.
 3. **Mã hóa dữ liệu nhạy cảm:** Mọi thông tin phiên Zalo phải đi qua hàm mã hóa AES-256 trước khi ghi vào cơ sở dữ liệu.
+
+### 7.1. Tenant, RBAC và ACL
+
+- Mọi route phải kiểm tra `orgId` tại điểm đọc và điểm ghi. Không dùng `update({ where: { id } })` hoặc `delete({ where: { id } })` nếu chưa chứng minh bản ghi thuộc tenant hiện tại.
+- Mọi foreign key do client gửi (`contactId`, `conversationId`, `assignedUserId`, `teamId`, `zaloAccountId`) phải được kiểm tra thuộc cùng organization trước khi ghi.
+- Quyền `owner`, `admin`, `member` và `ZaloAccountAccess` phải được thực thi ở backend cho REST lẫn Socket.IO. Ẩn menu ở frontend chỉ là UX, không phải kiểm soát truy cập.
+- Token của người dùng bị khóa, đổi mật khẩu hoặc hạ quyền phải bị thu hồi hoặc được đối chiếu trạng thái hiện tại ở server.
+
+### 7.2. Secret và outbound request
+
+- API key, webhook secret và mật khẩu SMTP phải lưu mã hóa; không dùng `valuePlain` cho credential có thể tái sử dụng.
+- URL webhook/attachment là dữ liệu không tin cậy. Chỉ cho phép host tin cậy hoặc phải chặn loopback, private, link-local, metadata IP cho cả IPv4/IPv6 sau DNS resolution và sau mỗi redirect.
+- Downloader phải giới hạn byte trong lúc stream, không đọc toàn bộ response không giới hạn vào RAM. Parser cần giới hạn trang, sheet, cell và thời gian xử lý.
+
+---
+
+## 8. API Validation & Reliability
+
+- Mọi route khai báo Fastify JSON Schema cho `body`, `params`, `querystring` và response quan trọng.
+- Pagination phải ép `page >= 1`, `1 <= limit <= 100`; date range, số group và kích thước payload phải có trần.
+- Liveness và readiness tách biệt. Readiness phải trả HTTP `503` khi database hoặc dependency bắt buộc không sẵn sàng.
+- Không tiếp tục chạy sau `uncaughtException` trong trạng thái không xác định. Thực hiện graceful shutdown cho HTTP, Socket.IO, Prisma, cron và Zalo listeners.
+
+---
+
+## 9. Quality Gates
+
+Trước merge hoặc release, tối thiểu phải chạy trên clean install:
+
+```bash
+npm ci
+npm run typecheck
+npm run build
+npm test
+npm run lint
+npm audit --workspaces --include-workspace-root
+```
+
+- Lockfile dùng trong Docker phải đồng bộ với manifest tương ứng.
+- Thay đổi auth, tenant boundary, webhook, file parser và message ingestion bắt buộc có test regression.
+- CI phải chặn merge khi test, lint, typecheck, build hoặc dependency audit vượt ngưỡng đã chấp nhận.

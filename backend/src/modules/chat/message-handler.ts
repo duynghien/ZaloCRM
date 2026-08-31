@@ -6,6 +6,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
+import { downloadAttachment } from '../attachments/attachment-downloader.js';
+import { extractAttachmentContent } from '../attachments/attachment-parser.js';
 
 export interface IncomingMessage {
   accountId: string;
@@ -75,6 +77,13 @@ export async function handleIncomingMessage(
     });
 
     await updateConversationAfterMessage(conversation.id, sentAt, msg.isSelf);
+
+    // Process attachments asynchronously in the background (fire-and-forget)
+    if (msg.attachments && msg.attachments.length > 0) {
+      processMessageAttachmentsAsync(message.id, msg.attachments).catch((err) => {
+        logger.warn(`[message-handler] Failed to process attachments for message ${message.id}:`, err);
+      });
+    }
 
     // Track first outbound contact date — set once when agent sends first message
     if (msg.isSelf && contactId) {
@@ -228,3 +237,68 @@ export async function handleMessageUndo(accountId: string, zaloMsgId: string): P
     logger.error('[message-handler] handleMessageUndo error:', err);
   }
 }
+
+/**
+ * Asynchronously download and extract text/tables from message attachments.
+ */
+export async function processMessageAttachmentsAsync(
+  messageId: string,
+  attachments: any[],
+): Promise<void> {
+  if (!attachments || attachments.length === 0) return;
+
+  const updatedAttachments: any[] = [];
+
+  for (const att of attachments) {
+    let localPath = att.localPath;
+    let filename = att.filename;
+    let extractedText = att.extractedText;
+    let isScanned = att.isScanned;
+    let sheetNames = att.sheetNames;
+
+    if (att.url && !localPath) {
+      const downloadRes = await downloadAttachment(att.url, {
+        originalFilename: att.title || att.name,
+      });
+      if (downloadRes) {
+        localPath = downloadRes.localPath;
+        filename = downloadRes.filename;
+
+        const parseRes = await extractAttachmentContent({
+          filename: downloadRes.originalName,
+          localPath: downloadRes.localPath,
+          mimeType: downloadRes.mimeType,
+          buffer: downloadRes.buffer,
+        });
+
+        extractedText = parseRes.text;
+        isScanned = parseRes.isScanned;
+        sheetNames = parseRes.sheetNames;
+      }
+    } else if (localPath && !extractedText) {
+      const parseRes = await extractAttachmentContent({
+        filename: att.title || filename,
+        localPath,
+        mimeType: att.mimeType,
+      });
+      extractedText = parseRes.text;
+      isScanned = parseRes.isScanned;
+      sheetNames = parseRes.sheetNames;
+    }
+
+    updatedAttachments.push({
+      ...att,
+      localPath,
+      filename,
+      extractedText,
+      isScanned,
+      sheetNames,
+    });
+  }
+
+  await prisma.message.update({
+    where: { id: messageId },
+    data: { attachments: updatedAttachments },
+  });
+}
+

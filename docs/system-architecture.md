@@ -34,8 +34,8 @@ graph TD
 
 ## 2. Các Thành Phần Chính (Core Components)
 
-### 2.1. Web Frontend Layer (Vue 3 + Vuetify 3)
-- **Công nghệ:** Vue 3 (Composition API, `<script setup>`), Vuetify 3 UI Framework, Pinia State Management, Vue Router, Chart.js, Socket.IO Client.
+### 2.1. Web Frontend Layer (Vue 3 + Vuetify 4)
+- **Công nghệ:** Vue 3 (Composition API, `<script setup>`), Vuetify 4 UI Framework, Pinia State Management, Vue Router, Chart.js, Socket.IO Client.
 - **Vai trò:** Hiển thị giao diện người dùng, quản lý trạng thái client, nhận sự kiện real-time (tin nhắn mới, cập nhật danh bạ, trạng thái Zalo) để cập nhật DOM tức thì mà không cần reload trang.
 
 ### 2.2. API & WebSocket Server (Fastify + Socket.IO)
@@ -84,6 +84,12 @@ sequenceDiagram
 
 ## 4. Bảo Mật Kiến Trúc (Security Architecture)
 
-- **Cô Lập Mạng (Network Isolation):** Container ứng dụng Fastify chỉ lắng nghe kết nối nội bộ (`127.0.0.1:3080`). Chỉ Nginx Reverse Proxy được tiếp nhận lưu lượng mạng công cộng qua cổng 80/443.
-- **Bảo Mật Quyền Truy Cập (Multi-Tenant Isolation):** Mọi truy vấn database đều bắt buộc lọc theo `orgId` của người dùng đã xác thực JWT (`request.user.orgId`).
-- **Kiểm Soát Quyền Truy Cập Zalo (ACL):** Bảng `zalo_account_access` quản lý chính xác người dùng nào (`userId`) có quyền tương tác với tài khoản Zalo nào (`zaloAccountId`).
+- **Cô Lập Mạng (Network Isolation):** Fastify lắng nghe trong container; Docker chỉ publish cổng ứng dụng và PostgreSQL lên loopback của host. Nginx/Cloudflare Tunnel là lớp tiếp nhận traffic public.
+- **Bảo Mật Quyền Truy Cập (Multi-Tenant Isolation):** Invariant bắt buộc là mọi truy vấn đọc/ghi phải lọc theo `request.user.orgId` hoặc `orgId` suy ra từ API key đã xác thực.
+- **Kiểm Soát Quyền Truy Cập Zalo (ACL):** Bảng `zalo_account_access` là nguồn quyền cho member trên REST và Socket.IO; owner/admin có thể bypass trong phạm vi organization của mình.
+- **Contact Visibility:** Mọi role trong cùng organization được xem contact. `assignedUserId` phục vụ phân công/KPI, không phải ranh giới đọc dữ liệu.
+- **AI Reports:** Mọi role được sử dụng; member bị giới hạn theo Zalo account ACL, còn owner/admin có phạm vi toàn organization và quản lý cấu hình SMTP/automation.
+
+### 4.1. Trạng thái kiểm chứng ngày 2026-08-31
+
+Các invariant trên là thiết kế đích, chưa được thực thi nhất quán. Audit hiện tại xác nhận còn thiếu tenant/RBAC/ACL ở một số route Orders, Zalo, Chat, AI Reports và account-room subscription của Socket.IO. Webhook/attachment downloader cũng chưa có SSRF guard hoàn chỉnh. Không coi hệ thống là production-hardened cho đến khi các release blocker trong roadmap được đóng bằng regression test.

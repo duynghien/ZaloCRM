@@ -40,7 +40,7 @@ Giao diện **ZaloCRM** được thiết kế dựa trên ngôn ngữ thiết k�
 ## 4. Quy Chuẩn Component & Layout
 
 ### 4.1. Cấu trúc Layout Linh hoạt (Fluid Responsive Layout)
-- **Breakpoints (Vuetify 3):**
+- **Breakpoints (Vuetify 4):**
   - `xs (< 600px)`: Màn hình điện thoại (Ẩn sidebar, hiển thị full-screen chat/contacts).
   - `sm (600px - 960px)`: Màn hình máy tính bảng (Sidebar rút gọn biểu tượng).
   - `md+ (> 960px)`: Màn hình máy tính để bàn (Giao diện 3 cột: Navigation - List - Detail).

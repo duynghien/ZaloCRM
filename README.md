@@ -13,7 +13,7 @@ Mã nguồn dự án được chuẩn hóa hệ thống tài liệu tại thư m
 - **[Deployment & Operations Guide](./docs/deployment-guide.md)** — Hướng dẫn triển khai Production Docker, Nginx SSL, Cloudflare & Backup.
 - **[Coding Standards & Guidelines](./docs/code-standards.md)** — Quy chuẩn lập trình TypeScript, Fastify, Vue 3 & Bảo mật.
 - **[Codebase Summary](./docs/codebase-summary.md)** — Tổng hợp cấu trúc thư mục, danh sách API Endpoints & DB Schema.
-- **[Design Guidelines](./docs/design-guidelines.md)** — Quy chuẩn thiết kế UI/UX (Liquid Silicon Design System, Vuetify 3).
+- **[Design Guidelines](./docs/design-guidelines.md)** — Quy chuẩn thiết kế UI/UX (Liquid Silicon Design System, Vuetify 4).
 - **[Product Roadmap](./docs/project-roadmap.md)** — Lộ trình phát triển tính năng, kiểm thử tự động & tích hợp AI Assistant.
 
 > 📖 **Hướng dẫn dành cho người dùng:** [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md) | [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md)
@@ -54,11 +54,14 @@ npm run docker:dev  # Khởi chạy Docker môi trường Development (Hot Reloa
 | Thành phần | Công nghệ |
 |-----------|----------|
 | **Backend** | Node.js 20 / Fastify 5 / Prisma 7 / TypeScript |
-| **Frontend** | Vue 3 / Vuetify 3 / Chart.js / Pinia |
+| **Frontend** | Vue 3 / Vuetify 4 / Chart.js / Pinia |
 | **Cơ sở dữ liệu** | PostgreSQL 16 |
 | **Real-time** | Socket.IO |
 | **Zalo Engine** | zca-js 2.x |
 | **Triển khai** | Docker Compose / Nginx |
+
+> [!WARNING]
+> Image production hiện vẫn dùng Node.js 20, nhánh đã hết vòng đời hỗ trợ. Trước lần phát hành production tiếp theo, nâng lên Node.js LTS còn được hỗ trợ và xử lý các release blocker trong [Product Roadmap](./docs/project-roadmap.md).
 
 ---
 

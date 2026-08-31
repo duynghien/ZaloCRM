@@ -7,3 +7,4 @@ backups/
 .claude/
 .agentkit/
 release-manifest.json
+plans/

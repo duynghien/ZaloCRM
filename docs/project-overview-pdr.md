@@ -45,7 +45,8 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn và dễ triển khai n
 - **Vai trò người dùng:**
   - `Owner`: Quyền cao nhất, quản lý thanh toán, tổ chức và toàn bộ hệ thống.
   - `Admin`: Quản lý nhân sự, danh mục, cấu hình Zalo và báo cáo.
-  - `Member`: Chỉ truy cập các tài khoản Zalo và danh sách khách hàng được phân quyền (`ZaloAccountAccess`).
+  - `Member`: Xem toàn bộ contact trong organization; chỉ truy cập hội thoại và tài khoản Zalo được cấp qua `ZaloAccountAccess`.
+- **AI Reports:** Cả `owner`, `admin` và `member` đều được sử dụng. Owner/admin có phạm vi toàn organization; member chỉ đọc/generate/resend dữ liệu từ Zalo account nằm trong ACL của mình. Cấu hình cấp organization như SMTP và lịch tự động chỉ owner/admin được thay đổi.
 
 ### 3.6. Phân hệ Tích hợp API & Webhook
 - **Public REST API:** Cung cấp các endpoint RESTful được xác thực bằng `X-API-Key` cho phép hệ thống bên ngoài tạo/lấy danh sách khách hàng, lịch hẹn, gửi tin nhắn.

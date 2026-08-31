@@ -23,6 +23,8 @@ model Organization {
   dailyStats    DailyMessageStat[]
   settings      AppSetting[]
   orders        Order[]
+  groupReportConfigs GroupReportConfig[]
+  generatedReports   GeneratedReport[]
 
   @@map("organizations")
 }
@@ -62,6 +64,7 @@ model User {
   repliedMessages  Message[]           @relation("RepliedMessages")
   activityLogs     ActivityLog[]
   createdOrders    Order[]             @relation("CreatedOrders")
+  createdReports   GeneratedReport[]   @relation("CreatedReports")
 
   @@map("users")
 }
@@ -275,3 +278,47 @@ model Order {
 
   @@map("orders")
 }
+
+// Configuration for which Zalo groups to monitor for AI Digest
+model GroupReportConfig {
+  id            String   @id @default(uuid())
+  orgId         String   @map("org_id")
+  groupThreadId String   @map("group_thread_id")
+  groupName     String?  @map("group_name")
+  zaloAccountId String?  @map("zalo_account_id")
+  isEnabled     Boolean  @default(true) @map("is_enabled")
+  customPrompt  String?  @map("custom_prompt")
+  focusKeywords Json     @default("[]") @map("focus_keywords")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, groupThreadId])
+  @@map("group_report_configs")
+}
+
+// Generated AI executive reports / digests
+model GeneratedReport {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  createdById    String?  @map("created_by_id")
+  title          String
+  reportType     String   @default("on_demand") // daily, weekly, on_demand
+  periodFrom     DateTime @map("period_from")
+  periodTo       DateTime @map("period_to")
+  groupThreadIds Json     @default("[]") @map("group_thread_ids")
+  summaryContent String   @map("summary_content") @db.Text
+  structuredData Json     @default("{}") @map("structured_data")
+  sentZalo       Boolean  @default(false) @map("sent_zalo")
+  sentEmail      Boolean  @default(false) @map("sent_email")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("CreatedReports", fields: [createdById], references: [id])
+
+  @@index([orgId, createdAt])
+  @@map("generated_reports")
+}
+

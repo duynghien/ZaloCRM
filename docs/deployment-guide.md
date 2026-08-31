@@ -73,6 +73,7 @@ Cả 3 dịch vụ `zalo-crm-app`, `zalo-crm-db`, `zalo-crm-backup` phải ở t
 
 ### 3.1. Đồng bộ Schema (Database Schema Sync)
 - **Mặc định khi chạy Docker:** Dockerfile tự động chạy `npx prisma db push` để tạo cấu trúc bảng từ `schema.prisma` một cách nhanh chóng và tự động.
+- **Cảnh báo production:** Đây là hành vi hiện tại, không phải quy trình release được chấp nhận. Repository chưa có lịch sử migration; cần tạo migration đã review và đổi entrypoint sang `prisma migrate deploy` trước production rollout tiếp theo.
 - **Enterprise Migration (Quản lý phiên bản Schema):**
   ```bash
   # Áp dụng các migration đã kiểm duyệt
@@ -187,3 +188,13 @@ cat backup-manual-20260813.sql | docker exec -i zalo-crm-db psql -U crmuser zalo
 - [x] Chạy container ứng dụng dưới tài khoản phi đặc quyền `USER node`.
 - [x] Không lưu trữ mật khẩu DB hoặc Secret key mặc định trong phiên bản production.
 - [x] Kích hoạt tường lửa UFW chỉ mở cổng `80`, `443`, `22` (SSH).
+- [ ] Nâng image khỏi Node.js 20 đã EOL lên Node.js LTS còn được hỗ trợ.
+- [ ] Thêm `.dockerignore`; không gửi `.env`, `.git`, `node_modules`, backup và build artifact vào Docker context.
+- [ ] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
+- [ ] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
+- [ ] Chặn SSRF cho webhook/attachment URL, gồm DNS, IPv6 và redirect chain.
+- [ ] Mã hóa API key, webhook secret và SMTP password ở database/backups.
+- [ ] Đóng toàn bộ finding high/moderate được chấp nhận từ dependency audit.
+
+> [!CAUTION]
+> Checklist chưa hoàn tất đồng nghĩa bản hiện tại chưa đạt production security baseline, dù container đã chạy bằng `USER node` và chỉ publish port lên loopback.

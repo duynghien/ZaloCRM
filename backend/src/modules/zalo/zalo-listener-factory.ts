@@ -119,6 +119,38 @@ export function attachZaloListener(ctx: ListenerContext): void {
       }
 
       const rawContent = message.data?.content;
+      let parsedContentObj: any = null;
+      if (typeof rawContent === 'object' && rawContent !== null) {
+        parsedContentObj = rawContent;
+      } else if (typeof rawContent === 'string' && (rawContent.startsWith('{') || rawContent.startsWith('['))) {
+        try {
+          parsedContentObj = JSON.parse(rawContent);
+        } catch {}
+      }
+
+      const attachments: any[] = [];
+      const fileUrl =
+        parsedContentObj?.href ||
+        parsedContentObj?.url ||
+        parsedContentObj?.fileUrl ||
+        message.data?.url ||
+        message.data?.href;
+
+      if (fileUrl) {
+        attachments.push({
+          url: fileUrl,
+          title: parsedContentObj?.title || parsedContentObj?.name || message.data?.title || '',
+          thumb: parsedContentObj?.thumb || message.data?.thumb || '',
+          size: parsedContentObj?.size || message.data?.size,
+          extension: parsedContentObj?.extension || '',
+          msgType: message.data?.msgType,
+        });
+      }
+
+      if (Array.isArray(message.data?.attachments)) {
+        attachments.push(...message.data.attachments);
+      }
+
       const content =
         typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
       const contentType = detectContentType(message.data?.msgType, rawContent);
@@ -135,7 +167,7 @@ export function attachZaloListener(ctx: ListenerContext): void {
         threadId: message.threadId || '',
         threadType: isGroup ? 'group' : 'user',
         groupName,
-        attachments: [],
+        attachments,
       });
 
       if (result) {

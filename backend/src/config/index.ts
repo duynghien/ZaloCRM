@@ -33,5 +33,6 @@ export const config = {
   databaseUrl: process.env.DATABASE_URL || 'postgresql://crmuser:password@localhost:5432/zalocrm',
   uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
   appUrl: process.env.APP_URL || 'http://localhost:3000',
+  geminiApiKey: process.env.GEMINI_API_KEY || '',
   isProduction,
 };

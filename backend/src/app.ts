@@ -37,6 +37,9 @@ import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
+import { orderRoutes } from './modules/orders/order-routes.js';
+import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
+import { startReportCronJobs } from './modules/ai-reports/report-cron.js';
 import { decryptData } from './shared/utils/crypto.js';
 import type { JwtPayload } from './modules/auth/auth-service.js';
 
@@ -143,6 +146,7 @@ async function bootstrap() {
   await app.register(publicApiRoutes);
   await app.register(webhookSettingsRoutes);
   await app.register(orderRoutes);
+  await app.register(aiReportRoutes);
 
   // Liveness/readiness probe — also checks DB connectivity
   app.get('/health', async () => {
@@ -186,6 +190,7 @@ async function bootstrap() {
     logger.info(`Environment: ${config.nodeEnv}`);
     startAppointmentReminder(io);
     startZaloHealthCheck();
+    startReportCronJobs();
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

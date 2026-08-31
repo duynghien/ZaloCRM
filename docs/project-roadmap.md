@@ -40,17 +40,23 @@ gantt
 ---
 
 ### Phase 4: Hardening Bảo Mật & Chuẩn Hóa Quy Trình Build (ĐANG THỰC HIỆN)
-- [x] Audit toàn bộ mã nguồn và khởi tạo bộ tài liệu kỹ thuật chuẩn tại `./docs/`.
+- [ ] Đóng các finding từ audit toàn bộ codebase ngày 2026-08-31; scan và báo cáo đã hoàn tất, remediation chưa thực hiện.
 - [x] Đồng bộ các lệnh build, dev, typecheck thông qua file `package.json` tại root repository.
+- [ ] Sửa tenant/RBAC/ACL ở Orders, Zalo, Chat, Socket.IO và AI Reports; member vẫn xem toàn bộ contact nhưng dữ liệu Zalo/AI phải theo account ACL.
+- [ ] Chặn SSRF ở webhook/attachment downloader và giới hạn tài nguyên parser/download stream.
+- [ ] Chuẩn hóa một root workspace `package-lock.json`; bỏ dependency vào lockfile backend/frontend riêng và dùng cùng graph trong Docker/CI.
+- [ ] Nâng Node.js 20 đã EOL; cập nhật dependency có advisory high/moderate đã xác nhận.
+- [ ] Chuyển AI Reports khỏi model `gemini-2.0-flash` đã shutdown sang model được hỗ trợ, kèm test cấu hình.
 - [ ] Chuyển đổi quy trình Docker Production sang `prisma migrate deploy` nâng cao tính toàn vẹn dữ liệu.
-- [ ] Áp dụng tài khoản phi đặc quyền `USER node` trong container ứng dụng.
+- [x] Áp dụng tài khoản phi đặc quyền `USER node` trong container ứng dụng.
 
 ---
 
 ### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (KẾ HOẠCH BẮT ĐẦU 09/2026)
 - [ ] Bổ sung kịch bản Unit Test cho Backend (Fastify routes & services) sử dụng Vitest.
+- [ ] Bổ sung integration test cho tenant isolation, role downgrade/deactivation, Zalo ACL, Socket.IO room authorization, webhook và message idempotency.
 - [ ] Bổ sung End-to-End Test cho Frontend sử dụng Playwright.
-- [ ] Tích hợp GitHub Actions Workflows (`.github/workflows/ci.yml`) tự động lint, typecheck, test và build Docker image mỗi khi push code lên nhánh `main`.
+- [ ] Tích hợp GitHub Actions Workflows (`.github/workflows/ci.yml`) chạy clean install, lint, typecheck, test, dependency audit và build Docker image mỗi khi push code lên nhánh `main`.
 
 ---
 
