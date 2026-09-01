@@ -1,0 +1,28 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Dependency trees and generated output
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Runtime data and local backups
+uploads/
+backups/
+*.log
+logs/
+
+# Repository, planning, and local agent/editor state
+.git/
+.github/
+.claude/
+.codex/
+.agents/
+plans/
+reports/
+.vscode/
+.idea/
+.DS_Store

@@ -112,6 +112,7 @@ Trước merge hoặc release, tối thiểu phải chạy trên clean install:
 
 ```bash
 npm ci
+npm run prisma:generate
 npm run typecheck
 npm run build
 npm test

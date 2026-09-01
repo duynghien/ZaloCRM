@@ -72,16 +72,17 @@ Cả 3 dịch vụ `zalo-crm-app`, `zalo-crm-db`, `zalo-crm-backup` phải ở t
 ## 3. Quản Lý Cơ Sở Dữ Liệu & Khởi Tạo Dữ Liệu (Database Setup & Seeding)
 
 ### 3.1. Đồng bộ Schema (Database Schema Sync)
-- **Mặc định khi chạy Docker:** Dockerfile tự động chạy `npx prisma db push` để tạo cấu trúc bảng từ `schema.prisma` một cách nhanh chóng và tự động.
-- **Cảnh báo production:** Đây là hành vi hiện tại, không phải quy trình release được chấp nhận. Repository chưa có lịch sử migration; cần tạo migration đã review và đổi entrypoint sang `prisma migrate deploy` trước production rollout tiếp theo.
-- **Enterprise Migration (Quản lý phiên bản Schema):**
+- **Production:** Dockerfile chạy `npx prisma migrate deploy --config prisma.config.ts` trước khi khởi động ứng dụng. Nếu migration thất bại, container không được chạy app; không có fallback `prisma db push`.
+- **Database trống:** `migrate deploy` áp dụng toàn bộ migration theo thứ tự.
+- **Database có từ trước migration:** bắt buộc backup và rehearsal restore trước. Sau đó chỉ đánh dấu baseline đã review là applied, rồi mới deploy phần migration còn lại:
   ```bash
-  # Áp dụng các migration đã kiểm duyệt
-  docker exec -it zalo-crm-app npx prisma migrate deploy
+  docker exec -it zalo-crm-app npx prisma migrate resolve \
+    --config prisma.config.ts --applied 00000000000000_baseline
 
-  # Kiểm tra trạng thái migration
-  docker exec -it zalo-crm-app npx prisma migrate status
+  docker exec -it zalo-crm-app npx prisma migrate deploy --config prisma.config.ts
+  docker exec -it zalo-crm-app npx prisma migrate status --config prisma.config.ts
   ```
+- Không đánh dấu migration nếu schema fingerprint của bản restore rehearsal không khớp database nguồn; khôi phục từ backup thay vì chạy `db push` để sửa rollout lỗi.
 
 ### 3.2. Khởi tạo Dữ liệu Mẫu (Database Seeding)
 Nếu muốn khởi tạo Tổ chức mặc định và tài khoản Admin mẫu, chạy lệnh:
@@ -189,9 +190,9 @@ cat backup-manual-20260813.sql | docker exec -i zalo-crm-db psql -U crmuser zalo
 - [x] Không lưu trữ mật khẩu DB hoặc Secret key mặc định trong phiên bản production.
 - [x] Kích hoạt tường lửa UFW chỉ mở cổng `80`, `443`, `22` (SSH).
 - [ ] Nâng image khỏi Node.js 20 đã EOL lên Node.js LTS còn được hỗ trợ.
-- [ ] Thêm `.dockerignore`; không gửi `.env`, `.git`, `node_modules`, backup và build artifact vào Docker context.
-- [ ] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
-- [ ] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
+- [x] Thêm `.dockerignore`; không gửi `.env`, `.git`, `node_modules`, backup và build artifact vào Docker context.
+- [x] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
+- [x] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
 - [ ] Chặn SSRF cho webhook/attachment URL, gồm DNS, IPv6 và redirect chain.
 - [ ] Mã hóa API key, webhook secret và SMTP password ở database/backups.
 - [ ] Đóng toàn bộ finding high/moderate được chấp nhận từ dependency audit.

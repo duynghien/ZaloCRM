@@ -9,6 +9,8 @@
     "frontend"
   ],
   "scripts": {
+    "prepare": "npm run prisma:generate",
+    "prisma:generate": "npm run prisma:generate --workspace=backend",
     "dev:backend": "npm run dev --prefix backend",
     "dev:frontend": "npm run dev --prefix frontend",
     "dev": "npm run dev:backend & npm run dev:frontend",
