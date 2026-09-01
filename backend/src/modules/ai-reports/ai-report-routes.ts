@@ -10,6 +10,7 @@ import { sendReportToZalo } from './zalo-report-sender.js';
 import { sendReportEmail, getOrgSmtpConfig, type SmtpConfig } from './email-service.js';
 import { getOrgAutomationSettings, type AutomationSettings } from './report-cron.js';
 import { logger } from '../../shared/utils/logger.js';
+import { requireRole } from '../auth/role-middleware.js';
 
 interface GenerateBody {
   from_date: string;
@@ -45,6 +46,95 @@ interface UpdateSettingsBody {
   smtp?: Partial<SmtpConfig>;
 }
 
+type CurrentUser = NonNullable<FastifyRequest['user']>;
+type AccountPermission = 'read' | 'chat' | 'admin';
+
+const accountPermissionRank: Record<AccountPermission, number> = {
+  read: 1,
+  chat: 2,
+  admin: 3,
+};
+
+function isOrganizationAdministrator(user: CurrentUser): boolean {
+  return user.role === 'owner' || user.role === 'admin';
+}
+
+function groupThreadIdsFromReport(report: { groupThreadIds: unknown }): string[] {
+  if (!Array.isArray(report.groupThreadIds)) return [];
+  return report.groupThreadIds.filter((value): value is string => typeof value === 'string');
+}
+
+/**
+ * A group-thread id is only safe for a member when every matching group
+ * conversation belongs to an account explicitly assigned to that member.
+ * Treating ambiguous/reused external thread ids as inaccessible avoids using a
+ * report config or archive entry to cross an account boundary.
+ */
+async function accessibleGroupThreadIds(
+  user: CurrentUser,
+  requestedIds?: string[],
+  requiredPermission: AccountPermission = 'read',
+) {
+  const requested = requestedIds && requestedIds.length > 0 ? [...new Set(requestedIds)] : undefined;
+  const conversations = await prisma.conversation.findMany({
+    where: {
+      orgId: user.orgId,
+      threadType: 'group',
+      externalThreadId: requested ? { in: requested } : { not: null },
+    },
+    select: { externalThreadId: true, zaloAccountId: true },
+  });
+
+  const accountsByThread = new Map<string, Set<string>>();
+  for (const conversation of conversations) {
+    if (!conversation.externalThreadId) continue;
+    const accountIds = accountsByThread.get(conversation.externalThreadId) ?? new Set<string>();
+    if (conversation.zaloAccountId) {
+      accountIds.add(conversation.zaloAccountId);
+    }
+    accountsByThread.set(conversation.externalThreadId, accountIds);
+  }
+
+  if (isOrganizationAdministrator(user)) {
+    return {
+      allowed: requested ? requested.every((id) => accountsByThread.has(id)) : true,
+      ids: requested ?? [...accountsByThread.keys()],
+      accountsByThread,
+    };
+  }
+
+  const grants = await prisma.zaloAccountAccess.findMany({
+    where: { userId: user.id },
+    select: { zaloAccountId: true, permission: true },
+  });
+  const permissionByAccountId = new Map(grants.map((grant) => [grant.zaloAccountId, grant.permission]));
+  const ids = [...accountsByThread.entries()]
+    .filter(([, accountIds]) => accountIds.size > 0 && [...accountIds].every((id) => {
+      const permission = permissionByAccountId.get(id) as AccountPermission | undefined;
+      return permission !== undefined && accountPermissionRank[permission] >= accountPermissionRank[requiredPermission];
+    }))
+    .map(([threadId]) => threadId);
+  const allowedIds = new Set(ids);
+
+  return {
+    allowed: requested ? requested.every((id) => allowedIds.has(id)) : true,
+    ids,
+    accountsByThread,
+  };
+}
+
+async function canAccessReport(
+  user: CurrentUser,
+  report: { groupThreadIds: unknown },
+  requiredPermission: AccountPermission = 'read',
+): Promise<boolean> {
+  if (isOrganizationAdministrator(user)) return true;
+  const groupThreadIds = groupThreadIdsFromReport(report);
+  if (groupThreadIds.length === 0) return false;
+  const access = await accessibleGroupThreadIds(user, groupThreadIds, requiredPermission);
+  return access.allowed;
+}
+
 export async function aiReportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
 
@@ -65,6 +155,8 @@ export async function aiReportRoutes(app: FastifyInstance) {
       },
       orderBy: { lastMessageAt: 'desc' },
     });
+    const groupAccess = await accessibleGroupThreadIds(user);
+    const accessibleGroupThreadIdSet = new Set(groupAccess.ids);
 
     const configs = await prisma.groupReportConfig.findMany({
       where: { orgId: user.orgId },
@@ -72,7 +164,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
 
     const configMap = new Map(configs.map((c) => [c.groupThreadId, c]));
 
-    const groups = groupConvs.map((conv) => {
+    const groups = groupConvs.filter((conv) => accessibleGroupThreadIdSet.has(conv.externalThreadId!)).map((conv) => {
       const threadId = conv.externalThreadId!;
       const config = configMap.get(threadId);
 
@@ -97,11 +189,15 @@ export async function aiReportRoutes(app: FastifyInstance) {
   // ── 2. List all Group Report Configurations ─────────────────────────────────
   app.get('/api/v1/ai-reports/configs', async (request: FastifyRequest) => {
     const user = request.user!;
-    const configs = await prisma.groupReportConfig.findMany({
-      where: { orgId: user.orgId },
-      orderBy: { updatedAt: 'desc' },
-    });
-    return { configs };
+    const [configs, groupAccess] = await Promise.all([
+      prisma.groupReportConfig.findMany({
+        where: { orgId: user.orgId },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      accessibleGroupThreadIds(user),
+    ]);
+    const accessibleGroupThreadIdSet = new Set(groupAccess.ids);
+    return { configs: configs.filter((config) => accessibleGroupThreadIdSet.has(config.groupThreadId)) };
   });
 
   // ── 3. Upsert Group Report Configuration ────────────────────────────────────
@@ -114,6 +210,21 @@ export async function aiReportRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'groupThreadId is required' });
     }
 
+    const groupAccess = await accessibleGroupThreadIds(user, [groupThreadId], 'admin');
+    if (!groupAccess.allowed) {
+      return reply.status(404).send({ error: 'Group not found' });
+    }
+
+    const groupAccountIds = groupAccess.accountsByThread.get(groupThreadId)!;
+    const selectedZaloAccountId = body.zalo_account_id;
+    if (selectedZaloAccountId && !groupAccountIds.has(selectedZaloAccountId)) {
+      return reply.status(400).send({ error: 'zalo_account_id does not own this group' });
+    }
+    if (!selectedZaloAccountId && groupAccountIds.size !== 1) {
+      return reply.status(400).send({ error: 'zalo_account_id is required for an ambiguous group thread' });
+    }
+    const zaloAccountId = selectedZaloAccountId ?? [...groupAccountIds][0];
+
     const config = await prisma.groupReportConfig.upsert({
       where: {
         orgId_groupThreadId: {
@@ -125,14 +236,14 @@ export async function aiReportRoutes(app: FastifyInstance) {
         orgId: user.orgId,
         groupThreadId,
         groupName: body.group_name || null,
-        zaloAccountId: body.zalo_account_id || null,
+        zaloAccountId,
         isEnabled: body.is_enabled ?? true,
         customPrompt: body.custom_prompt || null,
         focusKeywords: body.focus_keywords ?? [],
       },
       update: {
         groupName: body.group_name !== undefined ? body.group_name : undefined,
-        zaloAccountId: body.zalo_account_id !== undefined ? body.zalo_account_id : undefined,
+        zaloAccountId,
         isEnabled: body.is_enabled !== undefined ? body.is_enabled : undefined,
         customPrompt: body.custom_prompt !== undefined ? body.custom_prompt : undefined,
         focusKeywords: body.focus_keywords !== undefined ? body.focus_keywords : undefined,
@@ -158,6 +269,15 @@ export async function aiReportRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'Invalid date format' });
     }
 
+    const requiredPermission: AccountPermission = body.send_zalo || body.send_email ? 'chat' : 'read';
+    const groupAccess = await accessibleGroupThreadIds(user, body.group_thread_ids, requiredPermission);
+    if (!groupAccess.allowed) {
+      return reply.status(404).send({ error: 'One or more groups were not found' });
+    }
+    if (groupAccess.ids.length === 0) {
+      return reply.status(403).send({ error: 'Không có nhóm Zalo được phân quyền để tạo báo cáo' });
+    }
+
     try {
       const { report, groupDigests } = await generateDigestReport({
         orgId: user.orgId,
@@ -165,7 +285,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
         reportType: body.report_type || 'on_demand',
         periodFrom,
         periodTo,
-        groupThreadIds: body.group_thread_ids,
+        groupThreadIds: body.group_thread_ids ?? groupAccess.ids,
         title: body.title,
       });
 
@@ -251,25 +371,31 @@ export async function aiReportRoutes(app: FastifyInstance) {
     const pageNum = Math.max(1, parseInt(page, 10));
     const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
 
-    const [reports, total] = await Promise.all([
+    const [allReports, total] = await Promise.all([
       prisma.generatedReport.findMany({
         where,
         include: {
           createdBy: { select: { id: true, fullName: true, email: true } },
         },
         orderBy: { createdAt: 'desc' },
-        skip: (pageNum - 1) * limitNum,
-        take: limitNum,
       }),
       prisma.generatedReport.count({ where }),
     ]);
 
+    const allowedReports = isOrganizationAdministrator(user)
+      ? allReports
+      : (await Promise.all(allReports.map(async (report) => ({ report, allowed: await canAccessReport(user, report) }))))
+        .filter(({ allowed }) => allowed)
+        .map(({ report }) => report);
+    const reports = allowedReports.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    const accessibleTotal = isOrganizationAdministrator(user) ? total : allowedReports.length;
+
     return {
       reports,
-      total,
+      total: accessibleTotal,
       page: pageNum,
       limit: limitNum,
-      totalPages: Math.ceil(total / limitNum),
+      totalPages: Math.ceil(accessibleTotal / limitNum),
     };
   });
 
@@ -288,6 +414,9 @@ export async function aiReportRoutes(app: FastifyInstance) {
     if (!report) {
       return reply.status(404).send({ error: 'Report not found' });
     }
+    if (!(await canAccessReport(user, report))) {
+      return reply.status(404).send({ error: 'Report not found' });
+    }
 
     return { report };
   });
@@ -303,6 +432,9 @@ export async function aiReportRoutes(app: FastifyInstance) {
     });
 
     if (!report) {
+      return reply.status(404).send({ error: 'Report not found' });
+    }
+    if (!(await canAccessReport(user, report, 'chat'))) {
       return reply.status(404).send({ error: 'Report not found' });
     }
 
@@ -352,7 +484,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
   });
 
   // ── 8. Get Automation & SMTP Settings ───────────────────────────────────────
-  app.get('/api/v1/ai-reports/settings', async (request: FastifyRequest) => {
+  app.get('/api/v1/ai-reports/settings', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest) => {
     const user = request.user!;
 
     const automation = await getOrgAutomationSettings(user.orgId);
@@ -377,7 +509,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
   });
 
   // ── 9. Update Automation & SMTP Settings ───────────────────────────────────
-  app.put('/api/v1/ai-reports/settings', async (request: FastifyRequest) => {
+  app.put('/api/v1/ai-reports/settings', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest) => {
     const user = request.user!;
     const body = (request.body || {}) as UpdateSettingsBody;
 

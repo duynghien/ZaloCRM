@@ -5,49 +5,31 @@
  */
 import type { FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
+import { resolveZaloAccountId } from './zalo-account-scope-resolver.js';
 
-type Permission = 'read' | 'chat' | 'admin';
+export type Permission = 'read' | 'chat' | 'admin';
 
 const hierarchy: Record<Permission, number> = { read: 1, chat: 2, admin: 3 };
+
+export async function hasZaloAccess(user: { id: string; orgId: string; role: string }, zaloAccountId: string, minPermission: Permission): Promise<boolean> {
+  const account = await prisma.zaloAccount.findFirst({ where: { id: zaloAccountId, orgId: user.orgId }, select: { id: true } });
+  if (!account) return false;
+  if (['owner', 'admin'].includes(user.role)) return true;
+  const access = await prisma.zaloAccountAccess.findFirst({ where: { zaloAccountId, userId: user.id }, select: { permission: true } });
+  return !!access && (hierarchy[access.permission as Permission] ?? 0) >= hierarchy[minPermission];
+}
 
 // Factory: returns a preHandler that checks the user has at least minPermission on the Zalo account
 export function requireZaloAccess(minPermission: Permission) {
   return async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
 
-    // Owner/admin bypass — full access to all accounts in their org
-    if (['owner', 'admin'].includes(user.role)) return;
-
-    const params = request.params as Record<string, string>;
-    let zaloAccountId = params.zaloAccountId || params.id;
-
-    // If accessing via conversation, look up the Zalo account from the conversation
-    if (params.id && !params.zaloAccountId) {
-      try {
-        const conv = await prisma.conversation.findFirst({
-          where: { id: params.id, orgId: user.orgId },
-          select: { zaloAccountId: true },
-        });
-        if (conv) zaloAccountId = conv.zaloAccountId;
-      } catch {
-        return reply.status(500).send({ error: 'Internal error checking access' });
-      }
-    }
-
+    const zaloAccountId = await resolveZaloAccountId(request);
     if (!zaloAccountId) return reply.status(404).send({ error: 'Not found' });
 
     try {
-      const access = await prisma.zaloAccountAccess.findFirst({
-        where: { zaloAccountId, userId: user.id },
-      });
-
-      if (!access) {
+      if (!(await hasZaloAccess(user, zaloAccountId, minPermission))) {
         return reply.status(403).send({ error: 'Không có quyền truy cập tài khoản Zalo này' });
-      }
-
-      const userLevel = hierarchy[access.permission as Permission] ?? 0;
-      if (userLevel < hierarchy[minPermission]) {
-        return reply.status(403).send({ error: 'Không đủ quyền' });
       }
     } catch {
       return reply.status(500).send({ error: 'Internal error checking access' });

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import { api } from '@/api/index';
+import { computed, ref } from 'vue';
+import { api, clearAccessToken, getAccessToken, refreshAccessToken, setAccessToken } from '@/api/index';
 
 interface User {
   id: string;
@@ -11,14 +11,35 @@ interface User {
   orgName: string;
 }
 
+interface SessionResponse {
+  token: string;
+  user: User | Partial<User>;
+}
+
+function toUser(data: any): User {
+  return {
+    id: data.id,
+    email: data.email,
+    fullName: data.fullName || data.full_name || '',
+    role: data.role,
+    orgId: data.orgId || data.org_id || '',
+    orgName: data.org?.name || data.orgName || '',
+  };
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
-  const token = ref(localStorage.getItem('token') || '');
   const needsSetup = ref(false);
-
+  const token = computed(() => getAccessToken());
   const isAuthenticated = computed(() => !!token.value && !!user.value);
   const isOwner = computed(() => user.value?.role === 'owner');
   const isAdmin = computed(() => ['owner', 'admin'].includes(user.value?.role || ''));
+  let initialization: Promise<boolean> | null = null;
+
+  function applySession(response: SessionResponse): void {
+    if (response.token) setAccessToken(response.token);
+    if (response.user) user.value = toUser(response.user);
+  }
 
   async function checkSetup() {
     const res = await api.get('/setup/status');
@@ -26,53 +47,88 @@ export const useAuthStore = defineStore('auth', () => {
     return res.data.needsSetup;
   }
 
+  async function fetchProfile() {
+    const res = await api.get('/profile');
+    user.value = toUser(res.data);
+    return user.value;
+  }
+
   async function setup(data: { orgName: string; fullName: string; email: string; password: string }) {
     const res = await api.post('/setup', data);
-    token.value = res.data.token;
-    user.value = res.data.user;
-    localStorage.setItem('token', res.data.token);
+    applySession(res.data);
+    await fetchProfile();
   }
 
   async function login(email: string, password: string) {
     const res = await api.post('/auth/login', { email, password });
-    token.value = res.data.token;
-    localStorage.setItem('token', res.data.token);
-    // Login response is partial — fetch full profile immediately
+    applySession(res.data);
     await fetchProfile();
   }
 
-  async function fetchProfile() {
+  async function bootstrapSession() {
     try {
-      const res = await api.get('/profile');
-      const d = res.data;
-      // Map API response to User interface (org.name → orgName)
-      user.value = {
-        id: d.id,
-        email: d.email,
-        fullName: d.fullName || d.full_name || '',
-        role: d.role,
-        orgId: d.orgId || d.org_id || '',
-        orgName: d.org?.name || d.orgName || '',
-      };
-    } catch (err: any) {
-      // Only logout on 401 (invalid token) — not on network errors
-      if (err?.response?.status === 401) {
-        logout();
+      const tokenValue = await refreshAccessToken();
+      if (!tokenValue) {
+        clearSession();
+        return false;
       }
+      await fetchProfile();
+      return true;
+    } catch {
+      // A network failure does not prove that the cookie-backed session ended.
+      return false;
     }
-  }
-
-  function logout() {
-    token.value = '';
-    user.value = null;
-    localStorage.removeItem('token');
   }
 
   async function init() {
-    if (token.value) {
-      await fetchProfile();
+    if (isAuthenticated.value) return true;
+    if (!initialization) {
+      initialization = (async () => {
+        if (getAccessToken()) {
+          try {
+            await fetchProfile();
+            return true;
+          } catch {
+            // Refresh/profile network errors leave the in-memory session intact.
+          }
+        }
+        return bootstrapSession();
+      })().finally(() => {
+        initialization = null;
+      });
+    }
+    return initialization;
+  }
+
+  async function logout() {
+    try {
+      if (getAccessToken()) {
+        await api.post('/auth/logout');
+      }
+    } catch {
+      // Best effort only. Session state is still cleared locally.
+    } finally {
+      clearSession();
     }
   }
 
-  return { user, token, needsSetup, isAuthenticated, isOwner, isAdmin, checkSetup, setup, login, fetchProfile, logout, init };
+  function clearSession() {
+    clearAccessToken();
+    user.value = null;
+  }
+
+  return {
+    user,
+    token,
+    needsSetup,
+    isAuthenticated,
+    isOwner,
+    isAdmin,
+    checkSetup,
+    setup,
+    login,
+    fetchProfile,
+    logout,
+    init,
+  };
 });

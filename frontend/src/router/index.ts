@@ -97,15 +97,13 @@ router.beforeEach(async (to, _from, next) => {
 
   // Check auth for protected routes
   if (to.meta.requiresAuth) {
-    if (!authStore.token) {
-      return next('/login');
-    }
-    // Fetch profile if not loaded yet
-    if (!authStore.user) {
+    // A reloaded SPA has no memory token. Bootstrap the HttpOnly refresh
+    // session before deciding whether this navigation is authenticated.
+    if (!authStore.isAuthenticated) {
       await authStore.init();
-      if (!authStore.isAuthenticated) {
-        return next('/login');
-      }
+    }
+    if (!authStore.isAuthenticated) {
+      return next('/login');
     }
   }
 

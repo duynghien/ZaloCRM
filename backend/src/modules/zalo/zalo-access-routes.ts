@@ -9,6 +9,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../../shared/utils/logger.js';
+import { pruneSocketsForZaloAccount } from './zalo-socket.js';
 
 const VALID_PERMISSIONS = ['read', 'chat', 'admin'] as const;
 type Permission = (typeof VALID_PERMISSIONS)[number];
@@ -17,7 +18,7 @@ export async function zaloAccessRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
 
   // GET /api/v1/zalo-accounts/:id/access — list users with access to this account
-  app.get('/api/v1/zalo-accounts/:id/access', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/zalo-accounts/:id/access', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
 
@@ -58,6 +59,7 @@ export async function zaloAccessRoutes(app: FastifyInstance): Promise<void> {
           data: { id: randomUUID(), zaloAccountId: id, userId, permission },
           include: { user: { select: { id: true, fullName: true, email: true } } },
         });
+        await pruneSocketsForZaloAccount(app.io, id);
         logger.info(`Zalo access granted: ${targetUser.email} → account ${id} (${permission}) by ${user.email}`);
         return reply.status(201).send(access);
       } catch {
@@ -89,6 +91,7 @@ export async function zaloAccessRoutes(app: FastifyInstance): Promise<void> {
           data: { permission },
           include: { user: { select: { id: true, fullName: true, email: true } } },
         });
+        await pruneSocketsForZaloAccount(app.io, id);
         logger.info(`Zalo access updated: accessId ${accessId} → ${permission} by ${user.email}`);
         return access;
       } catch {
@@ -110,6 +113,7 @@ export async function zaloAccessRoutes(app: FastifyInstance): Promise<void> {
 
       try {
         await prisma.zaloAccountAccess.delete({ where: { id: accessId, zaloAccountId: id } });
+        await pruneSocketsForZaloAccount(app.io, id);
         logger.info(`Zalo access revoked: accessId ${accessId} by ${user.email}`);
         return reply.status(204).send();
       } catch {

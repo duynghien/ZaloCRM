@@ -65,7 +65,7 @@ export async function chatRoutes(app: FastifyInstance) {
   });
 
   // ── Get single conversation ──────────────────────────────────────────────
-  app.get('/api/v1/conversations/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.get('/api/v1/conversations/:id', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
 
@@ -167,7 +167,7 @@ export async function chatRoutes(app: FastifyInstance) {
   });
 
   // ── Mark conversation as read ────────────────────────────────────────────
-  app.post('/api/v1/conversations/:id/mark-read', async (request: FastifyRequest, reply: FastifyReply) => {
+  app.post('/api/v1/conversations/:id/mark-read', { preHandler: requireZaloAccess('read') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
 

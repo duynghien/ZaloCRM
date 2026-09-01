@@ -6,6 +6,10 @@ import type { FastifyInstance } from 'fastify';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { zaloPool } from './zalo-pool.js';
 import { prisma } from '../../shared/database/prisma-client.js';
+import { requireRole } from '../auth/role-middleware.js';
+import { requireZaloAccess } from './zalo-access-middleware.js';
+import { decryptData } from '../../shared/utils/crypto.js';
+import { config } from '../../config/index.js';
 
 export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // All routes in this plugin require auth
@@ -15,7 +19,9 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/zalo-accounts', async (request) => {
     const user = request.user!;
     const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId },
+      where: user.role === 'member'
+        ? { orgId: user.orgId, access: { some: { userId: user.id } } }
+        : { orgId: user.orgId },
       select: {
         id: true,
         zaloUid: true,
@@ -40,7 +46,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/zalo-accounts — create a new account record
   app.post<{ Body: { displayName?: string } }>(
     '/api/v1/zalo-accounts',
-    async (request, reply) => {
+    { preHandler: requireRole('owner', 'admin') }, async (request, reply) => {
       const user = request.user!;
       const { displayName } = request.body ?? {};
 
@@ -60,7 +66,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/zalo-accounts/:id/login — initiate QR login
   app.post<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id/login',
-    async (request, reply) => {
+    { preHandler: requireZaloAccess('admin') }, async (request, reply) => {
       const { id } = request.params;
       const user = request.user!;
 
@@ -83,7 +89,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // POST /api/v1/zalo-accounts/:id/reconnect — force reconnect using saved session
   app.post<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id/reconnect',
-    async (request, reply) => {
+    { preHandler: requireZaloAccess('admin') }, async (request, reply) => {
       const { id } = request.params;
       const user = request.user!;
 
@@ -94,11 +100,11 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(404).send({ error: 'Account not found' });
       }
 
-      const session = account.sessionData as {
+      const session = decryptData<{
         cookie: any;
         imei: string;
         userAgent: string;
-      } | null;
+      }>(account.sessionData, config.encryptionKey);
 
       if (!session?.imei) {
         return reply.status(400).send({ error: 'No saved session — please login with QR first' });
@@ -114,7 +120,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // DELETE /api/v1/zalo-accounts/:id — disconnect and delete record
   app.delete<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id',
-    async (request, reply) => {
+    { preHandler: requireRole('owner', 'admin') }, async (request, reply) => {
       const { id } = request.params;
       const user = request.user!;
 
@@ -135,7 +141,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
   // GET /api/v1/zalo-accounts/:id/status — live status from pool
   app.get<{ Params: { id: string } }>(
     '/api/v1/zalo-accounts/:id/status',
-    async (request, reply) => {
+    { preHandler: requireZaloAccess('read') }, async (request, reply) => {
       const { id } = request.params;
       const user = request.user!;
 

@@ -1,5 +1,5 @@
-import { ref, computed } from 'vue';
-import { api } from '@/api/index';
+import { ref, computed, onUnmounted } from 'vue';
+import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
 import type { Contact } from '@/composables/use-contacts';
 
@@ -48,6 +48,8 @@ export function useChat() {
   const searchQuery = ref('');
   const accountFilter = ref<string | null>(null);
   let socket: Socket | null = null;
+  let socketRefreshAttempted = false;
+  let removeTokenListener: (() => void) | null = null;
 
   const selectedConv = computed(() =>
     conversations.value.find(c => c.id === selectedConvId.value) || null,
@@ -118,10 +120,47 @@ export function useChat() {
   }
 
   function initSocket() {
-    const token = localStorage.getItem('token');
+    if (socket) {
+      if (!socket.active && !socket.connected) socket.connect();
+      return;
+    }
+
     socket = io({
-      auth: { token },
+      auth: (callback) => callback({ token: getAccessToken() }),
       transports: ['websocket', 'polling'],
+      reconnection: false,
+    });
+
+    const onTokenChanged = (event: Event) => {
+      const nextToken = (event as CustomEvent<string>).detail || '';
+      if (!socket) return;
+      if (!nextToken) {
+        destroySocket();
+        return;
+      }
+      socket.auth = { token: nextToken };
+      socketRefreshAttempted = false;
+      if (socket.connected) {
+        socket.disconnect().connect();
+      } else {
+        socket.connect();
+      }
+    };
+    window.addEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
+    if (removeTokenListener) removeTokenListener();
+    removeTokenListener = () => window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
+
+    socket.on('connect_error', async (error) => {
+      const unauthorized = isSocketAuthenticationFailure(error.message);
+      if (!unauthorized || socketRefreshAttempted || !socket) return;
+
+      socketRefreshAttempted = true;
+      try {
+        await refreshAccessToken();
+        socket.connect();
+      } catch {
+        // The REST client redirects only after an explicit refresh 401/403.
+      }
     });
 
     socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
@@ -147,7 +186,16 @@ export function useChat() {
   function destroySocket() {
     socket?.disconnect();
     socket = null;
+    socketRefreshAttempted = false;
+    if (removeTokenListener) {
+      removeTokenListener();
+      removeTokenListener = null;
+    }
   }
+
+  onUnmounted(() => {
+    destroySocket();
+  });
 
   return {
     conversations,

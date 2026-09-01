@@ -5,6 +5,7 @@
  */
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
@@ -31,7 +32,7 @@ import { orgRoutes } from './modules/auth/org-routes.js';
 import { zaloAccessRoutes } from './modules/zalo/zalo-access-routes.js';
 import { zaloSyncRoutes } from './modules/zalo/zalo-sync-routes.js';
 import { zaloPool } from './modules/zalo/zalo-pool.js';
-import { registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
+import { pruneSocketAccountRooms, registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
 import { searchRoutes } from './modules/search/search-routes.js';
 import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
@@ -41,7 +42,13 @@ import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { startReportCronJobs } from './modules/ai-reports/report-cron.js';
 import { decryptData } from './shared/utils/crypto.js';
-import type { JwtPayload } from './modules/auth/auth-service.js';
+import { validateSessionUser, type JwtPayload } from './modules/auth/auth-service.js';
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    io: Server;
+  }
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -54,6 +61,8 @@ async function bootstrap() {
     origin: config.isProduction ? config.appUrl : true,
     credentials: true,
   });
+
+  await app.register(fastifyCookie);
 
   await app.register(fastifyJwt, {
     secret: config.jwtSecret,
@@ -99,7 +108,7 @@ async function bootstrap() {
   zaloPool.setIO(io);
 
   // Authenticate socket connection via JWT token passed in auth or query
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token =
       socket.handshake.auth?.token ||
       (socket.handshake.query?.token as string);
@@ -107,20 +116,79 @@ async function bootstrap() {
       return next(new Error('Authentication error: Token required'));
     }
     try {
-      const user = app.jwt.verify<JwtPayload>(token);
-      socket.data.user = user;
+      const claims = app.jwt.verify<JwtPayload>(token);
+      if (!claims.sessionId) throw new Error('Legacy token rejected');
+      const user = await validateSessionUser(claims.sessionId, claims.id);
+      socket.data.user = { ...user, sessionId: claims.sessionId };
+      socket.data.sessionId = claims.sessionId;
       socket.join(`org:${user.orgId}`);
+      await pruneSocketAccountRooms(socket);
       next();
     } catch {
-      next(new Error('Authentication error: Invalid or expired token'));
+      next(new Error('Authentication error: Invalid, expired, or revoked token'));
     }
   });
 
   io.on('connection', (socket) => {
     logger.info(`Socket connected: ${socket.id} (user: ${socket.data.user?.id}, org: ${socket.data.user?.orgId})`);
+
+    // Recheck server-side session state for every incoming event. This removes
+    // revoked, expired, and deactivated identities before Zalo handlers can
+    // consume their packets, while refreshing role/org claims from the database.
+    socket.use((_, next) => {
+      const user = socket.data.user as JwtPayload | undefined;
+      const sessionId = socket.data.sessionId as string | undefined;
+      if (!user || !sessionId) {
+        socket.disconnect(true);
+        return next(new Error('Authentication error: Session required'));
+      }
+
+      void validateSessionUser(sessionId, user.id)
+        .then(async (validatedUser) => {
+          if (user.orgId !== validatedUser.orgId) {
+            socket.leave(`org:${user.orgId}`);
+            socket.join(`org:${validatedUser.orgId}`);
+          }
+          socket.data.user = { ...validatedUser, sessionId };
+          await pruneSocketAccountRooms(socket);
+          next();
+        })
+        .catch(() => {
+          socket.disconnect(true);
+          next(new Error('Authentication error: Session is no longer valid'));
+        });
+    });
+
     socket.on('disconnect', () => {
       logger.debug(`Socket disconnected: ${socket.id}`);
     });
+  });
+
+  // Event middleware protects commands, while this bounded sweep also removes
+  // idle sockets from organization broadcast rooms after a session is revoked.
+  const socketSessionSweep = setInterval(() => {
+    for (const socket of io.sockets.sockets.values()) {
+      const user = socket.data.user as JwtPayload | undefined;
+      const sessionId = socket.data.sessionId as string | undefined;
+      if (!user || !sessionId) {
+        socket.disconnect(true);
+        continue;
+      }
+      void validateSessionUser(sessionId, user.id)
+        .then(async (validatedUser) => {
+          if (user.orgId !== validatedUser.orgId) {
+            socket.leave(`org:${user.orgId}`);
+            socket.join(`org:${validatedUser.orgId}`);
+          }
+          socket.data.user = { ...validatedUser, sessionId };
+          await pruneSocketAccountRooms(socket);
+        })
+        .catch(() => socket.disconnect(true));
+    }
+  }, 15_000);
+  app.addHook('onClose', async () => {
+    clearInterval(socketSessionSweep);
+    await io.close();
   });
 
   // Register Zalo Socket.IO event handlers

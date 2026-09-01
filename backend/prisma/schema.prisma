@@ -65,8 +65,33 @@ model User {
   activityLogs     ActivityLog[]
   createdOrders    Order[]             @relation("CreatedOrders")
   createdReports   GeneratedReport[]   @relation("CreatedReports")
+  authSessions     AuthSession[]
 
   @@map("users")
+}
+
+// Server-side refresh-session state. The opaque refresh credential is never
+// stored: only its SHA-256 digest is persisted for single-use rotation.
+model AuthSession {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  familyId            String    @map("family_id")
+  refreshTokenHash    String    @unique @map("refresh_token_hash")
+  expiresAt           DateTime  @map("expires_at")
+  lastUsedAt          DateTime? @map("last_used_at")
+  rotatedAt           DateTime? @map("rotated_at")
+  replacedBySessionId String?   @map("replaced_by_session_id")
+  revokedAt           DateTime? @map("revoked_at")
+  revokedReason       String?   @map("revoked_reason")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("auth_sessions")
 }
 
 // Zalo account linked to a user (one user may own multiple Zalo accounts)
@@ -321,4 +346,3 @@ model GeneratedReport {
   @@index([orgId, createdAt])
   @@map("generated_reports")
 }
-

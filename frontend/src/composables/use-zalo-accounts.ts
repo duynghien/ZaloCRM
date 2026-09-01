@@ -4,7 +4,7 @@
  * - Real-time QR login flow via Socket.IO
  */
 import { ref, onUnmounted } from 'vue';
-import { api } from '@/api/index';
+import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
 
 export interface ZaloAccount {
@@ -34,6 +34,8 @@ export function useZaloAccounts() {
   const currentLoginAccountId = ref('');
 
   let socket: Socket | null = null;
+  let socketRefreshAttempted = false;
+  let removeTokenListener: (() => void) | null = null;
 
   function statusColor(status: string) {
     switch (status) {
@@ -122,10 +124,53 @@ export function useZaloAccounts() {
   }
 
   function setupSocket() {
-    const token = localStorage.getItem('token');
+    if (socket) {
+      if (!socket.active && !socket.connected) socket.connect();
+      return;
+    }
+
     socket = io({
-      auth: { token },
+      auth: (callback) => callback({ token: getAccessToken() }),
       transports: ['websocket', 'polling'],
+      reconnection: false,
+    });
+
+    const onTokenChanged = (event: Event) => {
+      const nextToken = (event as CustomEvent<string>).detail || '';
+      if (!socket) return;
+      if (!nextToken) {
+        socket.disconnect();
+        socket = null;
+        socketRefreshAttempted = false;
+        if (removeTokenListener) {
+          removeTokenListener();
+          removeTokenListener = null;
+        }
+        return;
+      }
+      socket.auth = { token: nextToken };
+      socketRefreshAttempted = false;
+      if (socket.connected) {
+        socket.disconnect().connect();
+      } else {
+        socket.connect();
+      }
+    };
+    window.addEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
+    if (removeTokenListener) removeTokenListener();
+    removeTokenListener = () => window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
+
+    socket.on('connect_error', async (error) => {
+      const unauthorized = isSocketAuthenticationFailure(error.message);
+      if (!unauthorized || socketRefreshAttempted || !socket) return;
+
+      socketRefreshAttempted = true;
+      try {
+        await refreshAccessToken();
+        socket.connect();
+      } catch {
+        // The API layer redirects only when the refresh cookie was rejected.
+      }
     });
 
     socket.on('zalo:qr', (data: { accountId: string; qrImage: string }) => {
@@ -162,7 +207,15 @@ export function useZaloAccounts() {
     socket.on('zalo:reconnect-failed', (_data: { accountId: string }) => { fetchAccounts(); });
   }
 
-  onUnmounted(() => { socket?.disconnect(); });
+  onUnmounted(() => {
+    socket?.disconnect();
+    socket = null;
+    socketRefreshAttempted = false;
+    if (removeTokenListener) {
+      removeTokenListener();
+      removeTokenListener = null;
+    }
+  });
 
   return {
     accounts, loading, adding, deleting,

@@ -8,6 +8,9 @@ const isProduction = nodeEnv === 'production';
 
 const jwtSecret = process.env.JWT_SECRET || 'dev-secret-change-me';
 const encryptionKey = process.env.ENCRYPTION_KEY || 'dev-key-change-me-16b';
+const appUrl = process.env.APP_URL || 'http://localhost:3000';
+const appOrigin = new URL(appUrl).origin;
+const refreshSessionDays = Number.parseInt(process.env.REFRESH_SESSION_DAYS || '7', 10);
 
 // Validate production secrets
 if (isProduction) {
@@ -32,7 +35,12 @@ export const config = {
   encryptionKey,
   databaseUrl: process.env.DATABASE_URL || 'postgresql://crmuser:password@localhost:5432/zalocrm',
   uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
-  appUrl: process.env.APP_URL || 'http://localhost:3000',
+  appUrl,
+  appOrigin,
+  accessTokenTtl: '15m',
+  refreshSessionTtlMs: Math.max(1, Number.isFinite(refreshSessionDays) ? refreshSessionDays : 7) * 24 * 60 * 60 * 1000,
+  refreshCookieName: 'zalo_crm_refresh',
+  csrfCookieName: 'zalo_crm_csrf',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   isProduction,
 };

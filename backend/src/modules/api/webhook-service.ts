@@ -5,6 +5,7 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import crypto from 'node:crypto';
+import { fetchPublicHttps } from '../../shared/security/outbound-url-policy.js';
 
 export async function emitWebhook(orgId: string, event: string, data: any): Promise<void> {
   try {
@@ -23,7 +24,7 @@ export async function emitWebhook(orgId: string, event: string, data: any): Prom
       : '';
 
     // Fire and forget — never block the caller
-    fetch(config.valuePlain, {
+    fetchPublicHttps(config.valuePlain, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -31,7 +32,8 @@ export async function emitWebhook(orgId: string, event: string, data: any): Prom
         'X-Webhook-Event': event,
       },
       body: payload,
-      signal: AbortSignal.timeout(10000),
+      timeoutMs: 10_000,
+      maxResponseBytes: 1024 * 1024,
     }).catch((err) => logger.warn(`[webhook] Failed to deliver ${event}:`, err));
   } catch (err) {
     logger.error('[webhook] Error emitting webhook:', err);

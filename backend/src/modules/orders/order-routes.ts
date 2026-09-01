@@ -61,31 +61,40 @@ export async function orderRoutes(app: FastifyInstance) {
       return reply.status(400).send({ error: 'contactId và totalAmount là bắt buộc' });
     }
 
-    const orderCode = await generateOrderCode(user.orgId);
+    const order = await prisma.$transaction(async (tx) => {
+      const contact = await tx.contact.findFirst({ where: { id: body.contactId, orgId: user.orgId }, select: { id: true } });
+      if (!contact) return null;
 
-    const order = await prisma.order.create({
-      data: {
-        id: randomUUID(),
-        orgId: user.orgId,
-        contactId: body.contactId,
-        createdByUserId: user.id,
-        conversationId: body.conversationId || null,
-        orderCode,
-        totalAmount: parseFloat(body.totalAmount),
-        status: body.status || 'new',
-        notes: body.notes || null,
-      },
-      include: {
-        contact: { select: { id: true, fullName: true, phone: true } },
-        createdBy: { select: { id: true, fullName: true } },
-      },
+      if (body.conversationId) {
+        const conversation = await tx.conversation.findFirst({
+          where: { id: body.conversationId, orgId: user.orgId },
+          select: { contactId: true },
+        });
+        if (!conversation || (conversation.contactId && conversation.contactId !== contact.id)) return null;
+      }
+
+      const orderCode = await generateOrderCode(user.orgId);
+      return tx.order.create({
+        data: {
+          id: randomUUID(), orgId: user.orgId, contactId: contact.id, createdByUserId: user.id,
+          conversationId: body.conversationId || null, orderCode, totalAmount: parseFloat(body.totalAmount),
+          status: body.status || 'new', notes: body.notes || null,
+        },
+        include: {
+          contact: { select: { id: true, fullName: true, phone: true } },
+          createdBy: { select: { id: true, fullName: true } },
+        },
+      });
     });
+
+    if (!order) return reply.status(404).send({ error: 'Related contact or conversation not found' });
 
     return order;
   });
 
   // Update order (totalAmount, status, notes)
   app.put('/api/v1/orders/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
     const { id } = request.params as { id: string };
     const body = request.body as any;
 
@@ -94,22 +103,25 @@ export async function orderRoutes(app: FastifyInstance) {
     if (body.status !== undefined) updateData.status = body.status;
     if (body.notes !== undefined) updateData.notes = body.notes;
 
-    const order = await prisma.order.update({
-      where: { id },
-      data: updateData,
-      include: {
-        contact: { select: { id: true, fullName: true, phone: true } },
-        createdBy: { select: { id: true, fullName: true } },
-      },
+    const order = await prisma.$transaction(async (tx) => {
+      const result = await tx.order.updateMany({ where: { id, orgId: user.orgId }, data: updateData });
+      if (!result.count) return null;
+      return tx.order.findFirst({
+        where: { id, orgId: user.orgId },
+        include: { contact: { select: { id: true, fullName: true, phone: true } }, createdBy: { select: { id: true, fullName: true } } },
+      });
     });
+    if (!order) return reply.status(404).send({ error: 'Order not found' });
 
     return order;
   });
 
   // Delete order
-  app.delete('/api/v1/orders/:id', async (request: FastifyRequest) => {
+  app.delete('/api/v1/orders/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
     const { id } = request.params as { id: string };
-    await prisma.order.delete({ where: { id } });
+    const result = await prisma.order.deleteMany({ where: { id, orgId: user.orgId } });
+    if (!result.count) return reply.status(404).send({ error: 'Order not found' });
     return { success: true };
   });
 

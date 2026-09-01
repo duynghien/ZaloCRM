@@ -7,6 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
+import { fetchPublicHttps } from '../../shared/security/outbound-url-policy.js';
 
 export interface DownloadResult {
   localPath: string;
@@ -43,28 +44,10 @@ export async function downloadAttachment(
   },
 ): Promise<DownloadResult | null> {
   try {
-    if (!url || typeof url !== 'string' || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    if (!url || typeof url !== 'string') {
       logger.warn(`[attachment-downloader] Invalid URL provided: ${url}`);
       return null;
     }
-
-    const parsedUrl = new URL(url);
-    const hostname = parsedUrl.hostname.toLowerCase();
-    if (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname.startsWith('10.') ||
-      hostname.startsWith('192.168.') ||
-      hostname === '169.254.169.254' ||
-      /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
-    ) {
-      logger.warn(`[attachment-downloader] Rejected internal/private IP URL: ${url}`);
-      return null;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options?.timeoutMs || 30_000);
 
     const defaultHeaders: Record<string, string> = {
       'User-Agent':
@@ -72,13 +55,12 @@ export async function downloadAttachment(
       ...(options?.headers || {}),
     };
 
-    const response = await fetch(url, {
+    const response = await fetchPublicHttps(url, {
       method: 'GET',
       headers: defaultHeaders,
-      signal: controller.signal,
+      timeoutMs: options?.timeoutMs || 30_000,
+      maxResponseBytes: MAX_FILE_SIZE_BYTES,
     });
-
-    clearTimeout(timeout);
 
     if (!response.ok) {
       logger.warn(`[attachment-downloader] Failed to download from ${url}: status ${response.status}`);
@@ -91,8 +73,7 @@ export async function downloadAttachment(
       return null;
     }
 
-    const arrayBuffer = await response.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = response.body;
 
     if (buffer.length > MAX_FILE_SIZE_BYTES) {
       logger.warn(`[attachment-downloader] Downloaded buffer exceeds 25MB limit: ${buffer.length} bytes`);

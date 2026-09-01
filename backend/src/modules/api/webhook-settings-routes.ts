@@ -9,13 +9,25 @@ import { logger } from '../../shared/utils/logger.js';
 import { emitWebhook } from './webhook-service.js';
 import crypto from 'node:crypto';
 
+function applyNoStore(reply: FastifyReply): void {
+  reply.header('Cache-Control', 'no-store');
+  reply.header('Pragma', 'no-cache');
+}
+
 export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void> {
-  app.addHook('preHandler', authMiddleware);
+  app.addHook('preHandler', async (request, reply) => {
+    await authMiddleware(request, reply);
+    if (reply.sent) return;
+    if (!request.user || !['owner', 'admin'].includes(request.user.role)) {
+      return reply.status(403).send({ error: 'Forbidden' });
+    }
+  });
 
   // GET /api/v1/settings/webhook — retrieve current webhook config
   app.get('/api/v1/settings/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
+      applyNoStore(reply);
 
       const [urlSetting, secretSetting] = await Promise.all([
         prisma.appSetting.findFirst({ where: { orgId, settingKey: 'webhook_url' } }),
@@ -75,9 +87,11 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
   app.post('/api/v1/settings/api-key/generate', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
+      applyNoStore(reply);
 
       const newKey = `zcrm_${crypto.randomBytes(24).toString('hex')}`;
       await upsertSetting(orgId, 'public_api_key', newKey);
+      logger.info(`[webhook-settings] Public API key rotated for org ${orgId} by user ${request.user?.id}`);
 
       return { key: newKey };
     } catch (err) {
@@ -90,6 +104,7 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
   app.get('/api/v1/settings/api-key', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
+      applyNoStore(reply);
 
       const setting = await prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key' } });
       if (!setting?.valuePlain) return { key: null };
@@ -97,6 +112,7 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
       const k = setting.valuePlain;
       // Show prefix + first 8 chars + mask + last 4 chars
       const masked = k.length > 12 ? `${k.slice(0, 12)}${'*'.repeat(k.length - 16)}${k.slice(-4)}` : `${k.slice(0, 4)}****`;
+      logger.info(`[webhook-settings] Public API key viewed for org ${orgId} by user ${request.user?.id}`);
       return { key: masked };
     } catch (err) {
       logger.error('[webhook-settings] GET API key error:', err);
