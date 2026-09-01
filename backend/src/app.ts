@@ -42,7 +42,7 @@ import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { startReportCronJobs } from './modules/ai-reports/report-cron.js';
 import { decryptData } from './shared/utils/crypto.js';
-import { validateSessionUser, type JwtPayload } from './modules/auth/auth-service.js';
+import { registerSessionRevocationListener, validateSessionUser, type JwtPayload } from './modules/auth/auth-service.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -58,7 +58,7 @@ async function bootstrap() {
   // ── Plugins ──────────────────────────────────────────────────────────────
 
   await app.register(cors, {
-    origin: config.isProduction ? config.appUrl : true,
+    origin: config.isProduction ? config.appOrigin : true,
     credentials: true,
   });
 
@@ -96,13 +96,19 @@ async function bootstrap() {
 
   const io = new Server(app.server, {
     cors: {
-      origin: config.isProduction ? config.appUrl : '*',
+      origin: config.isProduction ? config.appOrigin : '*',
       credentials: true,
     },
   });
 
   // Attach io to app so route handlers can emit events
   app.decorate('io', io);
+  registerSessionRevocationListener((sessionIds) => {
+    const revokedSessions = new Set(sessionIds);
+    for (const socket of io.sockets.sockets.values()) {
+      if (revokedSessions.has(socket.data.sessionId as string)) socket.disconnect(true);
+    }
+  });
 
   // Pass io to zalo pool for real-time event emission
   zaloPool.setIO(io);

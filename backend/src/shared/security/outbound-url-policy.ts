@@ -23,6 +23,8 @@ export interface PublicFetchResponse {
   url: string;
 }
 
+export class OutboundUrlPolicyError extends Error {}
+
 function ipv4ToNumber(address: string): number {
   return address.split('.').reduce((value, part) => value * 256 + Number(part), 0);
 }
@@ -77,13 +79,13 @@ export function isPublicIp(address: string): boolean {
 
 async function resolvePublicAddress(url: URL): Promise<string> {
   if (url.protocol !== 'https:' || url.username || url.password || !url.hostname) {
-    throw new Error('Outbound URL must be HTTPS, public, and contain no credentials');
+    throw new OutboundUrlPolicyError('Outbound URL must be HTTPS, public, and contain no credentials');
   }
   const hostname = url.hostname.replace(/^\[|\]$/g, '');
-  if (hostname.toLowerCase() === 'localhost') throw new Error('Outbound URL host is not public');
+  if (hostname.toLowerCase() === 'localhost') throw new OutboundUrlPolicyError('Outbound URL host is not public');
   const addresses = isIP(hostname) ? [{ address: hostname }] : await lookup(hostname, { all: true, verbatim: true });
   if (addresses.length === 0 || addresses.some(({ address }) => !isPublicIp(address))) {
-    throw new Error('Outbound URL resolves to a non-public address');
+    throw new OutboundUrlPolicyError('Outbound URL resolves to a non-public address');
   }
   return addresses[0].address;
 }
@@ -124,18 +126,23 @@ async function requestPinned(url: URL, address: string, options: PublicFetchOpti
 
 /** HTTPS-only request that validates every DNS answer and pins the validated address. */
 export async function fetchPublicHttps(rawUrl: string, options: PublicFetchOptions = {}): Promise<PublicFetchResponse> {
-  let url = new URL(rawUrl);
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new OutboundUrlPolicyError('Outbound URL is invalid');
+  }
   const redirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
   for (let hop = 0; hop <= redirects; hop++) {
     const address = await resolvePublicAddress(url);
     const response = await requestPinned(url, address, options);
     const location = response.headers.get('location');
     if (![301, 302, 303, 307, 308].includes(response.status) || !location) return response;
-    if (hop === redirects) throw new Error('Outbound redirect limit exceeded');
+    if (hop === redirects) throw new OutboundUrlPolicyError('Outbound redirect limit exceeded');
     url = new URL(location, url);
     if (response.status === 303) {
       options = { ...options, method: 'GET', body: undefined };
     }
   }
-  throw new Error('Outbound redirect limit exceeded');
+  throw new OutboundUrlPolicyError('Outbound redirect limit exceeded');
 }

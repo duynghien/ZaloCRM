@@ -97,10 +97,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     validatePassword(newPassword);
     const user = await prisma.user.findUnique({ where: { id: request.user.id }, select: { passwordHash: true } });
     if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return reply.status(401).send({ error: 'Current password is invalid' });
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: request.user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 12) } });
-      await tx.authSession.updateMany({ where: { userId: request.user.id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'password_changed' } });
-    });
+    await prisma.user.update({ where: { id: request.user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 12) } });
+    await revokeUserSessions(request.user.id, 'password_changed');
     clearSessionCookies(reply);
     return { success: true };
   });

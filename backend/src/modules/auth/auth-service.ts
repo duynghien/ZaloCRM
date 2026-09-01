@@ -10,6 +10,9 @@ export interface JwtPayload { id: string; email: string; role: string; orgId: st
 export interface AuthIdentity { id: string; email: string; role: string; orgId: string; }
 export interface SessionTokens { accessToken: string; refreshToken: string; expiresAt: Date; }
 type RefreshLookup = { id: string; familyId: string; refreshTokenHash: string; expiresAt: Date; revokedAt: Date | null; replacedBySessionId: string | null; user: AuthIdentity & { isActive: boolean }; };
+type SessionRevocationListener = (sessionIds: string[]) => void;
+
+let sessionRevocationListener: SessionRevocationListener | undefined;
 
 const passwordPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,}$/;
 const authError = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
@@ -35,6 +38,14 @@ export function validatePassword(password: string): void {
 }
 
 function identityOf(user: AuthIdentity): AuthIdentity { return { id: user.id, email: user.email, role: user.role, orgId: user.orgId }; }
+
+export function registerSessionRevocationListener(listener: SessionRevocationListener): void {
+  sessionRevocationListener = listener;
+}
+
+function notifySessionRevocations(sessionIds: string[]): void {
+  if (sessionIds.length) sessionRevocationListener?.(sessionIds);
+}
 
 export async function checkSetupStatus(): Promise<{ needsSetup: boolean }> { return { needsSetup: (await prisma.user.count()) === 0 }; }
 
@@ -67,28 +78,55 @@ export async function createSession(app: FastifyInstance, identity: AuthIdentity
 
 export async function rotateSession(app: FastifyInstance, opaqueToken: string): Promise<{ tokens: SessionTokens; identity: AuthIdentity }> {
   const tokenHash = refreshTokenHash(opaqueToken); const now = new Date();
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const session = await tx.authSession.findUnique({ where: { refreshTokenHash: tokenHash }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true } } } }) as (RefreshLookup & { revokedReason?: string | null; rotatedAt?: Date | null; lastUsedAt?: Date | null }) | null;
-    if (!session || !safeTokenEquals(session.refreshTokenHash, tokenHash)) throw authError('Invalid refresh session', 401);
-    if (isConsumedRefreshSession(session)) throw authError('Invalid refresh session', 401);
-    if (session.revokedAt) throw authError('Invalid refresh session', 401);
+    if (!session || !safeTokenEquals(session.refreshTokenHash, tokenHash)) return { kind: 'invalid' as const };
+    if (isConsumedRefreshSession(session) || session.revokedAt) return { kind: 'reused' as const, familyId: session.familyId };
     if (session.expiresAt <= now || !session.user.isActive) {
       await tx.authSession.update({ where: { id: session.id }, data: { revokedAt: now, revokedReason: session.user.isActive ? 'expired' : 'user_inactive' } });
-      throw authError('Refresh session expired', 401);
+      return { kind: 'invalid' as const, revokedSessionIds: [session.id] };
     }
     const identity = identityOf(session.user); const replacementId = randomUUID(); const refreshToken = makeRefreshToken(replacementId); const expiresAt = new Date(Date.now() + config.refreshSessionTtlMs);
-    // Claim the presented credential before minting its replacement. A competing
-    // refresh can then fail harmlessly without creating a second replacement or
-    // revoking the family used by the successful request.
+    // Claim the presented credential before minting its replacement. Any loser
+    // of this compare-and-rotate race is treated as a replay and revokes the
+    // whole family, so a copied refresh token cannot stay usable.
     const consumed = await tx.authSession.updateMany({ where: { id: session.id, revokedAt: null, replacedBySessionId: null, rotatedAt: null, lastUsedAt: null }, data: { rotatedAt: now, lastUsedAt: now, replacedBySessionId: replacementId, revokedAt: now, revokedReason: 'rotated' } });
-    if (consumed.count !== 1) throw authError('Invalid refresh session', 401);
+    if (consumed.count !== 1) return { kind: 'reused' as const, familyId: session.familyId };
     await tx.authSession.create({ data: { id: replacementId, userId: identity.id, familyId: session.familyId, refreshTokenHash: refreshTokenHash(refreshToken), expiresAt } });
-    return { tokens: { accessToken: app.jwt.sign({ ...identity, sessionId: replacementId } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt }, identity };
+    return { kind: 'rotated' as const, revokedSessionId: session.id, tokens: { accessToken: app.jwt.sign({ ...identity, sessionId: replacementId } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt }, identity };
   });
+
+  if (result.kind === 'rotated') {
+    notifySessionRevocations([result.revokedSessionId]);
+    return { tokens: result.tokens, identity: result.identity };
+  }
+  if (result.kind === 'reused') await revokeSessionFamily(result.familyId, 'refresh_token_reuse');
+  else notifySessionRevocations(result.revokedSessionIds ?? []);
+  throw authError('Invalid refresh session', 401);
 }
 
-export async function revokeSession(sessionId: string, reason: string): Promise<void> { await prisma.authSession.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } }); }
-export async function revokeUserSessions(userId: string, reason: string): Promise<void> { await prisma.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } }); }
+export async function revokeSession(sessionId: string, reason: string): Promise<void> {
+  const revoked = await prisma.authSession.updateMany({ where: { id: sessionId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
+  if (revoked.count) notifySessionRevocations([sessionId]);
+}
+
+export async function revokeUserSessions(userId: string, reason: string): Promise<void> {
+  const sessionIds = await prisma.$transaction(async (tx) => {
+    const sessions = await tx.authSession.findMany({ where: { userId, revokedAt: null }, select: { id: true } });
+    await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
+    return sessions.map((session) => session.id);
+  });
+  notifySessionRevocations(sessionIds);
+}
+
+export async function revokeSessionFamily(familyId: string, reason: string): Promise<void> {
+  const sessionIds = await prisma.$transaction(async (tx) => {
+    const sessions = await tx.authSession.findMany({ where: { familyId, revokedAt: null }, select: { id: true } });
+    await tx.authSession.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
+    return sessions.map((session) => session.id);
+  });
+  notifySessionRevocations(sessionIds);
+}
 
 export async function validateSessionUser(sessionId: string, userId: string): Promise<AuthIdentity> {
   const session = await prisma.authSession.findFirst({ where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true } } } });

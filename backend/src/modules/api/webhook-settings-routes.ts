@@ -6,7 +6,8 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
-import { emitWebhook } from './webhook-service.js';
+import { deliverWebhook } from './webhook-service.js';
+import { OutboundUrlPolicyError } from '../../shared/security/outbound-url-policy.js';
 import crypto from 'node:crypto';
 
 function applyNoStore(reply: FastifyReply): void {
@@ -75,11 +76,13 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
         return reply.status(400).send({ error: 'No webhook URL configured' });
       }
 
-      await emitWebhook(orgId, 'webhook.test', { message: 'Test event from Zalo CRM', orgId });
+      const result = await deliverWebhook(orgId, 'webhook.test', { message: 'Test event from Zalo CRM', orgId });
+      if (!result?.ok) return reply.status(502).send({ error: 'Webhook endpoint rejected the test event' });
       return { success: true, sentTo: config.valuePlain };
     } catch (err) {
       logger.error('[webhook-settings] Test error:', err);
-      return reply.status(500).send({ error: 'Failed to send test webhook' });
+      if (err instanceof OutboundUrlPolicyError) return reply.status(400).send({ error: err.message });
+      return reply.status(502).send({ error: 'Failed to deliver test webhook' });
     }
   });
 

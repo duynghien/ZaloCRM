@@ -62,10 +62,8 @@ export async function userRoutes(app: FastifyInstance) {
     if (target.role === 'owner' || (currentUser.role === 'admin' && target.role !== 'member')) return forbidden(reply);
     const { password } = request.body as { password?: string }; if (!password) return reply.status(400).send({ error: 'Mật khẩu là bắt buộc' });
     validatePassword(password);
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { passwordHash: await bcrypt.hash(password, 12) } });
-      await tx.authSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'password_reset' } });
-    });
+    await prisma.user.update({ where: { id }, data: { passwordHash: await bcrypt.hash(password, 12) } });
+    await revokeUserSessions(id, 'password_reset');
     return { success: true };
   });
 
@@ -73,10 +71,8 @@ export async function userRoutes(app: FastifyInstance) {
     const currentUser = request.user as CurrentUser; if (currentUser.role !== 'owner') return forbidden(reply);
     const { id } = request.params as { id: string }; const target = await targetUser(currentUser, id, reply); if (!target) return;
     if (id === currentUser.id || target.role === 'owner') return reply.status(400).send({ error: 'Không thể vô hiệu hóa owner' });
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id }, data: { isActive: false } });
-      await tx.authSession.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: 'user_deactivated' } });
-    });
+    await prisma.user.update({ where: { id }, data: { isActive: false } });
+    await revokeUserSessions(id, 'user_deactivated');
     return { success: true };
   });
 }
