@@ -5,12 +5,14 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { generateDigestReport } from './summarizer-service.js';
 import { sendReportToZalo } from './zalo-report-sender.js';
 import { sendReportEmail, getOrgSmtpConfig, type SmtpConfig } from './email-service.js';
 import { getOrgAutomationSettings, type AutomationSettings } from './report-cron.js';
 import { logger } from '../../shared/utils/logger.js';
 import { requireRole } from '../auth/role-middleware.js';
+import { encodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
+import { normalizeReportJobRequest, ReportJobValidationError, submitReportJob } from './report-job-service.js';
+import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
 
 interface GenerateBody {
   from_date: string;
@@ -253,105 +255,44 @@ export async function aiReportRoutes(app: FastifyInstance) {
     return { success: true, config };
   });
 
-  // ── 4. Generate AI Report On-Demand ──────────────────────────────────────────
+  // ── 4. Queue AI Report On-Demand ─────────────────────────────────────────────
   app.post('/api/v1/ai-reports/generate', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
-    const body = (request.body || {}) as GenerateBody;
-
-    if (!body.from_date || !body.to_date) {
-      return reply.status(400).send({ error: 'from_date and to_date are required' });
+    const body = (request.body || {}) as Record<string, unknown>;
+    let normalized;
+    try {
+      normalized = normalizeReportJobRequest(body);
+    } catch (error) {
+      return reply.status(400).send({ error: error instanceof Error ? error.message : 'Invalid report request' });
     }
-
-    const periodFrom = new Date(body.from_date);
-    const periodTo = new Date(body.to_date);
-
-    if (isNaN(periodFrom.getTime()) || isNaN(periodTo.getTime())) {
-      return reply.status(400).send({ error: 'Invalid date format' });
-    }
-
-    const requiredPermission: AccountPermission = body.send_zalo || body.send_email ? 'chat' : 'read';
-    const groupAccess = await accessibleGroupThreadIds(user, body.group_thread_ids, requiredPermission);
+    const requiredPermission: AccountPermission = normalized.sendZalo || normalized.sendEmail ? 'chat' : 'read';
+    const groupAccess = await accessibleGroupThreadIds(user, normalized.groupThreadIds, requiredPermission);
     if (!groupAccess.allowed) {
       return reply.status(404).send({ error: 'One or more groups were not found' });
     }
-    if (groupAccess.ids.length === 0) {
-      return reply.status(403).send({ error: 'Không có nhóm Zalo được phân quyền để tạo báo cáo' });
-    }
-
     try {
-      const { report, groupDigests } = await generateDigestReport({
-        orgId: user.orgId,
-        userId: user.id,
-        reportType: body.report_type || 'on_demand',
-        periodFrom,
-        periodTo,
-        groupThreadIds: body.group_thread_ids ?? groupAccess.ids,
-        title: body.title,
-      });
-
-      let sentZalo = false;
-      let sentEmail = false;
-      let zaloError: string | undefined;
-      let emailError: string | undefined;
-
-      // Optional instant dispatch to Zalo
-      if (body.send_zalo) {
-        const destType = body.zalo_destination_type || 'self';
-        const zaloRes = await sendReportToZalo({
-          orgId: user.orgId,
-          destinationType: destType,
-          targetUid: body.zalo_target_uid,
-          markdownContent: report.summaryContent,
-          reportTitle: report.title,
-        });
-        sentZalo = zaloRes.success;
-        if (!zaloRes.success) zaloError = zaloRes.error;
-      }
-
-      // Optional instant dispatch to Email
-      if (body.send_email) {
-        const recipients =
-          body.email_recipients && body.email_recipients.length > 0
-            ? body.email_recipients
-            : [user.email];
-
-        const emailRes = await sendReportEmail({
-          orgId: user.orgId,
-          toEmail: recipients,
-          reportTitle: report.title,
-          markdownContent: report.summaryContent,
-          periodText: `Thời gian: ${periodFrom.toLocaleDateString('vi-VN')} - ${periodTo.toLocaleDateString('vi-VN')}`,
-        });
-        sentEmail = emailRes.success;
-        if (!emailRes.success) emailError = emailRes.error;
-      }
-
-      if (sentZalo || sentEmail) {
-        await prisma.generatedReport.update({
-          where: { id: report.id },
-          data: { sentZalo, sentEmail },
-        });
-      }
-
-      return {
-        success: true,
-        report: {
-          ...report,
-          sentZalo,
-          sentEmail,
-        },
-        groupDigests,
-        dispatchStatus: {
-          zalo: { sent: sentZalo, error: zaloError },
-          email: { sent: sentEmail, error: emailError },
-        },
-      };
+      const idempotencyKey = request.headers['idempotency-key'];
+      const { job, replay } = await submitReportJob(user.orgId, user.id, Array.isArray(idempotencyKey) ? idempotencyKey[0] : idempotencyKey || '', normalized);
+      return reply.status(202).send({ jobId: job.id, status: job.status, replay });
     } catch (err: any) {
-      logger.error('[ai-report-routes] Report generation failed:', err);
-      return reply.status(500).send({
-        error: err?.message || 'Lỗi trong quá trình tạo báo cáo AI',
-      });
+      if (err instanceof ReportJobValidationError) return reply.status(400).send({ error: err.message });
+      logger.error('[ai-report-routes] Job enqueue failed:', err);
+      return reply.status(500).send({ error: 'Unable to queue AI report' });
     }
+  });
+
+  app.get('/api/v1/ai-reports/jobs/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    const job = await prisma.aiReportJob.findFirst({ where: { id: (request.params as { id: string }).id, orgId: request.user!.orgId } });
+    if (!job || (job.createdById !== request.user!.id && !isOrganizationAdministrator(request.user!))) return reply.status(404).send({ error: 'Job not found' });
+    return { job };
+  });
+
+  app.post('/api/v1/ai-reports/jobs/:id/cancel', async (request: FastifyRequest, reply: FastifyReply) => {
+    const job = await prisma.aiReportJob.findFirst({ where: { id: (request.params as { id: string }).id, orgId: request.user!.orgId } });
+    if (!job || (job.createdById !== request.user!.id && !isOrganizationAdministrator(request.user!))) return reply.status(404).send({ error: 'Job not found' });
+    if (['succeeded', 'failed', 'cancelled'].includes(job.status)) return reply.status(409).send({ error: 'Job is already finished' });
+    await prisma.aiReportJob.update({ where: { id: job.id }, data: { cancellationRequestedAt: new Date(), status: job.status === 'queued' ? 'cancelled' : job.status, finishedAt: job.status === 'queued' ? new Date() : undefined } });
+    return { success: true };
   });
 
   // ── 5. List Generated Reports Archive (paginated) ───────────────────────────
@@ -368,8 +309,8 @@ export async function aiReportRoutes(app: FastifyInstance) {
       where.reportType = report_type;
     }
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.max(1, Math.min(100, parseInt(limit, 10)));
+    const pageNum = boundedPositiveInt(page, 1, 10_000);
+    const limitNum = boundedPositiveInt(limit, 20, 100);
 
     const [allReports, total] = await Promise.all([
       prisma.generatedReport.findMany({
@@ -509,12 +450,15 @@ export async function aiReportRoutes(app: FastifyInstance) {
   });
 
   // ── 9. Update Automation & SMTP Settings ───────────────────────────────────
-  app.put('/api/v1/ai-reports/settings', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest) => {
+  app.put('/api/v1/ai-reports/settings', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const body = (request.body || {}) as UpdateSettingsBody;
 
     // Update Automation Settings
     if (body.automation) {
+      if ('dailyCronTime' in body.automation || 'weeklyCronTime' in body.automation) {
+        return reply.status(400).send({ error: 'Automation schedules are fixed at 18:00 daily and 17:00 Saturday' });
+      }
       const current = await getOrgAutomationSettings(user.orgId);
       const merged = { ...current, ...body.automation };
 
@@ -538,13 +482,16 @@ export async function aiReportRoutes(app: FastifyInstance) {
 
     // Update SMTP Settings
     if (body.smtp) {
+      // The established SPA DTO is flat (`smtp.user`/`smtp.pass`); accept the
+      // nested service shape too so existing clients keep working.
+      const smtpInput = body.smtp as Partial<SmtpConfig> & { user?: string; pass?: string };
       const existing = await getOrgSmtpConfig(user.orgId);
-      const host = body.smtp.host || existing?.host || '';
-      const port = body.smtp.port || existing?.port || 587;
-      const secure = body.smtp.secure ?? existing?.secure ?? false;
-      const userStr = body.smtp.auth?.user || existing?.auth?.user || '';
-      const passStr = body.smtp.auth?.pass || existing?.auth?.pass || '';
-      const from = body.smtp.from || existing?.from || '';
+      const host = smtpInput.host || existing?.host || '';
+      const port = smtpInput.port || existing?.port || 587;
+      const secure = smtpInput.secure ?? existing?.secure ?? false;
+      const userStr = smtpInput.auth?.user ?? smtpInput.user ?? existing?.auth?.user ?? '';
+      const passStr = smtpInput.auth?.pass ?? smtpInput.pass ?? existing?.auth?.pass ?? '';
+      const from = smtpInput.from || existing?.from || '';
 
       const updatedSmtp: SmtpConfig = {
         host,
@@ -567,10 +514,10 @@ export async function aiReportRoutes(app: FastifyInstance) {
         create: {
           orgId: user.orgId,
           settingKey: 'ai_report_smtp_config',
-          valuePlain: JSON.stringify(updatedSmtp),
+          ...encodeSecureSetting(JSON.stringify(updatedSmtp)),
         },
         update: {
-          valuePlain: JSON.stringify(updatedSmtp),
+          ...encodeSecureSetting(JSON.stringify(updatedSmtp)),
         },
       });
     }

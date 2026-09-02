@@ -19,6 +19,8 @@ export interface GenerateReportParams {
   sendEmail?: boolean;
   zaloDestinationType?: 'self' | 'uid';
   zaloTargetUid?: string;
+  maxMessagesPerGroup?: number;
+  shouldCancel?: () => Promise<boolean>;
 }
 
 export interface GroupDigestItem {
@@ -39,7 +41,9 @@ async function summarizeGroupMessages(
   messages: CleanedMessage[],
   customPrompt?: string | null,
   focusKeywords?: string[],
+  shouldCancel?: () => Promise<boolean>,
 ): Promise<string> {
+  if (await shouldCancel?.()) throw new Error('Job cancelled');
   if (messages.length === 0) {
     return `Nhóm ${groupName}: Không có hoạt động hoặc tin nhắn mới trong khoảng thời gian này.`;
   }
@@ -68,11 +72,13 @@ YÊU CẦU:
 5. Viết bằng tiếng Việt súc tích, gạch đầu dòng rõ ràng.`;
 
     try {
+      if (await shouldCancel?.()) throw new Error('Job cancelled');
       return await generateContent(prompt, {
         systemInstruction: 'Bạn là chuyên gia phân tích dữ liệu vận hành và điều hành doanh nghiệp.',
         temperature: 0.2,
       });
     } catch (err: any) {
+      if (err?.message === 'Job cancelled') throw err;
       logger.error(`[summarizer-service] Tier 1 summary failed for group ${groupName}:`, err?.message || err);
       return `Nhóm ${groupName}: Ghi nhận ${messages.length} tin nhắn trao đổi (không thể hoàn tất tóm tắt do lỗi kết nối AI).`;
     }
@@ -86,17 +92,18 @@ YÊU CẦU:
 
   logger.info(`[summarizer-service] Group ${groupName} has ${messages.length} messages, chunking into ${chunks.length} parts`);
 
-  const chunkSummaries = await Promise.all(
-    chunks.map(async (chunk, idx) => {
+  const chunkSummaries: string[] = [];
+  for (const [idx, chunk] of chunks.entries()) {
+    if (await shouldCancel?.()) throw new Error('Job cancelled');
       const transcript = formatTranscriptForPrompt(chunk);
       const prompt = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}`;
       try {
-        return await generateContent(prompt, { temperature: 0.2 });
-      } catch (err) {
-        return `Phần ${idx + 1}: ${chunk.length} tin nhắn trao đổi.`;
+        chunkSummaries.push(await generateContent(prompt, { temperature: 0.2 }));
+      } catch (err: any) {
+        if (err?.message === 'Job cancelled') throw err;
+        chunkSummaries.push(`Phần ${idx + 1}: ${chunk.length} tin nhắn trao đổi.`);
       }
-    }),
-  );
+  }
 
   // Reduce chunk summaries
   const reducePrompt = `Dưới đây là các tóm tắt từng phần của nhóm "${groupName}":
@@ -119,7 +126,9 @@ async function synthesizeExecutiveReport(
   reportType: string,
   periodFrom: Date,
   periodTo: Date,
+  shouldCancel?: () => Promise<boolean>,
 ): Promise<string> {
+  if (await shouldCancel?.()) throw new Error('Job cancelled');
   const fromStr = periodFrom.toLocaleString('vi-VN', {
     day: '2-digit',
     month: '2-digit',
@@ -181,12 +190,14 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
 `;
 
   try {
+    if (await shouldCancel?.()) throw new Error('Job cancelled');
     return await generateContent(prompt, {
       systemInstruction: 'Bạn là chuyên gia quản trị và điều hành doanh nghiệp, viết báo cáo sắc sảo, trung thực, chính xác.',
       temperature: 0.2,
       maxOutputTokens: 8192,
     });
   } catch (err: any) {
+    if (err?.message === 'Job cancelled') throw err;
     logger.error('[summarizer-service] Tier 2 synthesis failed:', err?.message || err);
     // Fallback: concatenate group summaries
     return `# Báo Cáo Tổng Hợp (${fromStr} - ${toStr})\n\n${digestContext}`;
@@ -205,6 +216,8 @@ export async function generateDigestReport(params: GenerateReportParams) {
     periodTo,
     groupThreadIds,
     title,
+    maxMessagesPerGroup,
+    shouldCancel,
   } = params;
 
   logger.info(
@@ -268,6 +281,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
   const groupDigests: GroupDigestItem[] = [];
 
   for (const threadId of targetGroupThreadIds) {
+    if (await shouldCancel?.()) throw new Error('Job cancelled');
     const configData = groupConfigsMap.get(threadId);
 
     // Find conversation
@@ -302,6 +316,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
         isDeleted: false,
       },
       orderBy: { sentAt: 'asc' },
+      take: maxMessagesPerGroup,
     });
 
     const cleanedMessages = filterAndFormatMessages(rawMessages);
@@ -324,6 +339,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
       cleanedMessages,
       configData?.customPrompt,
       configData?.focusKeywords,
+      shouldCancel,
     );
 
     groupDigests.push({
@@ -341,6 +357,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
     reportType,
     periodFrom,
     periodTo,
+    shouldCancel,
   );
 
   const reportTitle =

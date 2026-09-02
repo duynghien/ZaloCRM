@@ -6,6 +6,7 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { randomUUID } from 'node:crypto';
+import { boundedFiniteNumber, boundedPositiveInt, boundedString, validOptionalDate } from '../../shared/http/request-bounds.js';
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -29,11 +30,13 @@ export async function orderRoutes(app: FastifyInstance) {
       contactId = '',
       createdByUserId = '',
     } = request.query as Record<string, string>;
+    const pageNum = boundedPositiveInt(page, 1, 10_000);
+    const limitNum = boundedPositiveInt(limit, 50, 100);
 
     const where: any = { orgId: user.orgId };
-    if (status) where.status = status;
-    if (contactId) where.contactId = contactId;
-    if (createdByUserId) where.createdByUserId = createdByUserId;
+    if (status) where.status = boundedString(status, 50);
+    if (contactId) where.contactId = boundedString(contactId, 128);
+    if (createdByUserId) where.createdByUserId = boundedString(createdByUserId, 128);
 
     const [orders, total] = await Promise.all([
       prisma.order.findMany({
@@ -43,13 +46,13 @@ export async function orderRoutes(app: FastifyInstance) {
           createdBy: { select: { id: true, fullName: true } },
         },
         orderBy: { createdAt: 'desc' },
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit),
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
       }),
       prisma.order.count({ where }),
     ]);
 
-    return { orders, total };
+    return { orders, total, page: pageNum, limit: limitNum };
   });
 
   // Create order
@@ -60,6 +63,8 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!body.contactId || body.totalAmount === undefined) {
       return reply.status(400).send({ error: 'contactId và totalAmount là bắt buộc' });
     }
+    const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 1_000_000_000);
+    if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 1000000000' });
 
     const order = await prisma.$transaction(async (tx) => {
       const contact = await tx.contact.findFirst({ where: { id: body.contactId, orgId: user.orgId }, select: { id: true } });
@@ -77,7 +82,7 @@ export async function orderRoutes(app: FastifyInstance) {
       return tx.order.create({
         data: {
           id: randomUUID(), orgId: user.orgId, contactId: contact.id, createdByUserId: user.id,
-          conversationId: body.conversationId || null, orderCode, totalAmount: parseFloat(body.totalAmount),
+          conversationId: body.conversationId || null, orderCode, totalAmount,
           status: body.status || 'new', notes: body.notes || null,
         },
         include: {
@@ -99,7 +104,11 @@ export async function orderRoutes(app: FastifyInstance) {
     const body = request.body as any;
 
     const updateData: any = {};
-    if (body.totalAmount !== undefined) updateData.totalAmount = parseFloat(body.totalAmount);
+    if (body.totalAmount !== undefined) {
+      const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 1_000_000_000);
+      if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 1000000000' });
+      updateData.totalAmount = totalAmount;
+    }
     if (body.status !== undefined) updateData.status = body.status;
     if (body.notes !== undefined) updateData.notes = body.notes;
 
@@ -138,15 +147,18 @@ export async function orderRoutes(app: FastifyInstance) {
   });
 
   // Order stats — revenue summary with optional date range
-  app.get('/api/v1/orders/stats', async (request: FastifyRequest) => {
+  app.get('/api/v1/orders/stats', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { from = '', to = '' } = request.query as Record<string, string>;
 
     const where: any = { orgId: user.orgId };
-    if (from || to) {
+    const fromDate = validOptionalDate(from);
+    const toDate = validOptionalDate(to ? `${to}T23:59:59` : '');
+    if ((from && !fromDate) || (to && !toDate)) return reply.status(400).send({ error: 'Invalid date range' });
+    if (fromDate || toDate) {
       where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(from);
-      if (to) where.createdAt.lte = new Date(to + 'T23:59:59');
+      if (fromDate) where.createdAt.gte = fromDate;
+      if (toDate) where.createdAt.lte = toDate;
     }
 
     const [total, completed, revenue, todayRevenue] = await Promise.all([

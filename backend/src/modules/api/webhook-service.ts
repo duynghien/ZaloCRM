@@ -6,6 +6,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import crypto from 'node:crypto';
 import { fetchPublicHttps, type PublicFetchResponse } from '../../shared/security/outbound-url-policy.js';
+import { decodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
 
 export async function emitWebhook(orgId: string, event: string, data: any): Promise<void> {
   void deliverWebhook(orgId, event, data).catch((err) => logger.warn(`[webhook] Failed to deliver ${event}:`, err));
@@ -22,8 +23,9 @@ export async function deliverWebhook(orgId: string, event: string, data: any): P
   });
 
   const payload = JSON.stringify({ event, timestamp: new Date().toISOString(), data });
-  const signature = secretSetting?.valuePlain
-    ? crypto.createHmac('sha256', secretSetting.valuePlain).update(payload).digest('hex')
+  const secret = decodeSecureSetting(secretSetting);
+  const signature = secret
+    ? crypto.createHmac('sha256', secret).update(payload).digest('hex')
     : '';
 
   return fetchPublicHttps(config.valuePlain, {

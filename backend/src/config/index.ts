@@ -11,6 +11,8 @@ const encryptionKey = process.env.ENCRYPTION_KEY || 'dev-key-change-me-16b';
 const appUrl = process.env.APP_URL || 'http://localhost:3000';
 const appOrigin = new URL(appUrl).origin;
 const refreshSessionDays = Number.parseInt(process.env.REFRESH_SESSION_DAYS || '7', 10);
+const aiReportMaxMessages = Number.parseInt(process.env.AI_REPORT_MAX_MESSAGES || '10000', 10);
+const aiReportMaxTokens = Number.parseInt(process.env.AI_REPORT_MAX_TOKENS || '200000', 10);
 
 // Validate production secrets
 if (isProduction) {
@@ -42,5 +44,7 @@ export const config = {
   refreshCookieName: 'zalo_crm_refresh',
   csrfCookieName: 'zalo_crm_csrf',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  aiReportMaxMessages: Math.max(1, Number.isFinite(aiReportMaxMessages) ? aiReportMaxMessages : 10_000),
+  aiReportMaxTokens: Math.max(1, Number.isFinite(aiReportMaxTokens) ? aiReportMaxTokens : 200_000),
   isProduction,
 };

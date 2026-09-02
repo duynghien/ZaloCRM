@@ -203,6 +203,7 @@
               <v-chip class="mt-4 font-weight-bold" color="primary" variant="tonal">
                 Thời gian xử lý: {{ generatingTimer }}s
               </v-chip>
+              <v-btn class="mt-4" variant="outlined" color="error" @click="cancelGeneratingJob">Hủy tạo báo cáo</v-btn>
             </div>
 
             <!-- Report Display -->
@@ -644,7 +645,9 @@ const groups = ref<GroupItem[]>([]);
 const selectedGroupIds = ref<string[]>([]);
 const isGenerating = ref(false);
 const generatingTimer = ref(0);
+const activeJobId = ref<string | null>(null);
 let timerInterval: any = null;
+const pendingJobStorageKey = 'zalocrm.ai-report.pending-job';
 
 const currentReport = ref<GeneratedReportItem | null>(null);
 
@@ -863,16 +866,47 @@ async function handleGenerateReport() {
       zalo_destination_type: generatorForm.value.zaloDestinationType,
       zalo_target_uid: generatorForm.value.zaloTargetUid,
       email_recipients: generatorForm.value.emailRecipient ? [generatorForm.value.emailRecipient] : undefined,
-    });
-
-    currentReport.value = res.report;
-    showSnackbar('Đã tạo báo cáo AI thành công!', 'success');
-    loadReports();
+    }, crypto.randomUUID());
+    activeJobId.value = res.jobId;
+    sessionStorage.setItem(pendingJobStorageKey, res.jobId);
+    await waitForReportJob(res.jobId);
   } catch (err: any) {
     showSnackbar(err?.response?.data?.error || 'Lỗi trong quá trình tạo báo cáo AI', 'error');
   } finally {
     isGenerating.value = false;
+    activeJobId.value = null;
     if (timerInterval) clearInterval(timerInterval);
+  }
+}
+
+async function waitForReportJob(jobId: string) {
+  let delayMs = 1_000;
+  while (activeJobId.value === jobId) {
+    const { job } = await aiReportApi.getJob(jobId);
+    if (job.status === 'succeeded' && job.resultReportId) {
+      const { report } = await aiReportApi.getReport(job.resultReportId);
+      currentReport.value = report;
+      sessionStorage.removeItem(pendingJobStorageKey);
+      showSnackbar('Đã tạo báo cáo AI thành công!', 'success');
+      loadReports();
+      return;
+    }
+    if (job.status === 'failed' || job.status === 'cancelled') {
+      sessionStorage.removeItem(pendingJobStorageKey);
+      showSnackbar(job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo' : 'Tạo báo cáo thất bại'), 'error');
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    delayMs = Math.min(delayMs * 2, 8_000);
+  }
+}
+
+async function cancelGeneratingJob() {
+  if (!activeJobId.value) return;
+  try {
+    await aiReportApi.cancelJob(activeJobId.value);
+  } catch (err: any) {
+    showSnackbar(err?.response?.data?.error || 'Không thể hủy báo cáo', 'error');
   }
 }
 
@@ -977,6 +1011,12 @@ onMounted(() => {
   loadGroups();
   loadReports();
   loadSettings();
+  const pendingJobId = sessionStorage.getItem(pendingJobStorageKey);
+  if (pendingJobId) {
+    activeJobId.value = pendingJobId;
+    isGenerating.value = true;
+    waitForReportJob(pendingJobId).finally(() => { isGenerating.value = false; activeJobId.value = null; });
+  }
 });
 
 onUnmounted(() => {

@@ -41,6 +41,7 @@ import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js'
 import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { startReportCronJobs } from './modules/ai-reports/report-cron.js';
+import { startReportJobWorker, stopReportJobWorker } from './modules/ai-reports/report-job-worker.js';
 import { decryptData } from './shared/utils/crypto.js';
 import { registerSessionRevocationListener, validateSessionUser, type JwtPayload } from './modules/auth/auth-service.js';
 
@@ -194,6 +195,7 @@ async function bootstrap() {
   }, 15_000);
   app.addHook('onClose', async () => {
     clearInterval(socketSessionSweep);
+    stopReportJobWorker();
     await io.close();
   });
 
@@ -265,6 +267,7 @@ async function bootstrap() {
     startAppointmentReminder(io);
     startZaloHealthCheck();
     startReportCronJobs();
+    startReportJobWorker();
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

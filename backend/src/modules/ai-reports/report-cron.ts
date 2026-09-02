@@ -4,15 +4,11 @@
 import cron from 'node-cron';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { generateDigestReport } from './summarizer-service.js';
-import { sendReportToZalo } from './zalo-report-sender.js';
-import { sendReportEmail } from './email-service.js';
+import { submitScheduledReportJob, type ReportJobRequest } from './report-job-service.js';
 
 export interface AutomationSettings {
   dailyEnabled: boolean;
-  dailyCronTime?: string; // default "0 18 * * *"
   weeklyEnabled: boolean;
-  weeklyCronTime?: string; // default "0 17 * * 6"
   sendZalo: boolean;
   zaloDestinationType: 'self' | 'cloud' | 'uid';
   zaloTargetUid?: string;
@@ -22,9 +18,7 @@ export interface AutomationSettings {
 
 const DEFAULT_AUTOMATION_SETTINGS: AutomationSettings = {
   dailyEnabled: true,
-  dailyCronTime: '0 18 * * *',
   weeklyEnabled: true,
-  weeklyCronTime: '0 17 * * 6',
   sendZalo: true,
   zaloDestinationType: 'self',
   sendEmail: false,
@@ -46,7 +40,8 @@ export async function getOrgAutomationSettings(orgId: string): Promise<Automatio
     });
 
     if (setting?.valuePlain) {
-      return { ...DEFAULT_AUTOMATION_SETTINGS, ...JSON.parse(setting.valuePlain) };
+      const { dailyCronTime: _dailyCronTime, weeklyCronTime: _weeklyCronTime, ...stored } = JSON.parse(setting.valuePlain);
+      return { ...DEFAULT_AUTOMATION_SETTINGS, ...stored };
     }
   } catch (err) {
     logger.warn(`[report-cron] Failed to read automation settings for org ${orgId}:`, err);
@@ -84,72 +79,36 @@ export async function runScheduledOrgReports(
           continue;
         }
 
-        // Check if there are any configured/enabled groups for this org
-        const groupCount = await prisma.groupReportConfig.count({
+        const configuredGroups = await prisma.groupReportConfig.findMany({
           where: { orgId: org.id, isEnabled: true },
+          select: { groupThreadId: true },
         });
+        const groupThreadIds = configuredGroups.length > 0
+          ? configuredGroups.map((group) => group.groupThreadId)
+          : (await prisma.conversation.findMany({
+              where: { orgId: org.id, threadType: 'group', externalThreadId: { not: null } },
+              select: { externalThreadId: true },
+            })).flatMap((conversation) => conversation.externalThreadId ? [conversation.externalThreadId] : []);
 
-        const convCount = await prisma.conversation.count({
-          where: { orgId: org.id, threadType: 'group' },
-        });
-
-        if (groupCount === 0 && convCount === 0) {
+        if (groupThreadIds.length === 0) {
           logger.debug(`[report-cron] No groups to monitor for org ${org.name} (${org.id})`);
           continue;
         }
+        if (groupThreadIds.length > 20 || new Set(groupThreadIds).size !== groupThreadIds.length) {
+          logger.warn(`[report-cron] Skipping ${reportType} report for org ${org.id}: scheduled reports require 1-20 unique groups`);
+          continue;
+        }
 
-        logger.info(`[report-cron] Generating scheduled ${reportType} report for org ${org.name}...`);
-
-        const { report } = await generateDigestReport({
-          orgId: org.id,
-          reportType,
-          periodFrom,
-          periodTo,
+        const request: ReportJobRequest = {
+          fromDate: periodFrom.toISOString(), toDate: periodTo.toISOString(), groupThreadIds,
           title: `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : 'Tuần'} (${periodTo.toLocaleDateString('vi-VN')})`,
-        });
-
-        let sentZalo = false;
-        let sentEmail = false;
-
-        // 1. Dispatch Zalo
-        if (settings.sendZalo) {
-          try {
-            const zaloRes = await sendReportToZalo({
-              orgId: org.id,
-              destinationType: settings.zaloDestinationType,
-              targetUid: settings.zaloTargetUid,
-              markdownContent: report.summaryContent,
-              reportTitle: report.title,
-            });
-            sentZalo = zaloRes.success;
-          } catch (zaloErr) {
-            logger.error(`[report-cron] Zalo dispatch failed for org ${org.id}:`, zaloErr);
-          }
-        }
-
-        // 2. Dispatch Email
-        if (settings.sendEmail && settings.emailRecipients.length > 0) {
-          try {
-            const emailRes = await sendReportEmail({
-              orgId: org.id,
-              toEmail: settings.emailRecipients,
-              reportTitle: report.title,
-              markdownContent: report.summaryContent,
-              periodText: `Thời gian: ${periodFrom.toLocaleDateString('vi-VN')} - ${periodTo.toLocaleDateString('vi-VN')}`,
-            });
-            sentEmail = emailRes.success;
-          } catch (emailErr) {
-            logger.error(`[report-cron] Email dispatch failed for org ${org.id}:`, emailErr);
-          }
-        }
-
-        // Update report status in DB
-        await prisma.generatedReport.update({
-          where: { id: report.id },
-          data: { sentZalo, sentEmail },
-        });
-
-        logger.info(`[report-cron] Completed ${reportType} digest for org ${org.name} (Zalo: ${sentZalo}, Email: ${sentEmail})`);
+          reportType, sendZalo: settings.sendZalo, sendEmail: settings.sendEmail && settings.emailRecipients.length > 0,
+          zaloDestinationType: settings.zaloDestinationType, zaloTargetUid: settings.zaloTargetUid,
+          emailRecipients: settings.emailRecipients,
+        };
+        const scheduleKey = `${org.id}:${reportType}:${periodFrom.toISOString().slice(0, 10)}`;
+        const { job, replay } = await submitScheduledReportJob(org.id, scheduleKey, request);
+        logger.info(`[report-cron] ${replay ? 'Reused' : 'Queued'} scheduled ${reportType} job ${job.id} for org ${org.name}`);
       } catch (orgErr: any) {
         logger.error(`[report-cron] Error running report for org ${org.id}:`, orgErr?.message || orgErr);
       }

@@ -7,7 +7,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
-import { fetchPublicHttps } from '../../shared/security/outbound-url-policy.js';
+import { downloadPublicHttpsToFile } from '../../shared/security/outbound-url-policy.js';
 
 export interface DownloadResult {
   localPath: string;
@@ -15,10 +15,9 @@ export interface DownloadResult {
   originalName: string;
   size: number;
   mimeType: string;
-  buffer: Buffer;
 }
 
-const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB limit
+const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 
 /**
  * Get or create the local attachments storage directory
@@ -55,52 +54,47 @@ export async function downloadAttachment(
       ...(options?.headers || {}),
     };
 
-    const response = await fetchPublicHttps(url, {
-      method: 'GET',
-      headers: defaultHeaders,
-      timeoutMs: options?.timeoutMs || 30_000,
-      maxResponseBytes: MAX_FILE_SIZE_BYTES,
-    });
+    const rawFilename = options?.originalFilename || url.split('?')[0].split('/').pop() || `attachment-${Date.now()}`;
+    const sanitizedFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160);
+    const uniqueFilename = `${randomUUID()}-${sanitizedFilename}`;
+    const targetDir = getAttachmentsDirectory();
+    const localPath = path.join(targetDir, uniqueFilename);
+    const partialPath = `${localPath}.part`;
+    let response;
+    try {
+      response = await downloadPublicHttpsToFile(url, partialPath, {
+        method: 'GET',
+        headers: defaultHeaders,
+        timeoutMs: options?.timeoutMs || 30_000,
+        maxResponseBytes: MAX_FILE_SIZE_BYTES,
+      });
+    } catch (error) {
+      await fs.promises.unlink(partialPath).catch(() => undefined);
+      throw error;
+    }
 
     if (!response.ok) {
+      await fs.promises.unlink(partialPath).catch(() => undefined);
       logger.warn(`[attachment-downloader] Failed to download from ${url}: status ${response.status}`);
       return null;
     }
 
-    const contentLengthHeader = response.headers.get('content-length');
-    if (contentLengthHeader && parseInt(contentLengthHeader, 10) > MAX_FILE_SIZE_BYTES) {
-      logger.warn(`[attachment-downloader] File exceeds 25MB limit: ${contentLengthHeader} bytes`);
-      return null;
-    }
-
-    const buffer = response.body;
-
-    if (buffer.length > MAX_FILE_SIZE_BYTES) {
-      logger.warn(`[attachment-downloader] Downloaded buffer exceeds 25MB limit: ${buffer.length} bytes`);
-      return null;
+    try {
+      await fs.promises.rename(partialPath, localPath);
+    } catch (error) {
+      await fs.promises.unlink(partialPath).catch(() => undefined);
+      throw error;
     }
 
     const mimeType = response.headers.get('content-type') || 'application/octet-stream';
-    const rawFilename =
-      options?.originalFilename ||
-      url.split('?')[0].split('/').pop() ||
-      `attachment-${Date.now()}`;
-    const sanitizedFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const uniqueFilename = `${randomUUID()}-${sanitizedFilename}`;
-
-    const targetDir = getAttachmentsDirectory();
-    const localPath = path.join(targetDir, uniqueFilename);
-
-    await fs.promises.writeFile(localPath, buffer);
-    logger.info(`[attachment-downloader] Saved attachment to ${localPath} (${buffer.length} bytes)`);
+    logger.info(`[attachment-downloader] Saved attachment to ${localPath} (${response.bytes} bytes)`);
 
     return {
       localPath,
       filename: uniqueFilename,
       originalName: sanitizedFilename,
-      size: buffer.length,
+      size: response.bytes,
       mimeType,
-      buffer,
     };
   } catch (err: any) {
     logger.error(`[attachment-downloader] Error downloading attachment from ${url}:`, err?.message || err);

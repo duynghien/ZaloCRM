@@ -99,7 +99,7 @@ function showSnack(text: string, color = 'success') {
 async function loadApiKey() {
   try {
     const res = await api.get('/settings/api-key');
-    apiKey.value = res.data.apiKey ?? '';
+    apiKey.value = res.data.apiKey ?? res.data.key ?? '';
   } catch {
     apiKey.value = '';
   }
@@ -108,8 +108,8 @@ async function loadApiKey() {
 async function loadWebhook() {
   try {
     const res = await api.get('/settings/webhook');
-    webhookUrl.value = res.data.webhookUrl ?? '';
-    webhookSecret.value = res.data.webhookSecret ?? '';
+    webhookUrl.value = res.data.webhookUrl ?? res.data.url ?? '';
+    webhookSecret.value = res.data.webhookSecret ?? res.data.secret ?? '';
   } catch {
     webhookUrl.value = '';
     webhookSecret.value = '';
@@ -120,7 +120,7 @@ async function generateKey() {
   generatingKey.value = true;
   try {
     const res = await api.post('/settings/api-key/generate');
-    apiKey.value = res.data.apiKey ?? '';
+    apiKey.value = res.data.apiKey ?? res.data.key ?? '';
     showSnack('API key mới đã được tạo');
   } catch {
     showSnack('Tạo key thất bại', 'error');

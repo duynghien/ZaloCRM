@@ -6,6 +6,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { boundedPositiveInt, boundedString, validOptionalDate } from '../../shared/http/request-bounds.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
@@ -32,14 +33,17 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
     try {
       const orgId = (request as any).orgId as string;
       const { search = '', status = '', limit = '20' } = request.query as Record<string, string>;
+      const safeSearch = boundedString(search, 200);
+      const safeStatus = boundedString(status, 50);
+      const limitNum = boundedPositiveInt(limit, 20, 100);
 
       const where: any = { orgId };
-      if (status) where.status = status;
-      if (search) {
+      if (safeStatus) where.status = safeStatus;
+      if (safeSearch) {
         where.OR = [
-          { fullName: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search } },
-          { email: { contains: search, mode: 'insensitive' } },
+          { fullName: { contains: safeSearch, mode: 'insensitive' } },
+          { phone: { contains: safeSearch } },
+          { email: { contains: safeSearch, mode: 'insensitive' } },
         ];
       }
 
@@ -51,7 +55,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
           createdAt: true, updatedAt: true,
         },
         orderBy: { updatedAt: 'desc' },
-        take: Math.min(parseInt(limit) || 20, 100),
+        take: limitNum,
       });
 
       return { contacts };
@@ -146,6 +150,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
     try {
       const orgId = (request as any).orgId as string;
       const { limit = '20' } = request.query as Record<string, string>;
+      const limitNum = boundedPositiveInt(limit, 20, 100);
 
       const conversations = await prisma.conversation.findMany({
         where: { orgId },
@@ -155,7 +160,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
           contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true } },
         },
         orderBy: { lastMessageAt: 'desc' },
-        take: Math.min(parseInt(limit) || 20, 100),
+        take: limitNum,
       });
 
       return { conversations };
@@ -170,6 +175,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       const orgId = (request as any).orgId as string;
       const { id } = request.params as { id: string };
       const { limit = '50' } = request.query as Record<string, string>;
+      const limitNum = boundedPositiveInt(limit, 50, 200);
 
       const conv = await prisma.conversation.findFirst({ where: { id, orgId }, select: { id: true } });
       if (!conv) return reply.status(404).send({ error: 'Conversation not found' });
@@ -177,7 +183,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       const messages = await prisma.message.findMany({
         where: { conversationId: id, isDeleted: false },
         orderBy: { sentAt: 'desc' },
-        take: Math.min(parseInt(limit) || 50, 200),
+        take: limitNum,
         select: {
           id: true, senderType: true, senderName: true,
           content: true, contentType: true, sentAt: true, attachments: true,
@@ -197,12 +203,15 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
     try {
       const orgId = (request as any).orgId as string;
       const { from, to } = request.query as Record<string, string>;
+      const fromDate = validOptionalDate(from);
+      const toDate = validOptionalDate(to);
+      if ((from && !fromDate) || (to && !toDate)) return reply.status(400).send({ error: 'Invalid appointment date range' });
 
       const where: any = { orgId };
-      if (from || to) {
+      if (fromDate || toDate) {
         where.appointmentDate = {};
-        if (from) where.appointmentDate.gte = new Date(from);
-        if (to) where.appointmentDate.lte = new Date(to);
+        if (fromDate) where.appointmentDate.gte = fromDate;
+        if (toDate) where.appointmentDate.lte = toDate;
       }
 
       const appointments = await prisma.appointment.findMany({

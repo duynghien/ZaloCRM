@@ -1,6 +1,8 @@
 import { lookup } from 'node:dns/promises';
 import https from 'node:https';
+import fs from 'node:fs';
 import { isIP } from 'node:net';
+import type { IncomingMessage } from 'node:http';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RESPONSE_BYTES = 25 * 1024 * 1024;
@@ -20,6 +22,14 @@ export interface PublicFetchResponse {
   ok: boolean;
   headers: Headers;
   body: Buffer;
+  url: string;
+}
+
+export interface PublicFileDownload {
+  status: number;
+  ok: boolean;
+  headers: Headers;
+  bytes: number;
   url: string;
 }
 
@@ -124,6 +134,55 @@ async function requestPinned(url: URL, address: string, options: PublicFetchOpti
   });
 }
 
+async function requestPinnedToFile(url: URL, address: string, targetPath: string, options: PublicFetchOptions): Promise<PublicFileDownload> {
+  const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
+  return new Promise((resolve, reject) => {
+    let completed = false;
+    let responseStream: IncomingMessage | undefined;
+    let file: fs.WriteStream | undefined;
+    const rejectAndCleanup = (error: Error) => {
+      if (completed) return;
+      completed = true;
+      responseStream?.destroy(error);
+      file?.destroy();
+      void fs.promises.unlink(targetPath).catch(() => undefined).finally(() => reject(error));
+    };
+    const request = https.request({ protocol: 'https:', hostname: url.hostname, port: url.port || 443, path: `${url.pathname}${url.search}`, method: options.method ?? 'GET', headers: options.headers, servername: url.hostname.replace(/^\[|\]$/g, ''), lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)), timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS }, (response) => {
+      responseStream = response;
+      const status = response.statusCode ?? 500;
+      const headers = new Headers(Object.entries(response.headers).flatMap(([key, value]): [string, string][] => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(', ') : value]]));
+      const contentLength = Number.parseInt(headers.get('content-length') || '', 10);
+      if (Number.isFinite(contentLength) && contentLength > maxResponseBytes) {
+        response.destroy();
+        rejectAndCleanup(new Error('Outbound response exceeds size limit'));
+        return;
+      }
+      file = fs.createWriteStream(targetPath, { flags: 'wx' });
+      const outputFile = file;
+      let bytes = 0;
+      response.on('data', (chunk: Buffer) => {
+        bytes += chunk.length;
+        if (bytes > maxResponseBytes) {
+          request.destroy(new Error('Outbound response exceeds size limit'));
+          return;
+        }
+        if (!outputFile.write(chunk)) response.pause(), outputFile.once('drain', () => response.resume());
+      });
+      response.once('error', rejectAndCleanup);
+      outputFile.once('error', rejectAndCleanup);
+      response.once('end', () => outputFile.end());
+      outputFile.once('finish', () => {
+        if (completed) return;
+        completed = true;
+        resolve({ status, ok: status >= 200 && status < 300, headers, bytes, url: url.toString() });
+      });
+    });
+    request.once('timeout', () => request.destroy(new Error('Outbound request timed out')));
+    request.once('error', rejectAndCleanup);
+    request.end();
+  });
+}
+
 /** HTTPS-only request that validates every DNS answer and pins the validated address. */
 export async function fetchPublicHttps(rawUrl: string, options: PublicFetchOptions = {}): Promise<PublicFetchResponse> {
   let url: URL;
@@ -143,6 +202,23 @@ export async function fetchPublicHttps(rawUrl: string, options: PublicFetchOptio
     if (response.status === 303) {
       options = { ...options, method: 'GET', body: undefined };
     }
+  }
+  throw new OutboundUrlPolicyError('Outbound redirect limit exceeded');
+}
+
+/** Streams a validated HTTPS response to disk; redirects are revalidated per hop. */
+export async function downloadPublicHttpsToFile(rawUrl: string, targetPath: string, options: PublicFetchOptions = {}): Promise<PublicFileDownload> {
+  let url: URL;
+  try { url = new URL(rawUrl); } catch { throw new OutboundUrlPolicyError('Outbound URL is invalid'); }
+  const redirects = options.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
+  for (let hop = 0; hop <= redirects; hop++) {
+    const address = await resolvePublicAddress(url);
+    const response = await requestPinnedToFile(url, address, targetPath, options);
+    const location = response.headers.get('location');
+    if (![301, 302, 303, 307, 308].includes(response.status) || !location) return response;
+    await fs.promises.unlink(targetPath).catch(() => undefined);
+    if (hop === redirects) throw new OutboundUrlPolicyError('Outbound redirect limit exceeded');
+    url = new URL(location, url);
   }
   throw new OutboundUrlPolicyError('Outbound redirect limit exceeded');
 }

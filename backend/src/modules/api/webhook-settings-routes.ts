@@ -8,6 +8,7 @@ import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import { deliverWebhook } from './webhook-service.js';
 import { OutboundUrlPolicyError } from '../../shared/security/outbound-url-policy.js';
+import { decodeSecureSetting, encodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
 import crypto from 'node:crypto';
 
 function applyNoStore(reply: FastifyReply): void {
@@ -35,11 +36,12 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
         prisma.appSetting.findFirst({ where: { orgId, settingKey: 'webhook_secret' } }),
       ]);
 
+      const secret = decodeSecureSetting(secretSetting);
       return {
         url: urlSetting?.valuePlain ?? null,
         // Mask secret — show only last 4 chars
-        secret: secretSetting?.valuePlain
-          ? `${'*'.repeat(Math.max(0, secretSetting.valuePlain.length - 4))}${secretSetting.valuePlain.slice(-4)}`
+        secret: secret
+          ? `${'*'.repeat(Math.max(0, secret.length - 4))}${secret.slice(-4)}`
           : null,
       };
     } catch (err) {
@@ -52,14 +54,16 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
   app.put('/api/v1/settings/webhook', async (request: FastifyRequest, reply: FastifyReply) => {
     try {
       const { orgId } = request.user!;
-      const { url, secret } = request.body as { url?: string; secret?: string };
+      const body = request.body as { url?: string; secret?: string; webhookUrl?: string; webhookSecret?: string };
+      const url = body.url ?? body.webhookUrl;
+      const secret = body.secret ?? body.webhookSecret;
 
       await Promise.all([
         upsertSetting(orgId, 'webhook_url', url ?? ''),
-        secret !== undefined ? upsertSetting(orgId, 'webhook_secret', secret) : Promise.resolve(),
+        secret !== undefined ? upsertSecureSetting(orgId, 'webhook_secret', secret) : Promise.resolve(),
       ]);
 
-      return { success: true };
+      return { success: true, webhookUrl: url ?? '' };
     } catch (err) {
       logger.error('[webhook-settings] PUT error:', err);
       return reply.status(500).send({ error: 'Failed to save webhook settings' });
@@ -94,9 +98,10 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
 
       const newKey = `zcrm_${crypto.randomBytes(24).toString('hex')}`;
       await upsertSetting(orgId, 'public_api_key', newKey);
+      await auditApiKeyAction(orgId, request.user!.id, 'api_key.rotated');
       logger.info(`[webhook-settings] Public API key rotated for org ${orgId} by user ${request.user?.id}`);
 
-      return { key: newKey };
+      return { key: newKey, apiKey: newKey };
     } catch (err) {
       logger.error('[webhook-settings] Generate API key error:', err);
       return reply.status(500).send({ error: 'Failed to generate API key' });
@@ -110,13 +115,12 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
       applyNoStore(reply);
 
       const setting = await prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key' } });
-      if (!setting?.valuePlain) return { key: null };
+      if (!setting?.valuePlain) return { key: null, apiKey: null };
 
       const k = setting.valuePlain;
-      // Show prefix + first 8 chars + mask + last 4 chars
-      const masked = k.length > 12 ? `${k.slice(0, 12)}${'*'.repeat(k.length - 16)}${k.slice(-4)}` : `${k.slice(0, 4)}****`;
+      await auditApiKeyAction(orgId, request.user!.id, 'api_key.viewed');
       logger.info(`[webhook-settings] Public API key viewed for org ${orgId} by user ${request.user?.id}`);
-      return { key: masked };
+      return { key: k, apiKey: k };
     } catch (err) {
       logger.error('[webhook-settings] GET API key error:', err);
       return reply.status(500).send({ error: 'Failed to fetch API key' });
@@ -131,5 +135,20 @@ async function upsertSetting(orgId: string, settingKey: string, value: string): 
     where: { orgId_settingKey: { orgId, settingKey } },
     create: { orgId, settingKey, valuePlain: value },
     update: { valuePlain: value },
+  });
+}
+
+async function upsertSecureSetting(orgId: string, settingKey: string, value: string): Promise<void> {
+  const encoded = encodeSecureSetting(value);
+  await prisma.appSetting.upsert({
+    where: { orgId_settingKey: { orgId, settingKey } },
+    create: { orgId, settingKey, ...encoded },
+    update: encoded,
+  });
+}
+
+async function auditApiKeyAction(orgId: string, userId: string, action: string): Promise<void> {
+  await prisma.activityLog.create({
+    data: { orgId, userId, action, entityType: 'api_key', details: {} },
   });
 }

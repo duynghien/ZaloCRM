@@ -48,9 +48,7 @@ export interface GeneratedReportItem {
 
 export interface AutomationSettings {
   dailyEnabled: boolean;
-  dailyCronTime?: string;
   weeklyEnabled: boolean;
-  weeklyCronTime?: string;
   sendZalo: boolean;
   zaloDestinationType: 'self' | 'cloud' | 'uid';
   zaloTargetUid?: string;
@@ -89,6 +87,13 @@ export interface ResendReportPayload {
   email_recipients?: string[];
 }
 
+export interface AiReportJob {
+  id: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+  resultReportId: string | null;
+  errorMessage: string | null;
+}
+
 export const aiReportApi = {
   // Groups & Configs
   async getGroups(): Promise<{ groups: GroupItem[] }> {
@@ -115,13 +120,18 @@ export const aiReportApi = {
   },
 
   // Report Generation & Archive
-  async generateReport(payload: GenerateReportPayload): Promise<{
-    success: boolean;
-    report: GeneratedReportItem;
-    groupDigests?: any[];
-    dispatchStatus?: any;
-  }> {
-    const res = await api.post('/ai-reports/generate', payload);
+  async generateReport(payload: GenerateReportPayload, idempotencyKey: string): Promise<{ jobId: string; status: AiReportJob['status']; replay: boolean }> {
+    const res = await api.post('/ai-reports/generate', payload, { headers: { 'Idempotency-Key': idempotencyKey } });
+    return res.data;
+  },
+
+  async getJob(id: string): Promise<{ job: AiReportJob }> {
+    const res = await api.get(`/ai-reports/jobs/${id}`);
+    return res.data;
+  },
+
+  async cancelJob(id: string): Promise<{ success: boolean }> {
+    const res = await api.post(`/ai-reports/jobs/${id}/cancel`);
     return res.data;
   },
 

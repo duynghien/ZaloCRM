@@ -5,6 +5,7 @@
 import nodemailer from 'nodemailer';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { decodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
 
 export interface SmtpConfig {
   host: string;
@@ -46,8 +47,9 @@ export async function getOrgSmtpConfig(orgId: string): Promise<SmtpConfig | null
       },
     });
 
-    if (setting?.valuePlain) {
-      const parsed = JSON.parse(setting.valuePlain);
+    const storedConfig = decodeSecureSetting(setting);
+    if (storedConfig) {
+      const parsed = JSON.parse(storedConfig);
       if (parsed.host && parsed.auth?.user && parsed.auth?.pass) {
         return parsed as SmtpConfig;
       }

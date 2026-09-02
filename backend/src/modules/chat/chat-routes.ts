@@ -11,6 +11,7 @@ import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'socket.io';
+import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
 
 type QueryParams = Record<string, string>;
 
@@ -21,14 +22,18 @@ export async function chatRoutes(app: FastifyInstance) {
   app.get('/api/v1/conversations', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { page = '1', limit = '50', search = '', accountId = '' } = request.query as QueryParams;
+    const pageNum = boundedPositiveInt(page, 1, 10_000);
+    const limitNum = boundedPositiveInt(limit, 50, 100);
+    const safeSearch = boundedString(search, 200);
+    const safeAccountId = boundedString(accountId, 128);
 
     const where: any = { orgId: user.orgId };
-    if (accountId) where.zaloAccountId = accountId;
-    if (search) {
+    if (safeAccountId) where.zaloAccountId = safeAccountId;
+    if (safeSearch) {
       where.contact = {
         OR: [
-          { fullName: { contains: search, mode: 'insensitive' } },
-          { phone: { contains: search } },
+          { fullName: { contains: safeSearch, mode: 'insensitive' } },
+          { phone: { contains: safeSearch } },
         ],
       };
     }
@@ -55,13 +60,13 @@ export async function chatRoutes(app: FastifyInstance) {
           },
         },
         orderBy: { lastMessageAt: 'desc' },
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit),
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
       }),
       prisma.conversation.count({ where }),
     ]);
 
-    return { conversations, total, page: parseInt(page), limit: parseInt(limit) };
+    return { conversations, total, page: pageNum, limit: limitNum };
   });
 
   // ── Get single conversation ──────────────────────────────────────────────
@@ -86,6 +91,8 @@ export async function chatRoutes(app: FastifyInstance) {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const { page = '1', limit = '50' } = request.query as QueryParams;
+    const pageNum = boundedPositiveInt(page, 1, 10_000);
+    const limitNum = boundedPositiveInt(limit, 50, 100);
 
     const conversation = await prisma.conversation.findFirst({
       where: { id, orgId: user.orgId },
@@ -97,13 +104,13 @@ export async function chatRoutes(app: FastifyInstance) {
       prisma.message.findMany({
         where: { conversationId: id },
         orderBy: { sentAt: 'desc' },
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit),
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
       }),
       prisma.message.count({ where: { conversationId: id } }),
     ]);
 
-    return { messages: messages.reverse(), total, page: parseInt(page), limit: parseInt(limit) };
+    return { messages: messages.reverse(), total, page: pageNum, limit: limitNum };
   });
 
   // ── Send message ─────────────────────────────────────────────────────────

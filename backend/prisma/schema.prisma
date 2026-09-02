@@ -25,6 +25,7 @@ model Organization {
   orders        Order[]
   groupReportConfigs GroupReportConfig[]
   generatedReports   GeneratedReport[]
+  reportJobs         AiReportJob[]
 
   @@map("organizations")
 }
@@ -65,6 +66,7 @@ model User {
   activityLogs     ActivityLog[]
   createdOrders    Order[]             @relation("CreatedOrders")
   createdReports   GeneratedReport[]   @relation("CreatedReports")
+  reportJobs       AiReportJob[]       @relation("CreatedReportJobs")
   authSessions     AuthSession[]
 
   @@map("users")
@@ -205,6 +207,7 @@ model Message {
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   repliedBy    User?        @relation("RepliedMessages", fields: [repliedByUserId], references: [id])
 
+  @@unique([conversationId, zaloMsgId])
   @@map("messages")
 }
 
@@ -342,7 +345,59 @@ model GeneratedReport {
 
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?        @relation("CreatedReports", fields: [createdById], references: [id])
+  job       AiReportJob? @relation("ResultReport")
 
   @@index([orgId, createdAt])
   @@map("generated_reports")
+}
+
+// Persistent, lease-claimed work for on-demand AI generation. Request data is
+// a normalized snapshot so retries cannot silently change the requested scope.
+model AiReportJob {
+  id                String    @id @default(uuid())
+  orgId             String    @map("org_id")
+  createdById       String?   @map("created_by_id")
+  idempotencyKey    String    @map("idempotency_key")
+  scheduleKey       String?   @unique @map("schedule_key")
+  status            String    @default("queued")
+  requestData       Json      @map("request_data")
+  attempts          Int       @default(0)
+  leaseOwner        String?   @map("lease_owner")
+  leaseExpiresAt    DateTime? @map("lease_expires_at")
+  cancellationRequestedAt DateTime? @map("cancellation_requested_at")
+  resultReportId    String?   @unique @map("result_report_id")
+  errorMessage      String?   @map("error_message")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  org          Organization    @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy    User?           @relation("CreatedReportJobs", fields: [createdById], references: [id], onDelete: SetNull)
+  resultReport GeneratedReport? @relation("ResultReport", fields: [resultReportId], references: [id], onDelete: SetNull)
+  dispatches    AiReportJobDispatch[]
+
+  @@unique([orgId, createdById, idempotencyKey])
+  @@index([status, leaseExpiresAt])
+  @@index([orgId, status])
+  @@map("ai_report_jobs")
+}
+
+model AiReportJobDispatch {
+  id           String   @id @default(uuid())
+  jobId        String   @map("job_id")
+  channel      String
+  status       String   @default("pending")
+  leaseOwner   String?  @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  claimedAt    DateTime? @map("claimed_at")
+  completedAt  DateTime? @map("completed_at")
+  errorMessage String?  @map("error_message")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  job AiReportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, channel])
+  @@map("ai_report_job_dispatches")
 }

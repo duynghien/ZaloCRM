@@ -4,6 +4,7 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { fork } from 'node:child_process';
 import ExcelJS from 'exceljs';
 import pdfParse from 'pdf-parse';
 import { logger } from '../../shared/utils/logger.js';
@@ -51,14 +52,54 @@ const SUMMARY_KEYWORDS = [
   'tồn kho',
   'tiến độ',
 ];
+const MAX_PARSE_BYTES = 10 * 1024 * 1024;
+const MAX_PDF_PAGES = 100;
+const MAX_SHEETS = 20;
+const MAX_ROWS = 2_000;
+const MAX_CELLS = 20_000;
+const PARSE_TIMEOUT_MS = 20_000;
+const MAX_CONCURRENT_PARSES = 2;
+const MAX_QUEUED_PARSES = 20;
+let activeParses = 0;
+const parseWaiters: Array<() => void> = [];
+
+class ParserLimitError extends Error {}
+
+async function acquireParseWorker(): Promise<void> {
+  if (activeParses < MAX_CONCURRENT_PARSES && parseWaiters.length === 0) {
+    activeParses++;
+    return;
+  }
+  if (parseWaiters.length >= MAX_QUEUED_PARSES) {
+    throw new ParserLimitError('Attachment parser queue is full');
+  }
+
+  await new Promise<void>((resolve) => parseWaiters.push(resolve));
+}
+
+function releaseParseWorker(): void {
+  const next = parseWaiters.shift();
+  if (next) {
+    next();
+    return;
+  }
+  activeParses--;
+}
+
+async function readBounded(source: Buffer | string): Promise<Buffer> {
+  const buffer = typeof source === 'string' ? await fs.promises.readFile(source) : source;
+  if (buffer.length > MAX_PARSE_BYTES) throw new ParserLimitError('Attachment exceeds parser byte limit');
+  return buffer;
+}
 
 /**
  * Parse PDF content using pdf-parse with scanned PDF fallback detection.
  */
-export async function parsePdf(source: Buffer | string): Promise<PdfParseResult> {
+async function parsePdf(source: Buffer | string): Promise<PdfParseResult> {
   try {
-    const buffer = typeof source === 'string' ? await fs.promises.readFile(source) : source;
+    const buffer = await readBounded(source);
     const data = await pdfParse(buffer);
+    if ((data.numpages || 0) > MAX_PDF_PAGES) throw new ParserLimitError('PDF exceeds page limit');
     const rawText = (data.text || '').trim();
     const isScanned = rawText.length < 50;
 
@@ -80,20 +121,19 @@ export async function parsePdf(source: Buffer | string): Promise<PdfParseResult>
 /**
  * Parse Excel (.xlsx/.xls) sheets with row capping and summary row preservation.
  */
-export async function parseExcel(source: Buffer | string): Promise<ExcelParseResult> {
+async function parseExcel(source: Buffer | string): Promise<ExcelParseResult> {
   try {
+    const input = await readBounded(source);
     const workbook = new ExcelJS.Workbook();
-    if (typeof source === 'string') {
-      await workbook.xlsx.readFile(source);
-    } else {
-      await workbook.xlsx.load(source as any);
-    }
+    await workbook.xlsx.load(input as any);
 
     const sheetSummaries: string[] = [];
     const sheetNames: string[] = [];
     let totalProcessedRows = 0;
 
-    workbook.eachSheet((worksheet, sheetId) => {
+    if (workbook.worksheets.length > MAX_SHEETS) throw new ParserLimitError('Workbook exceeds sheet limit');
+    let totalCells = 0;
+    workbook.eachSheet((worksheet) => {
       sheetNames.push(worksheet.name);
       const rowsText: string[] = [];
       const headerRow = worksheet.getRow(1);
@@ -110,6 +150,7 @@ export async function parseExcel(source: Buffer | string): Promise<ExcelParseRes
 
       let rowCount = 0;
       worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber > MAX_ROWS || totalProcessedRows >= MAX_ROWS) return;
         if (rowNumber === 1) return; // Skip header row already captured
         rowCount++;
         totalProcessedRows++;
@@ -119,6 +160,8 @@ export async function parseExcel(source: Buffer | string): Promise<ExcelParseRes
         let isSummaryRow = false;
 
         row.eachCell({ includeEmpty: false }, (cell) => {
+          totalCells++;
+          if (totalCells > MAX_CELLS) throw new ParserLimitError('Workbook exceeds cell limit');
           const val = String(cell.text || cell.value || '').trim();
           if (val) {
             hasContent = true;
@@ -163,12 +206,12 @@ export async function parseExcel(source: Buffer | string): Promise<ExcelParseRes
 /**
  * Prepare image buffer as base64 for Gemini Multimodal / OCR.
  */
-export async function prepareImageBuffer(
+async function prepareImageBuffer(
   source: Buffer | string,
   providedMimeType?: string,
 ): Promise<ImagePrepResult | null> {
   try {
-    const buffer = typeof source === 'string' ? await fs.promises.readFile(source) : source;
+    const buffer = await readBounded(source);
     let mimeType = providedMimeType || 'image/jpeg';
 
     if (typeof source === 'string') {
@@ -192,12 +235,15 @@ export async function prepareImageBuffer(
 /**
  * Universal content extractor for attachments.
  */
-export async function extractAttachmentContent(params: {
+export interface AttachmentParseParams {
   filename?: string;
   mimeType?: string;
   localPath?: string;
   buffer?: Buffer;
-}): Promise<ExtractedContentResult> {
+}
+
+/** Runs inside the parser process, where a hard timeout can reclaim memory and CPU. */
+export async function extractAttachmentContentInWorker(params: AttachmentParseParams): Promise<ExtractedContentResult> {
   const filename = (params.filename || '').toLowerCase();
   const mime = (params.mimeType || '').toLowerCase();
 
@@ -253,4 +299,62 @@ export async function extractAttachmentContent(params: {
     type: 'unknown',
     text: '',
   };
+}
+
+/**
+ * Extract attachment content in an isolated process. The pool queues excess work,
+ * while a timed-out process is hard-terminated before its slot is released.
+ */
+export async function extractAttachmentContent(params: AttachmentParseParams): Promise<ExtractedContentResult> {
+  await acquireParseWorker();
+
+  return new Promise<ExtractedContentResult>((resolve, reject) => {
+    let child;
+    try {
+      child = fork(new URL('./attachment-parser-worker.js', import.meta.url), [], {
+        serialization: 'advanced',
+      });
+    } catch (spawnError) {
+      releaseParseWorker();
+      reject(spawnError instanceof Error ? spawnError : new Error('Attachment parser process failed to start'));
+      return;
+    }
+    let settled = false;
+    let result: ExtractedContentResult | undefined;
+    let error: Error | undefined;
+    const timeout = setTimeout(() => {
+      finish(new ParserLimitError('Attachment parse timed out'), 'SIGKILL');
+    }, PARSE_TIMEOUT_MS);
+
+    const finish = (nextError?: Error, signal: NodeJS.Signals = 'SIGTERM', nextResult?: ExtractedContentResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      error = nextError;
+      result = nextResult;
+      child.kill(signal);
+    };
+
+    child.once('message', (message: { result?: ExtractedContentResult; error?: string }) => {
+      finish(message.error ? new Error(message.error) : undefined, 'SIGTERM', message.result);
+    });
+    child.once('error', (childError) => finish(childError instanceof Error ? childError : new Error('Attachment parser process failed'), 'SIGKILL'));
+    child.once('exit', (code, signal) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeout);
+        error = new Error(`Attachment parser process exited unexpectedly (${code ?? signal ?? 'unknown'})`);
+      }
+      releaseParseWorker();
+      if (error) reject(error);
+      else resolve(result!);
+    });
+    try {
+      child.send(params, (sendError) => {
+        if (sendError) finish(sendError, 'SIGKILL');
+      });
+    } catch (sendError) {
+      finish(sendError instanceof Error ? sendError : new Error('Attachment parser process did not accept work'), 'SIGKILL');
+    }
+  });
 }
