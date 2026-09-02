@@ -189,12 +189,12 @@ cat backup-manual-20260813.sql | docker exec -i zalo-crm-db psql -U crmuser zalo
 - [x] Chạy container ứng dụng dưới tài khoản phi đặc quyền `USER node`.
 - [x] Không lưu trữ mật khẩu DB hoặc Secret key mặc định trong phiên bản production.
 - [x] Kích hoạt tường lửa UFW chỉ mở cổng `80`, `443`, `22` (SSH).
-- [ ] Nâng image khỏi Node.js 20 đã EOL lên Node.js LTS còn được hỗ trợ.
+- [x] Dùng Node.js 24 LTS trong production và development images.
 - [x] Thêm `.dockerignore`; không gửi `.env`, `.git`, `node_modules`, backup và build artifact vào Docker context.
 - [x] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
 - [x] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
 - [ ] Chặn SSRF cho webhook/attachment URL, gồm DNS, IPv6 và redirect chain.
-- [ ] Mã hóa API key, webhook secret và SMTP password ở database/backups.
+- [x] Mã hóa webhook secret và SMTP password ở database/backups. Public API key vẫn plaintext/recoverable theo residual-risk waiver đã chấp nhận; chỉ Owner/Admin được xem, response phải `Cache-Control: no-store`, có audit trail và không log giá trị secret.
 - [ ] Đóng toàn bộ finding high/moderate được chấp nhận từ dependency audit.
 
 > [!CAUTION]

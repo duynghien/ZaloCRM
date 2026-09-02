@@ -53,15 +53,15 @@ npm run docker:dev  # Khởi chạy Docker môi trường Development (Hot Reloa
 
 | Thành phần | Công nghệ |
 |-----------|----------|
-| **Backend** | Node.js 20 / Fastify 5 / Prisma 7 / TypeScript |
+| **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 / TypeScript |
 | **Frontend** | Vue 3 / Vuetify 4 / Chart.js / Pinia |
 | **Cơ sở dữ liệu** | PostgreSQL 16 |
 | **Real-time** | Socket.IO |
 | **Zalo Engine** | zca-js 2.x |
 | **Triển khai** | Docker Compose / Nginx |
 
-> [!WARNING]
-> Image production hiện vẫn dùng Node.js 20, nhánh đã hết vòng đời hỗ trợ. Trước lần phát hành production tiếp theo, nâng lên Node.js LTS còn được hỗ trợ và xử lý các release blocker trong [Product Roadmap](./docs/project-roadmap.md).
+> [!NOTE]
+> Docker production và development dùng Node.js 24 LTS. Cần cung cấp `GEMINI_API_KEY` cùng `GEMINI_MODEL` hợp lệ khi bật AI Reports; mặc định là `gemini-3.6-flash`.
 
 ---
 

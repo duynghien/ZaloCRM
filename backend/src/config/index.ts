@@ -13,6 +13,11 @@ const appOrigin = new URL(appUrl).origin;
 const refreshSessionDays = Number.parseInt(process.env.REFRESH_SESSION_DAYS || '7', 10);
 const aiReportMaxMessages = Number.parseInt(process.env.AI_REPORT_MAX_MESSAGES || '10000', 10);
 const aiReportMaxTokens = Number.parseInt(process.env.AI_REPORT_MAX_TOKENS || '200000', 10);
+const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+
+if (!/^gemini-(?:2\.5|3\.)[a-z0-9.-]+$/i.test(geminiModel) || geminiModel.startsWith('gemini-2.0-')) {
+  throw new Error(`GEMINI_MODEL must name a supported Gemini 2.5+ stable model; received ${geminiModel}.`);
+}
 
 // Validate production secrets
 if (isProduction) {
@@ -44,6 +49,7 @@ export const config = {
   refreshCookieName: 'zalo_crm_refresh',
   csrfCookieName: 'zalo_crm_csrf',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
+  geminiModel,
   aiReportMaxMessages: Math.max(1, Number.isFinite(aiReportMaxMessages) ? aiReportMaxMessages : 10_000),
   aiReportMaxTokens: Math.max(1, Number.isFinite(aiReportMaxTokens) ? aiReportMaxTokens : 200_000),
   isProduction,

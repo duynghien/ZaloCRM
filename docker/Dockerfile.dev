@@ -1,8 +1,5 @@
 # Development Dockerfile - Hot Reload Enabled
-FROM node:20-alpine
-
-# Install watchman for better file watching
-RUN apk add --no-cache watchman
+FROM node:24-alpine
 
 WORKDIR /app
 

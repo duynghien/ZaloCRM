@@ -4,6 +4,9 @@
   "description": "ZaloCRM — Multi-Zalo Sales & Customer Relationship Management System",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24 <27"
+  },
   "workspaces": [
     "backend",
     "frontend"

@@ -75,7 +75,14 @@ async function completeDispatch(job: ClaimedJob, channel: 'zalo' | 'email', sent
 
 async function runJob(job: ClaimedJob): Promise<void> {
   const request = job.requestData as unknown as ReportJobRequest;
-  const renew = setInterval(() => void prisma.aiReportJob.updateMany({ where: { id: job.id, status: 'running', leaseOwner: job.leaseOwner }, data: { leaseExpiresAt: new Date(Date.now() + leaseMs) } }), Math.floor(leaseMs / 3));
+  const renew = setInterval(() => {
+    void prisma.aiReportJob.updateMany({
+      where: { id: job.id, status: 'running', leaseOwner: job.leaseOwner },
+      data: { leaseExpiresAt: new Date(Date.now() + leaseMs) },
+    }).catch((error) => {
+      logger.warn(`[report-job-worker] Failed to renew lease for ${job.id}:`, error);
+    });
+  }, Math.floor(leaseMs / 3));
   try {
     if (job.cancellationRequestedAt || await cancelledOrLeaseLost(job)) throw new Error('Job cancelled');
     const user = await authorizedUser(job, request);
@@ -122,5 +129,16 @@ async function runJob(job: ClaimedJob): Promise<void> {
 }
 
 async function processOneJob(): Promise<void> { if (processing) return; processing = true; try { const job = await claimNextJob(); if (job) await runJob(job); } finally { processing = false; } }
-export function startReportJobWorker(): void { if (!timer) { timer = setInterval(() => void processOneJob(), 2_000); void processOneJob(); } }
+function scheduleProcessOneJob(trigger: 'startup' | 'interval'): void {
+  void processOneJob().catch((error) => {
+    logger.error(`[report-job-worker] Background ${trigger} poll failed:`, error);
+  });
+}
+
+export function startReportJobWorker(): void {
+  if (!timer) {
+    timer = setInterval(() => scheduleProcessOneJob('interval'), 2_000);
+    scheduleProcessOneJob('startup');
+  }
+}
 export function stopReportJobWorker(): void { if (timer) clearInterval(timer); timer = undefined; }

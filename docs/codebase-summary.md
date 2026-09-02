@@ -72,7 +72,7 @@ ZaloCRM/
 | **chat** | Quản lý danh sách hội thoại, gửi/nhận tin nhắn, tải file đính kèm, cập nhật trạng thái đã đọc/chưa đọc. | `chat-routes.ts`, `message-handler.ts` |
 | **contacts** | Quản lý danh bạ khách hàng, phân loại Pipeline trạng thái, lịch hẹn (Appointment) & nhắc nhở, đơn hàng (Order). | `contact-routes.ts`, `appointment-routes.ts`, `appointment-reminder.ts` |
 | **attachments** | Tải và lưu trữ vĩnh viễn tệp đính kèm (PDF, Excel, Ảnh), trích xuất văn bản & bảng tính đa phương tiện. | `attachment-downloader.ts`, `attachment-parser.ts` |
-| **ai-reports** | Động cơ AI Digest 2 tầng (Hierarchical Map-Reduce) với Gemini 2.0 Flash, bộ lọc nhiễu, gửi tin Zalo tự động & Email SMTP, lập lịch Cron. | `summarizer-service.ts`, `ai-client.ts`, `noise-filter.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts`, `ai-report-routes.ts` |
+| **ai-reports** | Động cơ AI Digest 2 tầng (Hierarchical Map-Reduce) với Gemini model cấu hình được (`GEMINI_MODEL`, mặc định `gemini-3.6-flash`), bộ lọc nhiễu, gửi tin Zalo tự động & Email SMTP, lập lịch Cron. | `summarizer-service.ts`, `ai-client.ts`, `noise-filter.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts`, `ai-report-routes.ts` |
 | **dashboard** | Thống kê số lượng tin nhắn, KPI nhân viên, biểu đồ tăng trưởng khách hàng, xuất báo cáo ra Excel. | `dashboard-routes.ts`, `report-routes.ts` |
 | **api** | Cung cấp Public REST API xác thực bằng `X-API-Key` và hệ thống Webhook kích hoạt sự kiện bên ngoài. | `public-api-routes.ts`, `webhook-settings-routes.ts` |
 | **search** | Tìm kiếm toàn văn (Full-text search) đồng thời trên Khách hàng, Cuộc trò chuyện và Lịch hẹn. | `search-routes.ts` |
@@ -98,7 +98,7 @@ ZaloCRM/
 ## 4. Danh Mục API Endpoints Chính
 
 ```
-GET    /health                                # Health check server & DB connection
+GET    /health                                # Readiness check; 503 when the database is unavailable
 POST   /api/v1/auth/login                     # Đăng nhập hệ thống
 POST   /api/v1/zalo-accounts                  # Tạo yêu cầu đăng nhập Zalo mới (QR Code)
 GET    /api/v1/conversations                  # Lấy danh sách cuộc trò chuyện

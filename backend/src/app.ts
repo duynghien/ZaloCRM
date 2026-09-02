@@ -3,7 +3,7 @@
  * Bootstraps Fastify server with all plugins, Socket.IO, and route handlers.
  * The process never exits — all errors are caught and logged.
  */
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
@@ -23,7 +23,7 @@ import { chatRoutes } from './modules/chat/chat-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
 import { appointmentRoutes } from './modules/contacts/appointment-routes.js';
-import { startAppointmentReminder } from './modules/contacts/appointment-reminder.js';
+import { startAppointmentReminder, stopAppointmentReminder } from './modules/contacts/appointment-reminder.js';
 import { dashboardRoutes } from './modules/dashboard/dashboard-routes.js';
 import { reportRoutes } from './modules/dashboard/report-routes.js';
 import { userRoutes } from './modules/auth/user-routes.js';
@@ -35,15 +35,16 @@ import { zaloPool } from './modules/zalo/zalo-pool.js';
 import { pruneSocketAccountRooms, registerZaloSocketHandlers } from './modules/zalo/zalo-socket.js';
 import { notificationRoutes } from './modules/notifications/notification-routes.js';
 import { searchRoutes } from './modules/search/search-routes.js';
-import { startZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
+import { startZaloHealthCheck, stopZaloHealthCheck } from './modules/zalo/zalo-health-check.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
 import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
-import { startReportCronJobs } from './modules/ai-reports/report-cron.js';
+import { startReportCronJobs, stopReportCronJobs } from './modules/ai-reports/report-cron.js';
 import { startReportJobWorker, stopReportJobWorker } from './modules/ai-reports/report-job-worker.js';
 import { decryptData } from './shared/utils/crypto.js';
 import { registerSessionRevocationListener, validateSessionUser, type JwtPayload } from './modules/auth/auth-service.js';
+import { validateConfiguredGeminiModel } from './modules/ai-reports/ai-client.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -52,9 +53,39 @@ declare module 'fastify' {
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+let application: FastifyInstance | undefined;
+let shutdownPromise: Promise<void> | undefined;
+
+async function shutdown(exitCode: number, cause: string): Promise<void> {
+  if (shutdownPromise) return shutdownPromise;
+
+  shutdownPromise = (async () => {
+    logger.error(`[lifecycle] Shutting down after ${cause}`);
+    const forceExit = setTimeout(() => process.exit(1), 10_000);
+    forceExit.unref();
+
+    try {
+      stopAppointmentReminder();
+      stopReportCronJobs();
+      await stopZaloHealthCheck();
+      zaloPool.disconnectAll();
+      await application?.close();
+      await prisma.$disconnect();
+    } catch (error) {
+      logger.error('[lifecycle] Graceful shutdown failed:', error);
+      exitCode = 1;
+    } finally {
+      clearTimeout(forceExit);
+      process.exit(exitCode);
+    }
+  })();
+
+  return shutdownPromise;
+}
 
 async function bootstrap() {
   const app = Fastify({ logger: false });
+  application = app;
 
   // ── Plugins ──────────────────────────────────────────────────────────────
 
@@ -224,13 +255,13 @@ async function bootstrap() {
   await app.register(orderRoutes);
   await app.register(aiReportRoutes);
 
-  // Liveness/readiness probe — also checks DB connectivity
-  app.get('/health', async () => {
+  // Readiness probe: a failed mandatory database dependency must be visible to orchestrators.
+  app.get('/health', async (_request, reply) => {
     try {
       await prisma.$queryRaw`SELECT 1`;
       return { status: 'ok', db: 'connected', timestamp: new Date().toISOString() };
     } catch {
-      return { status: 'error', db: 'disconnected', timestamp: new Date().toISOString() };
+      return reply.status(503).send({ status: 'error', db: 'disconnected', timestamp: new Date().toISOString() });
     }
   });
 
@@ -261,6 +292,7 @@ async function bootstrap() {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   try {
+    await validateConfiguredGeminiModel();
     await app.listen({ port: config.port, host: config.host });
     logger.info(`Zalo CRM running on http://${config.host}:${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);
@@ -300,12 +332,15 @@ async function bootstrap() {
   }
 }
 
-// Keep process alive — log but never crash on unhandled errors
 process.on('uncaughtException', (err) => {
   logger.error('Uncaught Exception:', err);
+  void shutdown(1, 'uncaught exception');
 });
 process.on('unhandledRejection', (reason) => {
   logger.error('Unhandled Rejection:', reason);
+  void shutdown(1, 'unhandled rejection');
 });
+process.once('SIGTERM', () => { void shutdown(0, 'SIGTERM'); });
+process.once('SIGINT', () => { void shutdown(0, 'SIGINT'); });
 
 bootstrap();

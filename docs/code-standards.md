@@ -91,7 +91,7 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 
 ### 7.2. Secret và outbound request
 
-- API key, webhook secret và mật khẩu SMTP phải lưu mã hóa; không dùng `valuePlain` cho credential có thể tái sử dụng.
+- Webhook secret và mật khẩu SMTP phải lưu mã hóa; không dùng `valuePlain` cho các credential này. Public API key là ngoại lệ sản phẩm đã chấp nhận: vẫn plaintext/recoverable cho Owner/Admin nhưng phải có `Cache-Control: no-store`, audit trail, redaction trong log/error và không cache ở client/proxy.
 - URL webhook/attachment là dữ liệu không tin cậy. Chỉ cho phép host tin cậy hoặc phải chặn loopback, private, link-local, metadata IP cho cả IPv4/IPv6 sau DNS resolution và sau mỗi redirect.
 - Downloader phải giới hạn byte trong lúc stream, không đọc toàn bộ response không giới hạn vào RAM. Parser cần giới hạn trang, sheet, cell và thời gian xử lý.
 

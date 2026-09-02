@@ -8,9 +8,12 @@ import type { Server } from 'socket.io';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 
+let appointmentReminderTask: ReturnType<typeof cron.schedule> | undefined;
+
 export function startAppointmentReminder(io: Server): void {
+  appointmentReminderTask?.stop();
   // 01:00 UTC = 08:00 Vietnam time (UTC+7)
-  cron.schedule('0 1 * * *', async () => {
+  appointmentReminderTask = cron.schedule('0 1 * * *', async () => {
     logger.info('[reminder] Checking tomorrow appointments...');
 
     try {
@@ -56,4 +59,9 @@ export function startAppointmentReminder(io: Server): void {
   });
 
   logger.info('[reminder] Appointment reminder cron started (daily 01:00 UTC)');
+}
+
+export function stopAppointmentReminder(): void {
+  appointmentReminderTask?.stop();
+  appointmentReminderTask = undefined;
 }

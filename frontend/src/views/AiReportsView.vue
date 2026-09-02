@@ -19,7 +19,7 @@
 
         <div class="d-flex align-center gap-2">
           <v-chip color="cyan-lighten-4" class="text-cyan-darken-4 font-weight-bold" prepend-icon="mdi-flash">
-            Gemini 2.0 Flash
+            Gemini AI
           </v-chip>
           <v-chip color="light-green-lighten-4" class="text-green-darken-4 font-weight-bold" prepend-icon="mdi-check-decagram">
             Multi-Channel (Zalo + Web + Email)

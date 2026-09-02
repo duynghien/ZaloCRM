@@ -6,6 +6,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { submitScheduledReportJob, type ReportJobRequest } from './report-job-service.js';
 
+let reportCronTasks: ReturnType<typeof cron.schedule>[] = [];
+
 export interface AutomationSettings {
   dailyEnabled: boolean;
   weeklyEnabled: boolean;
@@ -122,8 +124,10 @@ export async function runScheduledOrgReports(
  * Start cron jobs for daily & weekly reports
  */
 export function startReportCronJobs(): void {
+  for (const task of reportCronTasks) task.stop();
+  reportCronTasks = [];
   // 1. Daily Job: 18:00 every day (Vietnam Time UTC+7)
-  cron.schedule(
+  reportCronTasks.push(cron.schedule(
     '0 18 * * *',
     async () => {
       logger.info('[report-cron] Triggering daily 18:00 report cron (Asia/Ho_Chi_Minh)...');
@@ -134,10 +138,10 @@ export function startReportCronJobs(): void {
       await runScheduledOrgReports('daily', startOfDay, now);
     },
     { timezone: 'Asia/Ho_Chi_Minh' },
-  );
+  ));
 
   // 2. Weekly Job: 17:00 every Saturday (day 6) (Vietnam Time UTC+7)
-  cron.schedule(
+  reportCronTasks.push(cron.schedule(
     '0 17 * * 6',
     async () => {
       logger.info('[report-cron] Triggering weekly Saturday 17:00 report cron (Asia/Ho_Chi_Minh)...');
@@ -147,7 +151,12 @@ export function startReportCronJobs(): void {
       await runScheduledOrgReports('weekly', startOfWeek, now);
     },
     { timezone: 'Asia/Ho_Chi_Minh' },
-  );
+  ));
 
   logger.info('[report-cron] AI Report cron jobs initialized (Daily 18:00, Weekly Sat 17:00 in Asia/Ho_Chi_Minh)');
+}
+
+export function stopReportCronJobs(): void {
+  for (const task of reportCronTasks) task.stop();
+  reportCronTasks = [];
 }

@@ -287,6 +287,10 @@ class ZaloAccountPool {
     this.instances.delete(accountId);
   }
 
+  disconnectAll(): void {
+    for (const accountId of [...this.instances.keys()]) this.disconnect(accountId);
+  }
+
   getStatus(accountId: string): string {
     return this.instances.get(accountId)?.status ?? 'disconnected';
   }

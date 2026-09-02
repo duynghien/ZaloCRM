@@ -1,5 +1,5 @@
 # ── Stage 1: Install the root workspace graph ─────────────────────────────────
-FROM node:20-alpine AS dependencies
+FROM node:24-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json ./backend/package.json
@@ -19,7 +19,7 @@ RUN npm run prisma:generate --workspace=backend
 RUN npm run build --workspace=backend
 
 # ── Stage 4: Production image ────────────────────────────────────────────────
-FROM node:20-alpine
+FROM node:24-alpine
 RUN apk add --no-cache tini
 WORKDIR /app
 
@@ -37,6 +37,8 @@ COPY --chown=node:node --from=frontend-builder /app/frontend/dist /app/static
 USER node
 
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD node -e "fetch('http://127.0.0.1:3000/health').then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
 ENTRYPOINT ["/sbin/tini", "--"]
 # A migration failure prevents the application from starting.
 CMD ["sh", "-c", "npx prisma migrate deploy --config prisma.config.ts && node dist/app.js"]

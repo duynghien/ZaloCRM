@@ -1,5 +1,5 @@
 /**
- * ai-client.ts — Google Gemini 2.0 client with exponential backoff retry and multimodal support.
+ * ai-client.ts — Configured Gemini client with exponential backoff retry and multimodal support.
  */
 import { GoogleGenAI } from '@google/genai';
 import { config } from '../../config/index.js';
@@ -33,6 +33,25 @@ function getGenAI(): GoogleGenAI | null {
   return genAIInstance;
 }
 
+export async function validateConfiguredGeminiModel(requireApiKey = false): Promise<boolean> {
+  const ai = getGenAI();
+  if (!ai) {
+    if (requireApiKey) throw new Error('GEMINI_API_KEY is required for the Gemini model smoke check.');
+    return false;
+  }
+
+  try {
+    const model = await ai.models.get({ model: config.geminiModel });
+    if (!model.supportedActions?.includes('generateContent')) {
+      throw new Error(`Gemini model ${config.geminiModel} does not support generateContent.`);
+    }
+    logger.info(`[ai-client] Verified configured Gemini model ${config.geminiModel}`);
+    return true;
+  } catch (error) {
+    throw new Error(`Configured Gemini model ${config.geminiModel} is unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 /**
  * Helper to pause execution
  */
@@ -50,7 +69,7 @@ export async function generateContent(
     throw new Error('GEMINI_API_KEY is required to generate AI reports.');
   }
 
-  const model = options?.model || 'gemini-2.0-flash';
+  const model = options?.model || config.geminiModel;
   const ai = getGenAI();
   if (!ai) {
     throw new Error('Google GenAI client could not be initialized.');
