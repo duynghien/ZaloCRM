@@ -11,6 +11,7 @@ ZaloCRM/
 ├── HUONG-DAN-SU-DUNG.md      # Hướng dẫn sử dụng tính năng
 ├── README.md                 # Giới thiệu dự án
 ├── package.json              # Script điều phối Workspace Root
+├── .github/workflows/ci.yml  # Root install/typecheck/test/build/audit/Docker gate
 │
 ├── docs/                     # Hệ thống tài liệu kỹ thuật chuẩn
 │   ├── project-overview-pdr.md
@@ -119,17 +120,17 @@ POST   /api/public/messages/send              # Public API: Gửi tin nhắn qua
 
 ---
 
-## 5. Quality Baseline (2026-08-31)
+## 5. Quality Baseline (2026-09-02)
 
 | Chỉ số | Trạng thái kiểm chứng |
 |---|---|
 | TypeScript typecheck | Pass trên working tree hiện tại |
 | Production build | Pass với dependency đã cài sẵn |
-| Clean install workspace | Fail: lockfile backend/frontend lệch manifest |
-| Automated tests | 0 file test/spec |
+| Clean install workspace | Root `npm ci` là dependency graph chuẩn |
+| Automated tests | Vitest: policy/secret/job-bound/P1 source-contract tests; Playwright: auth-session browser smoke |
 | Fastify route schema | 0 schema cho 92 route declarations |
-| Lint/CI | Chưa có script lint và workflow CI |
+| CI | GitHub Actions chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build |
 | File mã nguồn > 200 dòng | 19 file (không tính Prisma schema) |
-| Dependency audit | 7 findings: 5 high, 2 moderate |
+| Dependency audit | CI chặn critical; residual risk được theo dõi trong release documentation |
 
 Baseline này mô tả trạng thái, không phải tiêu chí chấp nhận production. Xem roadmap để biết thứ tự hardening.

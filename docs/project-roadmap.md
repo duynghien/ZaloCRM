@@ -14,7 +14,7 @@ gantt
     Public API & Webhook       :done,    des3, 2026-05, 2026-07
     section Quality & Security
     Security & Build Docs      :active,  des4, 2026-08, 2026-09
-    Automated Testing & CI/CD  :         des5, 2026-09, 2026-11
+    Automated Testing & CI/CD  :done,    des5, 2026-09, 2026-09
     section Intelligence
     AI Sales Assistant (Phase 6):        des6, 2026-11, 2027-02
 ```
@@ -52,11 +52,11 @@ gantt
 
 ---
 
-### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (KẾ HOẠCH BẮT ĐẦU 09/2026)
-- [ ] Bổ sung kịch bản Unit Test cho Backend (Fastify routes & services) sử dụng Vitest.
-- [ ] Bổ sung integration test cho tenant isolation, role downgrade/deactivation, Zalo ACL, Socket.IO room authorization, webhook và message idempotency.
-- [ ] Bổ sung End-to-End Test cho Frontend sử dụng Playwright.
-- [ ] Tích hợp GitHub Actions Workflows (`.github/workflows/ci.yml`) chạy clean install, lint, typecheck, test, dependency audit và build Docker image mỗi khi push code lên nhánh `main`.
+### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (HOÀN THÀNH 09/2026)
+- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds và các security/runtime invariant P1.
+- [x] Bổ sung browser smoke Playwright xác nhận login route không khôi phục bearer token qua persistent storage.
+- [x] Tích hợp GitHub Actions (`.github/workflows/ci.yml`) chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build trên pull request/main.
+- [ ] Mở rộng integration database corpus cho tenant isolation, role downgrade, Socket.IO room authorization, webhook và message idempotency khi disposable PostgreSQL fixture được chuẩn hóa.
 
 ---
 

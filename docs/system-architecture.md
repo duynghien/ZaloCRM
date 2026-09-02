@@ -90,6 +90,10 @@ sequenceDiagram
 - **Contact Visibility:** Mọi role trong cùng organization được xem contact. `assignedUserId` phục vụ phân công/KPI, không phải ranh giới đọc dữ liệu.
 - **AI Reports:** Mọi role được sử dụng; member bị giới hạn theo Zalo account ACL, còn owner/admin có phạm vi toàn organization và quản lý cấu hình SMTP/automation.
 
-### 4.1. Trạng thái kiểm chứng ngày 2026-08-31
+### 4.1. Trạng thái kiểm chứng ngày 2026-09-02
 
-Các invariant trên là thiết kế đích, chưa được thực thi nhất quán. Audit hiện tại xác nhận còn thiếu tenant/RBAC/ACL ở một số route Orders, Zalo, Chat, AI Reports và account-room subscription của Socket.IO. Webhook/attachment downloader cũng chưa có SSRF guard hoàn chỉnh. Không coi hệ thống là production-hardened cho đến khi các release blocker trong roadmap được đóng bằng regression test.
+Release remediation đã đưa tenant scoping, RBAC/ACL Zalo, session rotation và SSRF policy vào các ranh giới backend. Access token có hạn 15 phút và chỉ tồn tại trong memory của browser; refresh token opaque được hash ở server, xoay vòng qua HttpOnly cookie, và bị revoke khi đổi mật khẩu, role hoặc trạng thái hoạt động. Socket.IO tái kiểm tra session và quyền account trong lúc kết nối còn sống.
+
+AI report on-demand chạy qua DB-backed job (giới hạn 31 ngày, 20 group, 10 email recipients; idempotency, lease, cancellation và ngân sách message/token). Webhook và attachment chỉ được phép tới HTTPS public sau DNS/redirect validation. SMTP password và webhook secret được mã hóa; public API key vẫn plaintext/recoverable theo residual-risk waiver, chỉ Owner/Admin xem được, `no-store`, audit và không log giá trị key.
+
+Vitest bảo vệ các policy/contract P1 và Playwright smoke kiểm tra browser không lưu bearer token bền vững. GitHub Actions chạy cùng root workspace install, typecheck, test, build, production audit, frontend smoke và Docker build.
