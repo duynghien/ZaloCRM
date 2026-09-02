@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
     "typecheck": "vue-tsc --noEmit",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@mdi/font": "^7.4.47",
@@ -24,6 +25,7 @@
     "vuetify": "^4.0.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^24.12.0",
     "@vitejs/plugin-vue": "^6.0.5",

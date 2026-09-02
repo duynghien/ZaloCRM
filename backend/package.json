@@ -17,7 +17,9 @@
     "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
-    "ai:smoke": "tsx src/modules/ai-reports/gemini-model-smoke.ts"
+    "ai:smoke": "tsx src/modules/ai-reports/gemini-model-smoke.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -60,6 +62,7 @@
     "nodemon": "^3.1.14",
     "prisma": "^7.10.0",
     "tsx": "^4.21.0",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "vitest": "^4.1.11"
   }
 }
