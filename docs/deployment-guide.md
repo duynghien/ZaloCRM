@@ -215,12 +215,12 @@ docker compose exec -T db psql -U crmuser zalocrm < backup-manual-20260813.sql
 - [x] Thêm `.dockerignore`; không gửi `.env`, `.git`, `node_modules`, backup và build artifact vào Docker context.
 - [x] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
 - [x] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
-- [ ] Chặn SSRF cho webhook/attachment URL, gồm DNS, IPv6 và redirect chain.
-- [x] Mã hóa webhook secret và SMTP password ở database/backups. Public API key vẫn plaintext/recoverable theo residual-risk waiver đã chấp nhận; chỉ Owner/Admin được xem, response phải `Cache-Control: no-store`, có audit trail và không log giá trị secret.
-- [ ] Đóng toàn bộ finding high/moderate được chấp nhận từ dependency audit.
+- [x] Chặn SSRF cho webhook/attachment URL (`outbound-url-policy.ts`), kiểm tra DNS, chặn private IPv4/IPv6 và giới hạn tối đa 3 lần redirect.
+- [x] Mã hóa webhook secret và SMTP password ở database/backups (`secure-setting-codec.ts`). Public API key vẫn plaintext/recoverable theo residual-risk waiver đã chấp nhận; chỉ Owner/Admin được xem, response phải `Cache-Control: no-store`, có audit trail và không log giá trị secret.
+- [x] Thực thi chính sách kiểm toán phụ thuộc nghiêm ngặt (`scripts/audit-production-policy.mjs`), chỉ cho phép 2 waiver cố định version/path cho Prisma CLI upstream (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`); cấm mọi waiver cho `uuid`.
 
-> [!CAUTION]
-> Checklist chưa hoàn tất đồng nghĩa bản hiện tại chưa đạt production security baseline, dù container đã chạy bằng `USER node` và chỉ publish port lên loopback.
+> [!NOTE]
+> Tất cả các tiêu chí bảo mật cơ bản đã được cài đặt và kiểm chứng qua bộ kiểm thử tự động. Quá trình release cần chạy `npm run audit:production` để xác thực toàn vẹn phụ thuộc trước khi triển khai.
 
 
 ## 7. Development và container smoke

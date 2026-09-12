@@ -52,6 +52,21 @@ Giao diện **ZaloCRM** được thiết kế dựa trên ngôn ngữ thiết k�
   - `Mất kết nối`: Badge đỏ kèm nút quét lại QR Code nổi bật.
 - **Hiển thị Tin nhắn Chưa đọc:** Badge số lượng tin nhắn tròn nổi trên khung hội thoại với độ tương phản cao.
 
+### 4.3. Chỉ Báo Nghiệp Vụ Chuyên Biệt (Specialized Business Indicators)
+- **Trạng thái Job AI Digest (Job Status Chips):**
+  - `queued`: Chip màu cam/vàng đất (`warning`), icon đồng hồ cát.
+  - `running`: Chip màu xanh dương (`info`), hiệu ứng xoay nhẹ (`spin`).
+  - `completed`: Chip màu xanh lá (`success`), icon kiểm tra hoàn tất.
+  - `failed`: Chip màu đỏ (`error`), kèm tooltip hiển thị thông điệp lỗi tóm tắt.
+- **Trạng thái Đơn hàng (Order Status Chips):**
+  - `new`: Xanh dương nhạt (`#3B82F6`).
+  - `confirmed`: Xanh ngọc (`#06B6D4`).
+  - `paid`: Xanh lá đậm (`#22C55E`).
+  - `shipped`: Tím violet (`#8B5CF6`).
+  - `completed`: Xanh mòng két (`#14B8A6`).
+  - `cancelled`: Xám trung tính (`#64748B`).
+- **An toàn Nội dung Markdown:** Toàn bộ nội dung báo cáo AI Markdown được khử khuẩn qua `DOMPurify` trước khi render vào DOM, ngăn ngừa triệt để lỗ hổng Stored XSS.
+
 ---
 
 ## 5. Quy Tắc Cấm Thiết Kế (Forbidden Design Tropes)
@@ -59,3 +74,4 @@ Giao diện **ZaloCRM** được thiết kế dựa trên ngôn ngữ thiết k�
 - **Cấm:** Không dùng font màu tím rực trên nền tối (Purple on dark).
 - **Cấm:** Không dùng viền phát sáng màu mè lòe lẹt xung quanh container (No colored border glowing).
 - **Cấm:** Tránh lạm dụng thẻ lồng thẻ quá 3 cấp (No over-nested cards).
+- **Cấm:** Không lưu trữ token bảo mật trong `localStorage` hay render trực tiếp HTML thô không qua sanitize.

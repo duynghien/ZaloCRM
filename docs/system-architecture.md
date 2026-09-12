@@ -6,23 +6,23 @@ Hệ thống **ZaloCRM** được thiết kế theo kiến trúc Monolith hiện
 
 ```mermaid
 graph TD
-    Client[Browser / Frontend Vue 3 App] -->|HTTPS / REST API| Nginx[Nginx Reverse Proxy]
+    Client[Browser / Frontend Vue 3 App] -->|HTTPS / REST API| Nginx[Nginx / Cloudflare Reverse Proxy]
     Client -->|WSS / Socket.IO| Nginx
     
-    subgraph App Container
-        Nginx -->|Port 3000| Fastify[Backend Fastify Server]
+    subgraph Host / Docker Environment
+        Nginx -->|Loopback 127.0.0.1:3080| Fastify[Backend Fastify 5 Server (Port 3000 in container)]
         Fastify -->|Auth / Router / Controllers| Modules[Modules Logic]
         Fastify -->|WebSocket Gateway| SocketIO[Socket.IO Server]
         
         Modules -->|Zalo API / Event Listener| ZaloPool[Zalo Account Pool & zca-js Manager]
         ZaloPool -->|Encryption/Decryption| CryptoUtils[AES-256 Crypto Utils]
         
-        Modules -->|Prisma Client ORM| Prisma[Prisma ORM]
+        Modules -->|Prisma Client ORM| Prisma[Prisma 7 ORM]
     end
 
     subgraph Data Tier
-        Prisma -->|Port 5432| Postgres[(PostgreSQL 16 DB)]
-        ZaloPool -->|Remote Polling/Push| ZaloServer[Zalo Official Servers]
+        Prisma -->|Port 5432 / 127.0.0.1:5433| Postgres[(PostgreSQL 16 DB)]
+        ZaloPool -->|Remote Push/Poll| ZaloServer[Zalo Official Servers]
     end
 
     subgraph Backup System
@@ -36,20 +36,28 @@ graph TD
 
 ### 2.1. Web Frontend Layer (Vue 3 + Vuetify 4)
 - **Công nghệ:** Vue 3 (Composition API, `<script setup>`), Vuetify 4 UI Framework, Pinia State Management, Vue Router, Chart.js, Socket.IO Client.
-- **Vai trò:** Hiển thị giao diện người dùng, quản lý trạng thái client, nhận sự kiện real-time (tin nhắn mới, cập nhật danh bạ, trạng thái Zalo) để cập nhật DOM tức thì mà không cần reload trang.
+- **Vai trò:** Hiển thị giao diện người dùng, quản lý trạng thái client, nhận sự kiện real-time (tin nhắn mới, cập nhật danh bạ, trạng thái Zalo) để cập nhật DOM tức thì mà không cần reload trang. Token JWT ngắn hạn được giữ hoàn toàn trong RAM client (`session.ts`), không ghi vào bộ nhớ bền vững.
 
 ### 2.2. API & WebSocket Server (Fastify + Socket.IO)
-- **Fastify Framework:** Lựa chọn nhờ tốc độ xử lý vượt trội, hệ sinh thái plugin mạnh mẽ (`@fastify/jwt`, `@fastify/cors`, `@fastify/rate-limit`, `@fastify/static`).
-- **Real-time Gateway:** Socket.IO tích hợp trực tiếp trên server HTTP của Fastify, xác thực kết nối bằng JWT Token.
-- **App factory:** `backend/src/app-factory.ts` dựng cùng HTTP routes và Socket.IO production cho ứng dụng và integration fixture; entrypoint sở hữu việc khởi động worker, cron và Zalo listeners.
+- **Fastify Framework:** Lựa chọn nhờ tốc độ xử lý vượt trội, hệ sinh thái plugin mạnh mẽ (`@fastify/jwt`, `@fastify/cors`, `@fastify/rate-limit`, `@fastify/static`, `@fastify/cookie`).
+- **Real-time Gateway:** Socket.IO tích hợp trực tiếp trên server HTTP của Fastify, xác thực kết nối bằng JWT Token chứa `sessionId` và kiểm tra trạng thái session thực trong PostgreSQL.
+- **App factory:** `backend/src/app-factory.ts` dựng cùng HTTP routes và Socket.IO production cho ứng dụng và integration fixture; entrypoint `app.ts` sở hữu việc khởi động worker, cron và Zalo listeners.
 
 ### 2.3. Zalo Account Connection Pool (`ZaloPool`)
 - **Quản lý đa phiên Zalo:** `ZaloPool` duy trì danh sách các thể hiện (instances) của thư viện `zca-js` cho từng tài khoản Zalo đang hoạt động.
-- **Tự động khôi phục (Auto-reconnect):** Khi khởi động server, `ZaloPool` giải mã dữ liệu session (cookie, IMEI) từ DB và tự động tái lập kết nối với Zalo Server.
+- **Tự động khôi phục (Auto-reconnect):** Khi khởi động server, `ZaloPool` giải mã dữ liệu session (cookie, IMEI) từ DB và tự động tái lập kết nối với Zalo Server, có cơ chế giãn cách (stagger 10s) tránh rate limit.
 
-### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma ORM)
-- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính lưu trữ thông tin Tổ chức, Người dùng, Tài khoản Zalo, Khách hàng, Cuộc trò chuyện, Tin nhắn, Lịch hẹn, Đơn hàng và Nhật ký hoạt động.
-- **Prisma 7 ORM:** Quản lý Schema, khởi tạo Migration và tương tác dữ liệu an toàn phòng chống SQL Injection.
+### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
+- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 22 Data Models phân tách theo nghiệp vụ:
+  - *Đa tổ chức & Người dùng:* `Organization`, `Team`, `User`
+  - *Phiên xác thực bền vững:* `AuthSession` (lưu SHA-256 hash của refresh token, quản lý xoay vòng và family revocation)
+  - *Tài khoản Zalo & Phân quyền:* `ZaloAccount`, `ZaloAccountAccess` (quyền read, chat, admin)
+  - *Khách hàng & Hội thoại:* `Contact`, `Conversation`, `Message` (hỗ trợ deduplication theo `conversationId_zaloMsgId`)
+  - *Lịch hẹn:* `Appointment`
+  - *Đơn hàng & Cấp mã tuần tự:* `Order`, `OrderCodeCounter` (cấp mã nguyên tử theo org/ngày UTC)
+  - *Báo cáo Điều hành AI Digest v2:* `GroupReportConfig`, `GeneratedReport`, `AiReportJob`, `AiReportJobDispatch`, `AiReportBudgetReservation`, `AiReportResend`, `AiReportResendDispatch`
+  - *Vận hành & Kiểm toán:* `AppSetting` (mã hóa AES-256-GCM các secret), `DailyMessageStat`, `ActivityLog`
+- **Prisma 7 ORM:** Quản lý Schema, khởi tạo Migration có version và tương tác dữ liệu an toàn phòng chống SQL Injection. Tương thích schema được kiểm chứng lúc khởi động bằng `schemaIsCompatible()`.
 
 ---
 
@@ -101,6 +109,29 @@ Worker kiểm tra ngân sách trước từng provider attempt, bao gồm attach
 Resend lưu attempt và dispatch ledger dưới idempotency key; replay trả ledger, không gửi lại. Kết quả partial/uncertain phải đối soát người nhận trước khi người dùng tạo lượt mới. Hệ thống không bảo đảm exactly-once đối với dịch vụ gửi bên ngoài.
 
 Cutover giữ config không resolve ở `needs_resolution`, không chạy lịch cho nguồn đó; report cũ `legacy_unverified` chỉ Owner/Admin cùng org đọc và không resend. Job v1 chưa terminal chuyển failed, giữ payload/result và ledger claimed/sent; không tự khởi chạy lại. Shutdown đóng admission rồi chờ producer/cron/worker/send trước migration; timeout chặn cutover. Xem [deployment guide](deployment-guide.md).
+
+### 3.1.4. Luồng Cấp Mã Đơn Hàng Nguyên Tử (Atomic Order Code Flow)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as User / API
+    participant Fastify as Order Controller
+    participant DB as PostgreSQL Transaction
+    participant Counter as order_code_counters
+
+    Client->>Fastify: POST /api/v1/orders { contactId, totalAmount, ... }
+    Fastify->>DB: BEGIN Transaction
+    Fastify->>Counter: INSERT INTO order_code_counters (org_id, date_key, last_value) ON CONFLICT DO UPDATE SET last_value = last_value + 1 RETURNING last_value
+    Counter-->>Fastify: last_value (BigInt)
+    Note over Fastify: Sinh mã ORD-YYYYMMDD-NNN (ví dụ ORD-20260913-001)
+    Fastify->>DB: INSERT INTO orders (id, org_id, contact_id, order_code, ...)
+    Fastify->>DB: COMMIT Transaction
+    Fastify-->>Client: 201 Created { id, orderCode, ... }
+```
+
+- Mã đơn hàng được tạo nguyên tử trong cùng transaction tạo bản ghi `Order`. Lệnh `INSERT INTO order_code_counters ... ON CONFLICT DO UPDATE` khóa dòng theo cặp `(org_id, date_key)` (ngày tính theo chuẩn UTC `YYYYMMDD`), bảo đảm không có race condition hay trùng mã khi nhiều nhân viên tạo đơn cùng lúc.
+- Khóa Unique `(org_id, order_code)` ở mức database đóng vai trò chốt chặn cuối cùng bảo vệ toàn vẹn dữ liệu.
 
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.

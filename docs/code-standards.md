@@ -13,8 +13,12 @@ Mọi mã nguồn đóng góp vào dự án ZaloCRM phải tuân thủ nghiêm n
 
 > [!IMPORTANT]
 > - Nếu một file mã nguồn vượt quá **200 dòng code**, lập trình viên cần chủ động tách nhỏ thành các sub-modules/components độc lập.
-> - **Đặt tên file:** Sử dụng định dạng `kebab-case` dài và mang tính mô tả rõ ràng (ví dụ: `zalo-health-check.ts`, `appointment-reminder.ts`).
+> - **Đặt tên file:** Sử dụng định dạng `kebab-case` dài và mang tính mô tả rõ ràng (ví dụ: `zalo-health-check.ts`, `appointment-reminder.ts`, `order-code-service.ts`).
 > - **Ngoại lệ không tách:** File cấu hình (`package.json`, `tsconfig.json`), Markdown (`.md`), hoặc Docker Compose.
+
+**Danh sách 23 files hiện tại đang vượt 200 dòng được theo dõi để tái cấu trúc (Refactoring Backlog):**
+- *Frontend (11 files):* `AiReportsView.vue` (1223), `use-zalo-accounts.ts` (281), `AppointmentsView.vue` (261), `TeamManagement.vue` (250), `ChatAppointments.vue` (248), `SettingsView.vue` (238), `ContactDetailDialog.vue` (236), `MessageThread.vue` (232), `use-chat.ts` (220), `OrdersView.vue` (208), `ai-report-api.ts` (201).
+- *Backend (12 files):* `ai-report-routes.ts` (406), `zalo-pool.ts` (372), `attachment-parser.ts` (362), `message-handler.ts` (307), `public-api-routes.ts` (299), `summarizer-service.ts` (255), `contact-routes.ts` (252), `order-routes.ts` (233), `zalo-listener-factory.ts` (226), `outbound-url-policy.ts` (224), `appointment-routes.ts` (219), `email-service.ts` (210).
 
 ---
 
