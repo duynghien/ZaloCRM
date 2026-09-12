@@ -9,6 +9,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { requireZaloAccess } from './zalo-access-middleware.js';
 import { decryptData } from '../../shared/utils/crypto.js';
+import { pruneSocketsForZaloAccount } from './zalo-socket.js';
 import { config } from '../../config/index.js';
 
 export async function zaloRoutes(app: FastifyInstance): Promise<void> {
@@ -132,7 +133,8 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       }
 
       zaloPool.disconnect(id);
-      await prisma.zaloAccount.delete({ where: { id } });
+      await prisma.zaloAccount.delete({ where: { id, orgId: user.orgId } });
+      await pruneSocketsForZaloAccount(app.io, id);
 
       return reply.status(204).send();
     },

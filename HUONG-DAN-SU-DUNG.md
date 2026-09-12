@@ -12,6 +12,7 @@
 8. [API & Webhook](#8-api--webhook)
 9. [Câu hỏi thường gặp](#9-câu-hỏi-thường-gặp)
 10. [Quy tắc quan trọng](#10-quy-tắc-quan-trọng)
+11. [Báo cáo AI](#11-báo-cáo-ai)
 
 ---
 
@@ -279,3 +280,17 @@ Liên hệ Admin/Owner để reset mật khẩu trong **Cài đặt → Nhân vi
 3. **Ghi chú lịch hẹn** ngay khi hẹn khách
 4. **Đồng bộ danh bạ** Zalo khi thêm bạn mới
 5. **Kiểm tra Dashboard** mỗi sáng
+
+
+## 11. Báo cáo AI
+
+1. Mở **Báo cáo AI**, chọn từng nhóm kèm tài khoản Zalo nguồn. Cùng một nhóm xuất hiện qua hai tài khoản là hai nguồn riêng; chọn tối đa 20 nguồn.
+2. Chọn khoảng ngày tối đa 31 ngày lịch gồm hai đầu. Với API, hai thời điểm sau chuẩn hóa UTC phải cách nhau không quá 30 × 24 giờ; ngày không tồn tại hoặc khoảng đảo ngược bị từ chối.
+3. Nếu gửi qua Zalo, chọn rõ **tài khoản gửi** và nơi nhận (bản thân, Cloud hoặc UID). Tài khoản gửi có thể khác tài khoản nguồn, nhưng phải có quyền phù hợp và đang kết nối.
+4. Nếu gửi email, nhập tối đa 10 địa chỉ hợp lệ, không trùng sau khi bỏ khoảng trắng và chuyển chữ thường. Owner/Admin cấu hình SMTP và tự động hóa; mật khẩu đã lưu không được trả lại trên giao diện.
+
+Nguồn và tài khoản gửi được kiểm tra quyền lại trong quá trình xử lý. Khi mất quyền hoặc tài khoản ngắt kết nối, báo cáo có thể dừng gửi. Mỗi người dùng chỉ có một tác vụ AI đang hoạt động, mỗi tổ chức tối đa hai.
+
+**Dữ liệu cũ:** cấu hình chưa xác định được tài khoản nguồn cần Owner/Admin chọn lại nguồn rồi lưu trước khi bật lịch. Báo cáo cũ chưa xác minh nguồn chỉ Owner/Admin cùng tổ chức được xem, không gửi lại. Tác vụ cũ chưa kết thúc khi nâng cấp được đánh dấu thất bại; muốn chạy lại phải tạo yêu cầu mới có chủ đích.
+
+**Gửi lại:** khi kết quả không rõ hoặc đã gửi một phần, kiểm tra trực tiếp người nhận trước. Thử lại cùng lượt chỉ lấy lại kết quả đã ghi nhận. Sau khi đối soát, dùng **Đã đối soát — tạo lượt gửi mới** nếu thực sự cần gửi lại; lượt mới có thể gửi trùng phần người nhận đã nhận. Đóng/mở hộp thoại hoặc tải lại trang không tự tạo lượt mới cho kết quả chưa rõ.

@@ -20,6 +20,8 @@ describe('AI report job request bounds', () => {
   });
 
   it.each([
+    request({ zalo_destination_type: null }),
+    request({ send_zalo: true, zalo_account_id: 'sender', zalo_destination_type: null }),
     request({ to_date: '2026-02-01' }),
     request({ group_thread_ids: Array.from({ length: 21 }, (_, index) => `group-${index}`) }),
     request({ group_thread_ids: ['group-1', 'group-1'] }),

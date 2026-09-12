@@ -103,15 +103,16 @@
 
             <v-select
               v-model="selectedGroupIds"
-              :items="groups"
-              item-title="groupName"
-              item-value="threadId"
+              :items="groupOptions"
+              item-title="label"
+              item-value="key"
               multiple
               chips
               closable-chips
               density="compact"
               variant="outlined"
               placeholder="Chọn nhóm Zalo cần tóm tắt"
+              hint="Chọn tối đa 20 nguồn. Cùng một nhóm trên hai tài khoản là hai nguồn riêng." persistent-hint
               class="mb-4"
             />
 
@@ -130,6 +131,9 @@
               label="Gửi tin nhắn về Zalo cá nhân"
             />
             <div v-if="generatorForm.sendZalo" class="pl-7 mb-3">
+              <v-select v-model="generatorForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
+                label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
+                hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
               <v-radio-group v-model="generatorForm.zaloDestinationType" density="compact" hide-details>
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
                 <v-radio label="Nhập Zalo UID / SĐT cụ thể" value="uid" />
@@ -172,7 +176,7 @@
               rounded="xl"
               elevation="2"
               :loading="isGenerating"
-              :disabled="isGenerating || selectedGroupIds.length === 0"
+              :disabled="isGenerating || selectedGroupIds.length === 0 || selectedGroupIds.length > 20 || (generatorForm.sendZalo && !generatorForm.senderAccountId)"
               @click="handleGenerateReport"
             >
               <v-icon start>mdi-lightning-bolt</v-icon>
@@ -228,12 +232,16 @@
                   <v-btn variant="outlined" size="small" prepend-icon="mdi-printer" @click="printReport">
                     In / PDF
                   </v-btn>
-                  <v-btn color="primary" size="small" prepend-icon="mdi-send-outline" @click="openResendDialog(currentReport)">
+                  <v-btn color="primary" size="small" prepend-icon="mdi-send-outline" :disabled="!reportCanResend(currentReport)" @click="openResendDialog(currentReport)">
                     Gửi lại
                   </v-btn>
                 </div>
               </div>
 
+              <v-alert v-if="!reportCanResend(currentReport)" type="warning" variant="tonal" class="mb-4">
+                Báo cáo cũ chưa xác minh tài khoản nguồn. Chỉ quản trị viên được xem; không thể gửi lại.
+                Hãy chọn rõ nhóm và tài khoản nguồn để tạo báo cáo mới.
+              </v-alert>
               <!-- Rendered Markdown Body -->
               <div class="markdown-body-rendered pa-2" v-html="renderedMarkdown"></div>
             </div>
@@ -277,7 +285,7 @@
           <tbody>
             <tr v-for="rep in reports" :key="rep.id">
               <td class="text-caption">{{ formatDateTime(rep.createdAt) }}</td>
-              <td class="font-weight-medium">{{ rep.title }}</td>
+              <td class="font-weight-medium">{{ rep.title }}<v-chip v-if="!reportCanResend(rep)" size="small" color="warning" class="ml-2">Nguồn chưa xác minh</v-chip></td>
               <td>
                 <v-chip size="small" :color="getReportTypeColor(rep.reportType)">
                   {{ rep.reportType }}
@@ -298,7 +306,7 @@
               </td>
               <td class="text-right">
                 <v-btn icon="mdi-eye-outline" size="small" variant="text" color="primary" @click="viewReportDetail(rep)" />
-                <v-btn icon="mdi-send-outline" size="small" variant="text" color="secondary" @click="openResendDialog(rep)" />
+                <v-btn icon="mdi-send-outline" size="small" variant="text" color="secondary" :disabled="!reportCanResend(rep)" aria-label="Gửi lại báo cáo" @click="openResendDialog(rep)" />
               </td>
             </tr>
             <tr v-if="reports.length === 0">
@@ -355,6 +363,9 @@
             />
 
             <div v-if="automationSettings.sendZalo" class="pl-2 mb-4">
+              <v-select v-model="automationSettings.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
+                label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
+                hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
               <v-radio-group v-model="automationSettings.zaloDestinationType" density="compact">
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
                 <v-radio label="Zalo UID / SĐT người nhận cụ thể" value="uid" />
@@ -481,8 +492,8 @@
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="g in groups" :key="g.threadId">
-                  <td class="font-weight-medium">{{ g.groupName }}</td>
+                <tr v-for="g in groups" :key="groupPairKey(g)">
+                  <td class="font-weight-medium">{{ g.groupName }}<div class="text-caption text-medium-emphasis">{{ groupAccountLabel(g) }}</div></td>
                   <td>
                     <v-switch
                       v-model="g.isEnabled"
@@ -529,6 +540,7 @@
     <v-dialog v-model="editGroupDialog" max-width="560">
       <v-card v-if="editingGroup" class="pa-5 rounded-xl">
         <h3 class="text-h6 font-weight-bold mb-4">Cấu Hình Nhóm: {{ editingGroup.groupName }}</h3>
+        <p class="text-body-2 mb-4">{{ groupAccountLabel(editingGroup) }}</p>
 
         <v-text-field
           v-model="editingGroup.groupName"
@@ -581,7 +593,10 @@
           hide-details
         />
         <div v-if="resendForm.sendZalo" class="pl-7 mb-3">
-          <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details>
+              <v-select v-model="resendForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
+                label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
+                hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
+              <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details>
             <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
             <v-radio label="Nhập Zalo UID cụ thể" value="uid" />
           </v-radio-group>
@@ -612,13 +627,21 @@
           />
         </div>
 
+        <v-alert v-if="deliveryError" type="warning" variant="tonal" class="mt-3">{{ deliveryError }}</v-alert>
+        <v-btn v-if="resendRequiresReconciliation" :disabled="isResending" variant="outlined" color="warning"
+          class="mt-3" block style="white-space: normal; height: auto; min-height: 44px" @click="prepareReconciledResend">
+          Đã đối soát — tạo lượt gửi mới
+        </v-btn>
         <div class="d-flex justify-end gap-2 mt-4">
           <v-btn variant="text" @click="resendDialog = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="isResending" @click="handleResendSubmit">Gửi ngay</v-btn>
+          <v-btn color="primary" :loading="isResending" :disabled="isResending || (resendForm.sendZalo && !resendForm.senderAccountId) || (!resendForm.sendZalo && !resendForm.sendEmail)" @click="handleResendSubmit">Gửi ngay</v-btn>
         </div>
       </v-card>
     </v-dialog>
 
+    <v-alert v-if="deliveryError" type="warning" variant="tonal" class="mt-4" closable @click:close="deliveryError = ''">
+      {{ deliveryError }}
+    </v-alert>
     <!-- Snackbar Notification -->
     <v-snackbar v-model="snackbar.show" :color="snackbar.color" :timeout="3000">
       {{ snackbar.text }}
@@ -630,19 +653,29 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { groupPairKey, groupAccountLabel, reportCanResend, resendAttemptKey, completeResendAttempt, resendNeedsReconciliation, markResendAttemptUncertain, reconcileResendAttempt } from '@/api/ai-report-view-helpers';
 import {
   aiReportApi,
   type GroupItem,
   type GeneratedReportItem,
   type AutomationSettings,
   type SmtpSettings,
+  type ResendReportPayload,
 } from '@/api/ai-report-api';
 
 const activeTab = ref('generate');
+const deliveryError = ref('');
+const senderAccounts = ref<Awaited<ReturnType<typeof aiReportApi.getSenderAccounts>>>([]);
+const senderOptions = computed(() => senderAccounts.value.map(account => ({ id: account.id,
+  label: `${account.displayName || 'Tài khoản Zalo'} (${account.zaloUid || account.id}) — ${account.status === 'connected' ? 'Đã kết nối' : 'Chưa kết nối'}`,
+})));
 
 // Generator state
 const groups = ref<GroupItem[]>([]);
 const selectedGroupIds = ref<string[]>([]);
+const groupOptions = computed(() => groups.value.filter(group => group.zaloAccount).map(group => ({
+  key: groupPairKey(group), label: `${group.groupName} — ${groupAccountLabel(group)}`,
+})));
 const isGenerating = ref(false);
 const generatingTimer = ref(0);
 const activeJobId = ref<string | null>(null);
@@ -655,6 +688,7 @@ const generatorForm = ref({
   fromDate: '',
   toDate: '',
   sendZalo: true,
+  senderAccountId: '',
   zaloDestinationType: 'self' as 'self' | 'uid',
   zaloTargetUid: '',
   sendEmail: false,
@@ -709,7 +743,7 @@ function formatToLocalDatetimeInput(d: Date): string {
 }
 
 function selectAllGroups() {
-  selectedGroupIds.value = groups.value.map((g) => g.threadId);
+  selectedGroupIds.value = groups.value.filter(g => g.zaloAccount).map(groupPairKey);
 }
 
 function deselectAllGroups() {
@@ -743,6 +777,7 @@ const automationSettings = ref<AutomationSettings>({
   dailyEnabled: true,
   weeklyEnabled: true,
   sendZalo: true,
+  senderAccountId: '',
   zaloDestinationType: 'self',
   sendEmail: false,
   emailRecipients: [],
@@ -770,8 +805,8 @@ function openEditGroupDialog(group: GroupItem) {
 
 async function handleSaveEditingGroup() {
   if (!editingGroup.value) return;
-  await saveGroupConfig(editingGroup.value);
-  const idx = groups.value.findIndex((g) => g.threadId === editingGroup.value?.threadId);
+  if (!await saveGroupConfig(editingGroup.value)) return;
+  const idx = groups.value.findIndex((g) => groupPairKey(g) === groupPairKey(editingGroup.value!));
   if (idx !== -1) {
     groups.value[idx] = editingGroup.value;
   }
@@ -780,15 +815,19 @@ async function handleSaveEditingGroup() {
 }
 
 async function saveGroupConfig(g: GroupItem) {
+  if (!g.zaloAccount) { showSnackbar('Tài khoản nguồn không còn khả dụng', 'error'); return false; }
   try {
     await aiReportApi.updateConfig(g.threadId, {
+      zalo_account_id: g.zaloAccount.id,
       group_name: g.groupName,
       is_enabled: g.isEnabled,
       custom_prompt: g.customPrompt,
       focus_keywords: g.focusKeywords,
     });
+    return true;
   } catch (err) {
     showSnackbar('Lỗi khi lưu cấu hình nhóm', 'error');
+    return false;
   }
 }
 
@@ -796,8 +835,10 @@ async function saveGroupConfig(g: GroupItem) {
 const resendDialog = ref(false);
 const selectedReportForResend = ref<GeneratedReportItem | null>(null);
 const isResending = ref(false);
+const resendRequiresReconciliation = ref(false);
 const resendForm = ref({
   sendZalo: true,
+  senderAccountId: '',
   zaloDestinationType: 'self' as 'self' | 'uid',
   zaloTargetUid: '',
   sendEmail: false,
@@ -805,29 +846,58 @@ const resendForm = ref({
 });
 
 function openResendDialog(rep: GeneratedReportItem) {
+  if (!reportCanResend(rep)) { showSnackbar('Không thể gửi lại báo cáo có nguồn chưa xác minh', 'warning'); return; }
   selectedReportForResend.value = rep;
+  resendRequiresReconciliation.value = resendNeedsReconciliation(rep.id);
+  deliveryError.value = resendRequiresReconciliation.value
+    ? 'Lượt gửi trước có thể đã gửi một phần hoặc chưa rõ kết quả. Thử lại giữ nguyên lượt gửi; hãy đối soát người nhận trước khi tạo lượt mới.' : '';
   resendForm.value.sendZalo = rep.sentZalo;
   resendForm.value.sendEmail = rep.sentEmail;
   resendDialog.value = true;
 }
 
+function prepareReconciledResend() {
+  const report = selectedReportForResend.value;
+  if (!report || isResending.value || !reconcileResendAttempt(report.id)) return;
+  resendRequiresReconciliation.value = false;
+  deliveryError.value = '';
+  showSnackbar('Đã chuẩn bị lượt gửi mới. Kiểm tra lựa chọn rồi bấm Gửi ngay.', 'info');
+}
+
 async function handleResendSubmit() {
-  if (!selectedReportForResend.value) return;
+  const report = selectedReportForResend.value;
+  if (!report || !reportCanResend(report) || isResending.value) return;
+  if (resendForm.value.sendZalo && !resendForm.value.senderAccountId) {
+    showSnackbar('Vui lòng chọn tài khoản Zalo gửi báo cáo', 'warning'); return;
+  }
   isResending.value = true;
   try {
-    await aiReportApi.resendReport(selectedReportForResend.value.id, {
+    const payload: ResendReportPayload = {
       send_zalo: resendForm.value.sendZalo,
+      zalo_account_id: resendForm.value.sendZalo ? resendForm.value.senderAccountId : undefined,
       send_email: resendForm.value.sendEmail,
       zalo_destination_type: resendForm.value.zaloDestinationType,
-      zalo_target_uid: resendForm.value.zaloTargetUid,
+      zalo_target_uid: resendForm.value.sendZalo && resendForm.value.zaloDestinationType === 'uid'
+        ? resendForm.value.zaloTargetUid.trim() || undefined : undefined,
       email_recipients: resendForm.value.emailRecipient ? [resendForm.value.emailRecipient] : undefined,
-    });
+    };
+    const key = await resendAttemptKey(report.id, payload);
+    markResendAttemptUncertain(report.id);
+    const result = await aiReportApi.resendReport(report.id, payload, key);
+    if (!result.success || result.zalo?.deliveryUncertain || result.zalo?.success === false || result.email?.success === false) {
+      deliveryError.value = `Báo cáo có thể đã gửi một phần hoặc chưa xác nhận kết quả. ${result.zalo?.error || result.email?.error || ''} Hãy kiểm tra người nhận trước khi tạo lượt gửi mới.`;
+      return;
+    }
+    completeResendAttempt(report.id);
+    resendRequiresReconciliation.value = false;
+    deliveryError.value = '';
     resendDialog.value = false;
     showSnackbar('Đã gửi lại báo cáo thành công!', 'success');
     loadReports();
   } catch (err: any) {
-    showSnackbar(err?.response?.data?.error || 'Lỗi khi gửi lại báo cáo', 'error');
+    deliveryError.value = `${err?.response?.data?.error || err?.message || 'Chưa xác nhận được kết quả gửi lại.'} Khi thử lại cùng lựa chọn, hệ thống kiểm tra lượt gửi hiện tại để tránh gửi trùng.`;
   } finally {
+    resendRequiresReconciliation.value = resendNeedsReconciliation(report.id);
     isResending.value = false;
   }
 }
@@ -845,6 +915,14 @@ function showSnackbar(text: string, color = 'success') {
 
 // Actions
 async function handleGenerateReport() {
+  if (isGenerating.value) return;
+  const chosen = groups.value.filter(group => selectedGroupIds.value.includes(groupPairKey(group)));
+  if (!chosen.length || chosen.length > 20 || chosen.length !== selectedGroupIds.value.length || chosen.some(group => !group.zaloAccount)) {
+    showSnackbar('Chọn từ 1 đến 20 nhóm cùng tài khoản nguồn hợp lệ', 'warning'); return;
+  }
+  if (generatorForm.value.sendZalo && !generatorForm.value.senderAccountId) {
+    showSnackbar('Vui lòng chọn tài khoản Zalo gửi báo cáo', 'warning'); return;
+  }
   if (!generatorForm.value.fromDate || !generatorForm.value.toDate) {
     showSnackbar('Vui lòng chọn đầy đủ thời gian bắt đầu và kết thúc', 'warning');
     return;
@@ -860,11 +938,13 @@ async function handleGenerateReport() {
     const res = await aiReportApi.generateReport({
       from_date: new Date(generatorForm.value.fromDate).toISOString(),
       to_date: new Date(generatorForm.value.toDate).toISOString(),
-      group_thread_ids: selectedGroupIds.value,
+      group_targets: chosen.map(group => ({ zalo_account_id: group.zaloAccount!.id, group_thread_id: group.threadId })),
+      zalo_account_id: generatorForm.value.sendZalo ? generatorForm.value.senderAccountId : undefined,
       send_zalo: generatorForm.value.sendZalo,
       send_email: generatorForm.value.sendEmail,
       zalo_destination_type: generatorForm.value.zaloDestinationType,
-      zalo_target_uid: generatorForm.value.zaloTargetUid,
+      zalo_target_uid: generatorForm.value.sendZalo && generatorForm.value.zaloDestinationType === 'uid'
+        ? generatorForm.value.zaloTargetUid.trim() || undefined : undefined,
       email_recipients: generatorForm.value.emailRecipient ? [generatorForm.value.emailRecipient] : undefined,
     }, crypto.randomUUID());
     activeJobId.value = res.jobId;
@@ -893,7 +973,8 @@ async function waitForReportJob(jobId: string) {
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
       sessionStorage.removeItem(pendingJobStorageKey);
-      showSnackbar(job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo' : 'Tạo báo cáo thất bại'), 'error');
+      deliveryError.value = job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo. Phần đã gửi trước khi hủy không thể thu hồi.' : 'Tạo báo cáo thất bại');
+      showSnackbar(deliveryError.value, 'error');
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -920,9 +1001,15 @@ function printReport() {
   window.print();
 }
 
-function viewReportDetail(rep: GeneratedReportItem) {
-  currentReport.value = rep;
-  activeTab.value = 'generate';
+async function viewReportDetail(rep: GeneratedReportItem) {
+  currentReport.value = null;
+  try {
+    const { report } = await aiReportApi.getReport(rep.id);
+    currentReport.value = report;
+    activeTab.value = 'generate';
+  } catch (err: any) {
+    showSnackbar(err?.response?.data?.error || 'Không thể xem báo cáo hoặc quyền truy cập đã thay đổi', 'error');
+  }
 }
 
 function getReportTypeColor(type: string) {
@@ -955,7 +1042,7 @@ async function loadGroups() {
   try {
     const res = await aiReportApi.getGroups();
     groups.value = res.groups;
-    selectedGroupIds.value = res.groups.filter((g) => g.isEnabled).map((g) => g.threadId);
+    selectedGroupIds.value = res.groups.filter((g) => g.isEnabled && g.zaloAccount).map(groupPairKey);
   } catch (err) {
     loggerError('Load groups error', err);
   }
@@ -982,10 +1069,17 @@ async function loadSettings() {
 }
 
 async function saveAllSettings() {
+  if (automationSettings.value.sendZalo && !automationSettings.value.senderAccountId) {
+    showSnackbar('Vui lòng chọn tài khoản Zalo gửi báo cáo tự động', 'warning'); return;
+  }
   isSavingSettings.value = true;
   try {
     await aiReportApi.updateSettings({
-      automation: automationSettings.value,
+      automation: { ...automationSettings.value,
+        senderAccountId: automationSettings.value.senderAccountId || undefined,
+        zaloTargetUid: automationSettings.value.sendZalo && automationSettings.value.zaloDestinationType === 'uid'
+          ? automationSettings.value.zaloTargetUid?.trim() || undefined : undefined,
+      },
       smtp: {
         host: smtpSettings.value.host,
         port: Number(smtpSettings.value.port),
@@ -1009,17 +1103,21 @@ function loggerError(msg: string, err: any) {
 onMounted(() => {
   applyPreset(presets[0]);
   loadGroups();
+  aiReportApi.getSenderAccounts().then(accounts => { senderAccounts.value = accounts; })
+    .catch(err => { showSnackbar('Không thể tải tài khoản gửi báo cáo', 'error'); loggerError('Load sender accounts', err); });
   loadReports();
   loadSettings();
   const pendingJobId = sessionStorage.getItem(pendingJobStorageKey);
   if (pendingJobId) {
     activeJobId.value = pendingJobId;
     isGenerating.value = true;
-    waitForReportJob(pendingJobId).finally(() => { isGenerating.value = false; activeJobId.value = null; });
+    waitForReportJob(pendingJobId).catch(err => { showSnackbar(err?.response?.data?.error || 'Không thể kiểm tra tiến độ báo cáo', 'error'); })
+      .finally(() => { isGenerating.value = false; activeJobId.value = null; });
   }
 });
 
 onUnmounted(() => {
+  activeJobId.value = null;
   if (timerInterval) clearInterval(timerInterval);
 });
 </script>

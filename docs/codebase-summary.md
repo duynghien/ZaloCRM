@@ -106,7 +106,7 @@ GET    /api/v1/conversations                  # Lấy danh sách cuộc trò chu
 POST   /api/v1/conversations/:id/messages     # Gửi tin nhắn Zalo
 GET    /api/v1/ai-reports/groups              # Danh sách nhóm Zalo và cấu hình theo dõi
 GET    /api/v1/ai-reports/configs             # Cấu hình báo cáo các nhóm Zalo
-PUT    /api/v1/ai-reports/configs/:threadId   # Cập nhật cấu hình & custom prompt nhóm
+PUT    /api/v1/ai-reports/configs/:groupThreadId # Body zalo_account_id bắt buộc, cập nhật nguồn cụ thể
 POST   /api/v1/ai-reports/generate            # Kích hoạt tạo báo cáo AI On-Demand
 GET    /api/v1/ai-reports                     # Lấy danh sách lịch sử báo cáo đã tạo
 GET    /api/v1/ai-reports/:id                 # Xem chi tiết nội dung báo cáo
@@ -133,4 +133,17 @@ POST   /api/public/messages/send              # Public API: Gửi tin nhắn qua
 | File mã nguồn > 200 dòng | 19 file (không tính Prisma schema) |
 | Dependency audit | CI chặn critical; residual risk được theo dõi trong release documentation |
 
-Baseline này mô tả trạng thái, không phải tiêu chí chấp nhận production. Xem roadmap để biết thứ tự hardening.
+Baseline này là ghi nhận lịch sử ngày 02/09, không mô tả working tree mới và không phải tiêu chí chấp nhận production.
+
+
+## 6. Hợp đồng hiện tại — cập nhật 2026-09-12
+
+- AI generate nhận `group_targets: [{ zalo_account_id, group_thread_id }]`; server đóng băng `(orgId, zaloAccountId, groupThreadId, conversationId)` trong job schema v2. Selector cũ `group_thread_ids` chỉ được chuẩn hóa khi mỗi thread duy nhất trong org; mơ hồ trả `409`, không trộn hai dạng selector.
+- Zalo delivery yêu cầu `zalo_account_id` sender tường minh; source và sender đều kiểm tra ACL. Resend cần `Idempotency-Key`, lưu attempt và dispatch ledger riêng; cùng key/payload trả kết quả cũ, đổi payload với cùng key trả `409`.
+- `GroupReportConfig` định danh theo org/account/thread, giữ cấu hình legacy `needs_resolution` khi không thể resolve. `GeneratedReport` giữ `sourceTargets`; bản cũ `legacy_unverified` chỉ Owner/Admin cùng org đọc, không resend.
+- `report-job-budget.ts` quản lý reservation dưới lease fence trước từng provider attempt; ngân sách gồm prompt/context mở rộng attachment và mọi lượt map/reduce/final/retry. SQL estimate chỉ preflight.
+- `request-schemas.ts`, `request-bounds.ts`, `report-http-validation.ts` kiểm tra kiểu/giới hạn trước side effect. Không coi input sai là omission hoặc âm thầm clamp về mặc định.
+- `order-code-service.ts` cấp `ORD-YYYYMMDD-NNN` bằng counter org/ngày UTC trong cùng transaction tạo đơn; unique `(orgId, orderCode)` bảo vệ ở DB. Migration chặn mã trùng hiện có để đối soát.
+- Ingestion deduplicate theo `(conversationId, zaloMsgId)`; replay không tăng unread hay phát lại tác động downstream. Undo resolve account/thread thành conversation trước khi đổi message.
+
+Ma trận HTTP/PostgreSQL/Socket.IO/browser và container smoke đã có trong source. Trạng thái pass phải đối chiếu report của revision tương ứng trong [kế hoạch remediation](../plans/260902-1756-post-remediation-audit-fixes/plan.md); còn chờ commit cuối, hosted CI và review cuối trước nghiệm thu release.

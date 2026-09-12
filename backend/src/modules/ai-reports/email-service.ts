@@ -19,6 +19,7 @@ export interface SmtpConfig {
 }
 
 export interface SendEmailReportOptions {
+  executionGuard: () => Promise<void>;
   orgId: string;
   toEmail: string | string[];
   reportTitle: string;
@@ -185,6 +186,7 @@ export async function sendReportEmail(options: SendEmailReportOptions): Promise<
 
     const html = buildReportEmailHtml(reportTitle, markdownContent, periodText);
 
+    await options.executionGuard();
     const info = await transporter.sendMail({
       from: smtp.from || smtp.auth.user,
       to: Array.isArray(toEmail) ? toEmail.join(', ') : toEmail,

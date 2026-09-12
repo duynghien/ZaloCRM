@@ -99,8 +99,12 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 
 ## 8. API Validation & Reliability
 
-- Mọi route khai báo Fastify JSON Schema cho `body`, `params`, `querystring` và response quan trọng.
-- Pagination phải ép `page >= 1`, `1 <= limit <= 100`; date range, số group và kích thước payload phải có trần.
+- Boundary HTTP phải kiểm tra body/params/query và response quan trọng. Source hiện dùng shared strict validators và route hooks; không ghi nhận toàn bộ route đã có Fastify JSON Schema.
+- Pagination chỉ nhận số nguyên đúng định dạng trong giới hạn (`page >= 1`, `1 <= limit <= 100`); input sai trả `400`, không clamp hoặc fallback. Mặc định chỉ áp dụng khi bỏ qua trường.
+- Body null/array/scalar bị từ chối khi endpoint cần object. Nullability theo từng contract: tạo order cho phép `notes`/`conversationId: null`; update `notes: null` xóa ghi chú, omission giữ nguyên.
+- Ngày phải tồn tại theo lịch; timestamp cần timezone. Chuẩn hóa UTC trước so sánh; AI chấp nhận chênh lệch không quá 30 × 24 giờ (31 ngày lịch gồm hai đầu), tối đa 20 cặp nguồn và 10 email đã chuẩn hóa không trùng.
+- Order code phải cấp trong transaction tạo order bằng counter org/ngày UTC và unique DB; không dùng count hoặc tự sửa mã trùng legacy.
+- AI source phải giữ account/thread/conversation đã resolve; sender chọn rõ, resend có idempotency ledger. Không tự retry dispatch claimed/uncertain hoặc reset ngân sách khi recovery.
 - Liveness và readiness tách biệt. Readiness phải trả HTTP `503` khi database hoặc dependency bắt buộc không sẵn sàng.
 - Không tiếp tục chạy sau `uncaughtException` trong trạng thái không xác định. Thực hiện graceful shutdown cho HTTP, Socket.IO, Prisma, cron và Zalo listeners.
 
@@ -116,10 +120,18 @@ npm run prisma:generate
 npm run typecheck
 npm run build
 npm test
-npm run lint
-npm audit --workspaces --include-workspace-root
+npm run audit:production
+npm run test:e2e
+npm run verify:production-container
+npm run verify:development-compose
 ```
 
+- `npm test` chạy test của cả backend và frontend workspace; không bao gồm Playwright (`npm run test:e2e`). Danh sách lệnh là yêu cầu kiểm tra, không phải báo cáo đã pass.
+- Integration fixture PostgreSQL 16 disposable: local cần Docker daemon hoạt động; CI cần PostgreSQL service riêng đã migrate. Fixture phải dùng chính app/auth/socket production, DB và session thật; không trỏ vào DB production hoặc thay Prisma bằng mock để chứng minh tenant/ACL isolation.
+- Root hiện chưa có script `lint`; không chạy hoặc ghi nhận `npm run lint` đã pass. Cần cấu hình script trước khi đưa lint thành gate bắt buộc.
 - Lockfile dùng trong Docker phải đồng bộ với manifest tương ứng.
 - Thay đổi auth, tenant boundary, webhook, file parser và message ingestion bắt buộc có test regression.
-- CI phải chặn merge khi test, lint, typecheck, build hoặc dependency audit vượt ngưỡng đã chấp nhận.
+- CI phải chặn merge khi test, typecheck, build hoặc dependency audit vượt ngưỡng đã chấp nhận; lint áp dụng sau khi có cấu hình. Chỉ xác nhận CI/release khi có kết quả thực tế của revision tương ứng.
+
+- Production audit chặn mọi advisory ngoài hai waiver Prisma CLI khóa version/path: `deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`. Không waiver `uuid`; waiver lệch version/path/consumer graph phải fail.
+- Gate hành vi phải có test HTTP/DB/Socket/browser thực, không dùng source-string assertions hay suite bị skip/0 test thay bằng chứng. Local pass không thay hosted CI tại commit cuối.

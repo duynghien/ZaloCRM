@@ -2,6 +2,10 @@
  * summarizer-service.ts — Core AI engine implementing Hierarchical Map-Reduce
  * with message chunking, empty activity guard, and executive 5-part synthesis.
  */
+import type { Prisma } from '@prisma/client';
+import { config } from '../../config/index.js';
+import { decodeReportTargets, type ReportTarget } from './report-target-service.js';
+import { ReportControlError, isReportControlError, runReportExecutionGuard, type ReportJobBudget } from './report-job-budget.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { generateContent } from './ai-client.js';
@@ -13,17 +17,13 @@ export interface GenerateReportParams {
   reportType?: 'daily' | 'weekly' | 'on_demand';
   periodFrom: Date;
   periodTo: Date;
-  groupThreadIds?: string[];
+  targets: ReportTarget[];
   title?: string;
-  sendZalo?: boolean;
-  sendEmail?: boolean;
-  zaloDestinationType?: 'self' | 'uid';
-  zaloTargetUid?: string;
-  maxMessagesPerGroup?: number;
-  shouldCancel?: () => Promise<boolean>;
+  budget: ReportJobBudget;
+  executionGuard: () => Promise<void>;
 }
 
-export interface GroupDigestItem {
+export interface GroupDigestItem extends ReportTarget {
   groupThreadId: string;
   groupName: string;
   messageCount: number;
@@ -39,11 +39,12 @@ const CHUNK_SIZE = 150;
 async function summarizeGroupMessages(
   groupName: string,
   messages: CleanedMessage[],
-  customPrompt?: string | null,
-  focusKeywords?: string[],
-  shouldCancel?: () => Promise<boolean>,
+  customPrompt: string | null | undefined,
+  focusKeywords: string[] | undefined,
+  budget: ReportJobBudget,
+  executionGuard: () => Promise<void>,
 ): Promise<string> {
-  if (await shouldCancel?.()) throw new Error('Job cancelled');
+  await runReportExecutionGuard(executionGuard);
   if (messages.length === 0) {
     return `Nhóm ${groupName}: Không có hoạt động hoặc tin nhắn mới trong khoảng thời gian này.`;
   }
@@ -72,13 +73,13 @@ YÊU CẦU:
 5. Viết bằng tiếng Việt súc tích, gạch đầu dòng rõ ràng.`;
 
     try {
-      if (await shouldCancel?.()) throw new Error('Job cancelled');
-      return await generateContent(prompt, {
+      await runReportExecutionGuard(executionGuard);
+      return await generateContent(prompt, { budget, executionGuard,
         systemInstruction: 'Bạn là chuyên gia phân tích dữ liệu vận hành và điều hành doanh nghiệp.',
         temperature: 0.2,
       });
     } catch (err: any) {
-      if (err?.message === 'Job cancelled') throw err;
+      if (isReportControlError(err)) throw err;
       logger.error(`[summarizer-service] Tier 1 summary failed for group ${groupName}:`, err?.message || err);
       return `Nhóm ${groupName}: Ghi nhận ${messages.length} tin nhắn trao đổi (không thể hoàn tất tóm tắt do lỗi kết nối AI).`;
     }
@@ -94,15 +95,15 @@ YÊU CẦU:
 
   const chunkSummaries: string[] = [];
   for (const [idx, chunk] of chunks.entries()) {
-    if (await shouldCancel?.()) throw new Error('Job cancelled');
-      const transcript = formatTranscriptForPrompt(chunk);
-      const prompt = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}`;
-      try {
-        chunkSummaries.push(await generateContent(prompt, { temperature: 0.2 }));
-      } catch (err: any) {
-        if (err?.message === 'Job cancelled') throw err;
-        chunkSummaries.push(`Phần ${idx + 1}: ${chunk.length} tin nhắn trao đổi.`);
-      }
+    await runReportExecutionGuard(executionGuard);
+    const transcript = formatTranscriptForPrompt(chunk);
+    const prompt = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}\n${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}`;
+    try {
+      chunkSummaries.push(await generateContent(prompt, { budget, executionGuard, temperature: 0.2 }));
+    } catch (err: any) {
+      if (isReportControlError(err)) throw err;
+      chunkSummaries.push(`Phần ${idx + 1}: ${chunk.length} tin nhắn trao đổi.`);
+    }
   }
 
   // Reduce chunk summaries
@@ -112,8 +113,9 @@ ${chunkSummaries.join('\n\n')}
 Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ thông tin trùng lặp, nêu bật công việc hoàn thành, sự cố và số liệu chính.`;
 
   try {
-    return await generateContent(reducePrompt, { temperature: 0.2 });
+    return await generateContent(reducePrompt, { budget, executionGuard, temperature: 0.2 });
   } catch (err: any) {
+    if (isReportControlError(err)) throw err;
     return chunkSummaries.join('\n\n');
   }
 }
@@ -126,9 +128,10 @@ async function synthesizeExecutiveReport(
   reportType: string,
   periodFrom: Date,
   periodTo: Date,
-  shouldCancel?: () => Promise<boolean>,
+  budget: ReportJobBudget,
+  executionGuard: () => Promise<void>,
 ): Promise<string> {
-  if (await shouldCancel?.()) throw new Error('Job cancelled');
+  await runReportExecutionGuard(executionGuard);
   const fromStr = periodFrom.toLocaleString('vi-VN', {
     day: '2-digit',
     month: '2-digit',
@@ -190,14 +193,14 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
 `;
 
   try {
-    if (await shouldCancel?.()) throw new Error('Job cancelled');
-    return await generateContent(prompt, {
+    await runReportExecutionGuard(executionGuard);
+    return await generateContent(prompt, { budget, executionGuard,
       systemInstruction: 'Bạn là chuyên gia quản trị và điều hành doanh nghiệp, viết báo cáo sắc sảo, trung thực, chính xác.',
       temperature: 0.2,
       maxOutputTokens: 8192,
     });
   } catch (err: any) {
-    if (err?.message === 'Job cancelled') throw err;
+    if (isReportControlError(err)) throw err;
     logger.error('[summarizer-service] Tier 2 synthesis failed:', err?.message || err);
     // Fallback: concatenate group summaries
     return `# Báo Cáo Tổng Hợp (${fromStr} - ${toStr})\n\n${digestContext}`;
@@ -208,190 +211,45 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
  * Main entry point to run full AI digest pipeline
  */
 export async function generateDigestReport(params: GenerateReportParams) {
-  const {
-    orgId,
-    userId,
-    reportType = 'on_demand',
-    periodFrom,
-    periodTo,
-    groupThreadIds,
-    title,
-    maxMessagesPerGroup,
-    shouldCancel,
-  } = params;
-
-  logger.info(
-    `[summarizer-service] Generating ${reportType} digest report for org ${orgId} from ${periodFrom.toISOString()} to ${periodTo.toISOString()}`,
-  );
-
-  // 1. Resolve which groups to include
-  let targetGroupThreadIds: string[] = [];
-  const groupConfigsMap = new Map<string, { groupName?: string | null; customPrompt?: string | null; focusKeywords?: string[] }>();
-
-  if (groupThreadIds && groupThreadIds.length > 0) {
-    targetGroupThreadIds = groupThreadIds;
-    const configs = await prisma.groupReportConfig.findMany({
-      where: { orgId, groupThreadId: { in: targetGroupThreadIds } },
-    });
-    for (const c of configs) {
-      groupConfigsMap.set(c.groupThreadId, {
-        groupName: c.groupName,
-        customPrompt: c.customPrompt,
-        focusKeywords: Array.isArray(c.focusKeywords) ? (c.focusKeywords as string[]) : [],
-      });
-    }
-  } else {
-    // Get enabled configs
-    const enabledConfigs = await prisma.groupReportConfig.findMany({
-      where: { orgId, isEnabled: true },
-    });
-
-    if (enabledConfigs.length > 0) {
-      for (const c of enabledConfigs) {
-        targetGroupThreadIds.push(c.groupThreadId);
-        groupConfigsMap.set(c.groupThreadId, {
-          groupName: c.groupName,
-          customPrompt: c.customPrompt,
-          focusKeywords: Array.isArray(c.focusKeywords) ? (c.focusKeywords as string[]) : [],
-        });
-      }
-    } else {
-      // Fallback: all group conversations in the org
-      const groupConvs = await prisma.conversation.findMany({
-        where: { orgId, threadType: 'group', externalThreadId: { not: null } },
-        include: { contact: { select: { fullName: true } } },
-        take: 20,
-      });
-      for (const conv of groupConvs) {
-        if (conv.externalThreadId) {
-          targetGroupThreadIds.push(conv.externalThreadId);
-          groupConfigsMap.set(conv.externalThreadId, {
-            groupName: conv.contact?.fullName || 'Nhóm',
-          });
-        }
-      }
-    }
-  }
-
-  if (targetGroupThreadIds.length === 0) {
-    throw new Error('Không tìm thấy nhóm Zalo nào được cấu hình hoặc có sẵn để tạo báo cáo.');
-  }
-
-  // 2. Fetch messages for each group in the time range
-  const groupDigests: GroupDigestItem[] = [];
-
-  for (const threadId of targetGroupThreadIds) {
-    if (await shouldCancel?.()) throw new Error('Job cancelled');
-    const configData = groupConfigsMap.get(threadId);
-
-    // Find conversation
-    const conversation = await prisma.conversation.findFirst({
-      where: { orgId, externalThreadId: threadId },
-      include: { contact: { select: { fullName: true } } },
-    });
-
-    const groupName =
-      configData?.groupName ||
-      conversation?.contact?.fullName ||
-      `Nhóm ${threadId}`;
-
-    if (!conversation) {
-      groupDigests.push({
-        groupThreadId: threadId,
-        groupName,
-        messageCount: 0,
-        filteredCount: 0,
-        summary: 'Chưa có dữ liệu hội thoại trong hệ thống.',
-      });
-      continue;
-    }
-
+  const { orgId, userId, reportType = 'on_demand', periodFrom, periodTo, title, budget, executionGuard } = params;
+  const targets = decodeReportTargets(params.targets);
+  await runReportExecutionGuard(executionGuard);
+  // Materialize all exact sources before spending tokens; cap+1 detects overflow without truncation.
+  const materialized = [];
+  let messageCount = 0;
+  for (const target of targets) {
+    await runReportExecutionGuard(executionGuard);
+    const scope = { id: target.conversationId, orgId, zaloAccountId: target.zaloAccountId, externalThreadId: target.groupThreadId, threadType: 'group', zaloAccount: { orgId } };
+    const conversation = await prisma.conversation.findFirst({ where: scope, include: { contact: { select: { fullName: true } } } });
+    if (!conversation) throw new ReportControlError('Report source changed');
+    const configData = await prisma.groupReportConfig.findFirst({ where: { orgId, zaloAccountId: target.zaloAccountId, groupThreadId: target.groupThreadId, targetResolutionStatus: 'resolved' } });
     const rawMessages = await prisma.message.findMany({
-      where: {
-        conversationId: conversation.id,
-        sentAt: {
-          gte: periodFrom,
-          lte: periodTo,
-        },
-        isDeleted: false,
-      },
-      orderBy: { sentAt: 'asc' },
-      take: maxMessagesPerGroup,
+      where: { conversationId: target.conversationId, conversation: scope, sentAt: { gte: periodFrom, lte: periodTo }, isDeleted: false },
+      orderBy: [{ sentAt: 'asc' }, { id: 'asc' }],
+      take: config.aiReportMaxMessages - messageCount + 1,
     });
-
-    const cleanedMessages = filterAndFormatMessages(rawMessages);
-
-    // Empty Activity Guard
-    if (cleanedMessages.length === 0) {
-      groupDigests.push({
-        groupThreadId: threadId,
-        groupName,
-        messageCount: rawMessages.length,
-        filteredCount: 0,
-        summary: 'Không có tin nhắn / hoạt động mới trong khoảng thời gian này.',
-      });
-      continue;
-    }
-
-    // Tier 1 Summarization
-    const groupSummary = await summarizeGroupMessages(
-      groupName,
-      cleanedMessages,
-      configData?.customPrompt,
-      configData?.focusKeywords,
-      shouldCancel,
-    );
-
-    groupDigests.push({
-      groupThreadId: threadId,
-      groupName,
-      messageCount: rawMessages.length,
-      filteredCount: cleanedMessages.length,
-      summary: groupSummary,
-    });
+    messageCount += rawMessages.length;
+    if (messageCount > config.aiReportMaxMessages) throw new ReportControlError('Report exceeds the configured message budget');
+    materialized.push({ target, configData, rawMessages, groupName: configData?.groupName || conversation.contact?.fullName || `Nhóm ${target.groupThreadId}` });
   }
-
-  // 3. Tier 2 Executive Synthesis
-  const summaryContent = await synthesizeExecutiveReport(
-    groupDigests,
-    reportType,
-    periodFrom,
-    periodTo,
-    shouldCancel,
-  );
-
-  const reportTitle =
-    title ||
-    `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN')})`;
-
-  // 4. Save to database
-  const createdReport = await prisma.generatedReport.create({
-    data: {
-      orgId,
-      createdById: userId || null,
-      title: reportTitle,
-      reportType,
-      periodFrom,
-      periodTo,
-      groupThreadIds: targetGroupThreadIds,
-      summaryContent,
-      structuredData: {
-        totalGroups: targetGroupThreadIds.length,
-        activeGroups: groupDigests.filter((g) => g.filteredCount > 0).length,
-        groupDigests: JSON.parse(JSON.stringify(groupDigests)),
-      },
-      sentZalo: false,
-      sentEmail: false,
-      metadata: {
-        generatedAt: new Date().toISOString(),
-      },
-    },
-  });
-
-  logger.info(`[summarizer-service] Report created successfully with id ${createdReport.id}`);
-
-  return {
-    report: createdReport,
-    groupDigests,
+  const groupDigests: GroupDigestItem[] = [];
+  for (const { target, configData, rawMessages, groupName } of materialized) {
+    await runReportExecutionGuard(executionGuard);
+    const cleaned = filterAndFormatMessages(rawMessages);
+    const summary = await summarizeGroupMessages(groupName, cleaned, configData?.customPrompt,
+      Array.isArray(configData?.focusKeywords) ? configData.focusKeywords as string[] : undefined, budget, executionGuard);
+    groupDigests.push({ ...target, groupName, messageCount: rawMessages.length, filteredCount: cleaned.length, summary });
+  }
+  const summaryContent = await synthesizeExecutiveReport(groupDigests, reportType, periodFrom, periodTo, budget, executionGuard);
+  await runReportExecutionGuard(executionGuard);
+  const reportData: Prisma.GeneratedReportUncheckedCreateInput = {
+    orgId, createdById: userId || null,
+    title: title || `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN')})`,
+    reportType, periodFrom, periodTo, summaryContent,
+    groupThreadIds: targets.map(target => target.groupThreadId),
+    sourceTargets: targets.map(target => ({ ...target })), targetSchemaVersion: 2, targetResolutionStatus: 'verified',
+    structuredData: { totalGroups: targets.length, activeGroups: groupDigests.filter(g => g.filteredCount > 0).length, groupDigests: groupDigests.map(g => ({ ...g })) },
+    sentZalo: false, sentEmail: false, metadata: { generatedAt: new Date().toISOString() },
   };
+  return { reportData, groupDigests };
 }

@@ -1,15 +1,8 @@
 import { defineConfig } from '@playwright/test';
+import realtimeFixture from './playwright-phase1.config';
 
+// Every default browser test runs against the owned full-stack fixture.
 export default defineConfig({
-  testDir: './e2e',
-  timeout: 30_000,
-  use: {
-    baseURL: process.env.E2E_BASE_URL || 'http://127.0.0.1:4173',
-    trace: 'retain-on-failure',
-  },
-  webServer: process.env.E2E_BASE_URL ? undefined : {
-    command: 'npm run preview -- --host 127.0.0.1 --port 4173',
-    port: 4173,
-    reuseExistingServer: !process.env.CI,
-  },
+  ...realtimeFixture,
+  testMatch: ['auth-session-smoke.spec.ts', 'zalo-qr-session.spec.ts', 'chat-recovery.spec.ts', 'ai-report-account-targets.spec.ts', 'auth-session-lifecycle.spec.ts', 'member-account-permissions.spec.ts', 'api-settings-permissions.spec.ts'],
 });

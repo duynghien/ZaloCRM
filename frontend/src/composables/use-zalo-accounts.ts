@@ -6,6 +6,7 @@
 import { ref, onUnmounted } from 'vue';
 import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
+import { subscribeQR } from './zalo-qr-subscription';
 
 export interface ZaloAccount {
   id: string;
@@ -33,8 +34,11 @@ export function useZaloAccounts() {
   const qrError = ref('');
   const currentLoginAccountId = ref('');
 
+  let loginGeneration = 0;
+  let loginRequested = false;
   let socket: Socket | null = null;
   let socketRefreshAttempted = false;
+  let lastSocketRefresh = 0;
   let removeTokenListener: (() => void) | null = null;
 
   function statusColor(status: string) {
@@ -81,17 +85,35 @@ export function useZaloAccounts() {
   }
 
   async function loginAccount(accountId: string) {
+    cancelQR();
     currentLoginAccountId.value = accountId;
     qrImage.value = '';
     qrScanned.value = false;
     scannedName.value = '';
     qrError.value = '';
     showQRDialog.value = true;
-    socket?.emit('zalo:subscribe', { accountId });
+    loginRequested = false;
+    setupSocket();
+    await restoreLoginIntent();
+  }
+
+  async function restoreLoginIntent() {
+    const accountId = currentLoginAccountId.value;
+    if (!socket || !showQRDialog.value || !accountId) return;
+    const generation = ++loginGeneration;
+    const activeSocket = socket;
+    const current = () => generation === loginGeneration && socket === activeSocket
+      && showQRDialog.value && currentLoginAccountId.value === accountId;
     try {
+      if (!await subscribeQR(activeSocket, accountId, current) || !current()) return;
+      if (loginRequested) return;
+      loginRequested = true;
       await api.post(`/zalo-accounts/${accountId}/login`);
     } catch (err: any) {
-      qrError.value = err.response?.data?.error || 'Không thể bắt đầu đăng nhập';
+      if (current()) {
+        qrError.value = err.response?.data?.error || err.message || 'Không thể bắt đầu đăng nhập';
+        qrImage.value = '';
+      }
     }
   }
 
@@ -119,8 +141,13 @@ export function useZaloAccounts() {
   }
 
   function cancelQR() {
+    const accountId = currentLoginAccountId.value;
+    loginGeneration++;
+    loginRequested = false;
     showQRDialog.value = false;
-    socket?.emit('zalo:unsubscribe', { accountId: currentLoginAccountId.value });
+    currentLoginAccountId.value = '';
+    qrImage.value = '';
+    if (accountId && socket?.connected) socket.emit('zalo:unsubscribe', { accountId });
   }
 
   function setupSocket() {
@@ -132,13 +159,16 @@ export function useZaloAccounts() {
     socket = io({
       auth: (callback) => callback({ token: getAccessToken() }),
       transports: ['websocket', 'polling'],
-      reconnection: false,
+      reconnection: true,
+      reconnectionAttempts: 5,
     });
 
     const onTokenChanged = (event: Event) => {
       const nextToken = (event as CustomEvent<string>).detail || '';
       if (!socket) return;
       if (!nextToken) {
+        cancelQR();
+        socket.removeAllListeners();
         socket.disconnect();
         socket = null;
         socketRefreshAttempted = false;
@@ -160,18 +190,40 @@ export function useZaloAccounts() {
     if (removeTokenListener) removeTokenListener();
     removeTokenListener = () => window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
 
+    socket.on('disconnect', async (reason) => {
+      // Server-enforced token expiry is not retried by Socket.IO. Refresh once per
+      // disconnect burst; a rejected refresh follows the REST logout policy.
+      if (reason !== 'io server disconnect' || !socket || !getAccessToken()) return;
+      const now = Date.now();
+      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
+      lastSocketRefresh = now;
+      const disconnectedSocket = socket;
+      try {
+        await refreshAccessToken();
+        if (socket === disconnectedSocket) socket.connect();
+      } catch {
+        // A later explicit token change may reconnect after a transient failure.
+      }
+    });
+
     socket.on('connect_error', async (error) => {
       const unauthorized = isSocketAuthenticationFailure(error.message);
       if (!unauthorized || socketRefreshAttempted || !socket) return;
 
+      const now = Date.now();
+      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
+      lastSocketRefresh = now;
       socketRefreshAttempted = true;
       try {
         await refreshAccessToken();
-        socket.connect();
+        socket?.connect();
       } catch {
         // The API layer redirects only when the refresh cookie was rejected.
       }
     });
+
+    socket.on('connect', () => { void restoreLoginIntent(); });
+    socket.on('disconnect', () => { loginGeneration++; });
 
     socket.on('zalo:qr', (data: { accountId: string; qrImage: string }) => {
       if (data.accountId === currentLoginAccountId.value) qrImage.value = data.qrImage;
@@ -185,8 +237,8 @@ export function useZaloAccounts() {
       }
     });
 
-    socket.on('zalo:connected', (_data: { accountId: string }) => {
-      showQRDialog.value = false;
+    socket.on('zalo:connected', (data: { accountId: string }) => {
+      if (data.accountId === currentLoginAccountId.value) cancelQR();
       fetchAccounts();
     });
 
@@ -208,6 +260,8 @@ export function useZaloAccounts() {
   }
 
   onUnmounted(() => {
+    cancelQR();
+    socket?.removeAllListeners();
     socket?.disconnect();
     socket = null;
     socketRefreshAttempted = false;

@@ -10,7 +10,7 @@ import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
-import type { Server } from 'socket.io';
+import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
 
 type QueryParams = Record<string, string>;
@@ -163,8 +163,7 @@ export async function chatRoutes(app: FastifyInstance) {
         data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
       });
 
-      const io = (app as any).io as Server;
-      io?.to(`org:${user.orgId}`).emit('chat:message', { accountId: conversation.zaloAccountId, message, conversationId: id });
+      await emitAccountEvent(app.io, conversation.zaloAccountId, 'chat:message', { accountId: conversation.zaloAccountId, message, conversationId: id });
 
       return message;
     } catch (err) {

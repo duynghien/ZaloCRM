@@ -30,22 +30,29 @@ cd ZaloCRM
 cp .env.example .env
 # Sửa file .env — đặt mật khẩu DB và tạo 2 khóa secret bằng command: openssl rand -hex 32
 
-# Khởi chạy toàn bộ hệ thống bằng Docker Compose
+# Cần Node.js 24/npm trên máy chủ để chạy deployment gate
+# Build, dừng app cũ an toàn, migrate rồi khởi chạy app mới
 npm run docker:up
 ```
 
-Truy cập **http://IP-server:3080** → Tạo tài khoản admin lần đầu.
+Thiết lập HTTPS bằng [Nginx hoặc Cloudflare Tunnel](./docs/deployment-guide.md#4-thiết-lập-reverse-proxy--ssltls), rồi truy cập URL đã đặt trong `APP_URL` để tạo tài khoản admin. Backend chỉ publish `127.0.0.1:3080`.
+
+Dùng `npm run docker:up` cho cả lần đầu và cập nhật. Lệnh xác nhận app cũ đã dừng sạch trước migration; lỗi drain hoặc migration sẽ chặn khởi chạy phiên bản mới.
 
 ---
 
 ## 🛠️ Lệnh Phát Triển Đồng Bộ (Root Commands)
 
 ```bash
-npm run dev         # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
+APP_URL=http://localhost:5173 npm run dev # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
 npm run build       # Build biên dịch mã nguồn Backend & Frontend
 npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
-npm run docker:dev  # Khởi chạy Docker môi trường Development (Hot Reload)
+npm run docker:dev  # Backend watch + Vite hot reload
+npm run verify:production-container  # Smoke production với database riêng
+npm run verify:development-compose   # Smoke trình duyệt + hot reload với database riêng
 ```
+
+Docker development: mở **http://localhost:5173**; backend ở **http://localhost:3080**. `DEV_APP_URL` mặc định `http://localhost:5173`; nếu dùng origin khác, đặt biến này đúng URL trình duyệt. Xem [hướng dẫn development và smoke](./docs/deployment-guide.md#7-development-và-container-smoke) về proxy, ports và Playwright.
 
 ---
 

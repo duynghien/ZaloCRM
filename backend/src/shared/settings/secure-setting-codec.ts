@@ -1,5 +1,5 @@
 import { config } from '../../config/index.js';
-import { decryptData, encryptData } from '../utils/crypto.js';
+import { decryptString, encryptData } from '../utils/crypto.js';
 
 type SecureSetting = {
   valuePlain: string | null;
@@ -21,7 +21,7 @@ export function encodeSecureSetting(value: string): Pick<SecureSetting, 'valuePl
 export function decodeSecureSetting(setting: SecureSetting | null | undefined): string | null {
   if (!setting) return null;
   if (setting.valueEncrypted) {
-    const decrypted = decryptData<string>(new TextDecoder().decode(setting.valueEncrypted), config.encryptionKey);
+    const decrypted = decryptString(new TextDecoder().decode(setting.valueEncrypted), config.encryptionKey);
     return typeof decrypted === 'string' ? decrypted : null;
   }
   return setting.valuePlain;

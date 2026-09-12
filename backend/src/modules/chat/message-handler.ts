@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 /**
  * message-handler.ts — persists incoming Zalo messages to the database.
  * Called from zalo-pool's startListener on every 'message' / 'undo' event.
@@ -56,49 +57,32 @@ export async function handleIncomingMessage(
     });
     if (!account) return null;
 
-    const contactId = await upsertContact(msg, account.orgId);
+    const persisted = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`inbound-thread:${msg.accountId}:${msg.threadId}`}));`;
+      const contactUid = msg.threadType === 'group' ? msg.threadId : msg.senderUid;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`inbound-contact:${account.orgId}:${contactUid}`}));`;
+      const { contactId, createdContact } = await upsertContact(tx, msg, account.orgId);
+      const conversation = await findOrCreateConversation(tx, msg, account.orgId, contactId);
+      const zaloMsgId = msg.msgId || null;
+      if (zaloMsgId && await tx.message.findUnique({ where: { conversationId_zaloMsgId: { conversationId: conversation.id, zaloMsgId } }, select: { id: true } })) return null;
+      const sentAt = new Date(msg.timestamp);
+      const message = await tx.message.create({ data: {
+        id: randomUUID(), conversationId: conversation.id, zaloMsgId,
+        senderType: msg.isSelf ? 'self' : 'contact', senderUid: msg.senderUid,
+        senderName: msg.senderName || null, content: msg.content || '', contentType: msg.contentType || 'text',
+        attachments: msg.attachments ?? [], sentAt,
+      } });
+      await updateConversationAfterMessage(tx, conversation.id, sentAt, msg.isSelf);
+      return { message, conversation, contactId, createdContact };
+    });
+    if (!persisted) return null;
+    const { message, conversation, contactId } = persisted;
 
-    const conversation = await findOrCreateConversation(msg, account.orgId, contactId);
-
-    const sentAt = new Date(msg.timestamp);
-    const zaloMsgId = msg.msgId || null;
-    if (zaloMsgId) {
-      const replay = await prisma.message.findUnique({
-        where: { conversationId_zaloMsgId: { conversationId: conversation.id, zaloMsgId } },
-        select: { id: true },
-      });
-      if (replay) {
-        logger.info(`[message-handler] Suppressed replay ${zaloMsgId} in conversation ${conversation.id}`);
-        return null;
-      }
+    // External notifications must describe committed rows, including contacts
+    // created in the same transaction as the incoming message.
+    if (persisted.createdContact) {
+      emitWebhook(account.orgId, 'contact.created', persisted.createdContact);
     }
-
-    let message;
-    try {
-      message = await prisma.message.create({
-        data: {
-          id: randomUUID(),
-          conversationId: conversation.id,
-          zaloMsgId,
-          senderType: msg.isSelf ? 'self' : 'contact',
-          senderUid: msg.senderUid,
-          senderName: msg.senderName || null,
-          content: msg.content || '',
-          contentType: msg.contentType || 'text',
-          attachments: msg.attachments ?? [],
-          sentAt,
-        },
-      });
-    } catch (err: any) {
-      // The unique index is the race-safe replay gate for concurrent listeners.
-      if (err?.code === 'P2002' && zaloMsgId) {
-        logger.info(`[message-handler] Suppressed concurrent replay ${zaloMsgId} in conversation ${conversation.id}`);
-        return null;
-      }
-      throw err;
-    }
-
-    await updateConversationAfterMessage(conversation.id, sentAt, msg.isSelf);
 
     // Process attachments asynchronously in the background (fire-and-forget)
     if (msg.attachments && msg.attachments.length > 0) {
@@ -138,17 +122,21 @@ export async function handleIncomingMessage(
 }
 
 // Upsert contact — handles both user and group conversations
-async function upsertContact(msg: IncomingMessage, orgId: string): Promise<string | null> {
+async function upsertContact(db: Prisma.TransactionClient, msg: IncomingMessage, orgId: string): Promise<{
+  contactId: string | null;
+  createdContact: { contactId: string; fullName: string | null } | null;
+}> {
+  let createdContact: { contactId: string; fullName: string | null } | null = null;
   // Group messages: create/update a "contact" record representing the group
   if (msg.threadType === 'group') {
     const groupUid = msg.threadId;
-    let groupContact = await prisma.contact.findFirst({
+    let groupContact = await db.contact.findFirst({
       where: { zaloUid: groupUid, orgId },
       select: { id: true, fullName: true },
     });
 
     if (!groupContact) {
-      groupContact = await prisma.contact.create({
+      groupContact = await db.contact.create({
         data: {
           id: randomUUID(),
           orgId,
@@ -158,27 +146,26 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
         },
         select: { id: true, fullName: true },
       });
-      // Emit webhook for new contact created
-      emitWebhook(orgId, 'contact.created', { contactId: groupContact.id, fullName: groupContact.fullName });
+      createdContact = { contactId: groupContact.id, fullName: groupContact.fullName };
     } else if (msg.groupName && groupContact.fullName !== msg.groupName) {
-      await prisma.contact.update({
+      await db.contact.update({
         where: { id: groupContact.id },
         data: { fullName: msg.groupName },
       });
     }
-    return groupContact.id;
+    return { contactId: groupContact.id, createdContact };
   }
 
   // User messages: self messages don't create a contact
-  if (msg.isSelf) return null;
+  if (msg.isSelf) return { contactId: null, createdContact: null };
 
-  let contact = await prisma.contact.findFirst({
+  let contact = await db.contact.findFirst({
     where: { zaloUid: msg.senderUid, orgId },
     select: { id: true, fullName: true },
   });
 
   if (!contact) {
-    contact = await prisma.contact.create({
+    contact = await db.contact.create({
       data: {
         id: randomUUID(),
         orgId,
@@ -187,62 +174,38 @@ async function upsertContact(msg: IncomingMessage, orgId: string): Promise<strin
       },
       select: { id: true, fullName: true },
     });
-    // Emit webhook for new contact created
-    emitWebhook(orgId, 'contact.created', { contactId: contact.id, fullName: contact.fullName });
+    createdContact = { contactId: contact.id, fullName: contact.fullName };
   } else if (msg.senderName && contact.fullName !== msg.senderName) {
-    await prisma.contact.update({
+    await db.contact.update({
       where: { id: contact.id },
       data: { fullName: msg.senderName },
     });
   }
 
-  return contact.id;
+  return { contactId: contact.id, createdContact };
 }
 
 // Find or create conversation — externalThreadId = threadId for both user and group
 async function findOrCreateConversation(
+  db: Prisma.TransactionClient,
   msg: IncomingMessage,
   orgId: string,
   contactId: string | null,
 ) {
   const externalThreadId = msg.threadId;
 
-  const existing = await prisma.conversation.findFirst({
-    where: { zaloAccountId: msg.accountId, externalThreadId },
-    select: { id: true },
+  return db.conversation.upsert({
+    where: { zaloAccountId_externalThreadId: { zaloAccountId: msg.accountId, externalThreadId } },
+    create: { id: randomUUID(), orgId, zaloAccountId: msg.accountId, contactId,
+      threadType: msg.threadType, externalThreadId, lastMessageAt: new Date(msg.timestamp),
+      unreadCount: 0, isReplied: msg.isSelf },
+    update: {}, select: { id: true },
   });
-
-  if (existing) return existing;
-
-  try {
-    return await prisma.conversation.create({
-      data: {
-        id: randomUUID(),
-        orgId,
-        zaloAccountId: msg.accountId,
-        contactId,
-        threadType: msg.threadType,
-        externalThreadId,
-        lastMessageAt: new Date(msg.timestamp),
-        unreadCount: msg.isSelf ? 0 : 1,
-        isReplied: msg.isSelf,
-      },
-      select: { id: true },
-    });
-  } catch (err: any) {
-    // Concurrent listener callbacks may create the same conversation first.
-    if (err?.code !== 'P2002') throw err;
-    const concurrent = await prisma.conversation.findUnique({
-      where: { zaloAccountId_externalThreadId: { zaloAccountId: msg.accountId, externalThreadId } },
-      select: { id: true },
-    });
-    if (concurrent) return concurrent;
-    throw err;
-  }
 }
 
 // Update conversation metadata after a new message
 async function updateConversationAfterMessage(
+  db: Prisma.TransactionClient,
   conversationId: string,
   sentAt: Date,
   isSelf: boolean,
@@ -255,23 +218,16 @@ async function updateConversationAfterMessage(
     updateData.unreadCount = { increment: 1 };
     updateData.isReplied = false;
   }
-  await prisma.conversation.update({ where: { id: conversationId }, data: updateData });
+  await db.conversation.update({ where: { id: conversationId }, data: updateData });
 }
 
 // Soft-delete a message by its Zalo message ID
-export async function handleMessageUndo(accountId: string, zaloMsgId: string): Promise<void> {
-  try {
-    await prisma.message.updateMany({
-      where: {
-        zaloMsgId: String(zaloMsgId),
-        conversation: { zaloAccountId: accountId },
-      },
-      data: { isDeleted: true, deletedAt: new Date() },
-    });
-    logger.info(`[message-handler] Undo message ${zaloMsgId} for account ${accountId}`);
-  } catch (err) {
-    logger.error('[message-handler] handleMessageUndo error:', err);
-  }
+export async function handleMessageUndo(accountId: string, zaloMsgId: string, threadId: string): Promise<string | null> {
+  if (!accountId || !zaloMsgId || !threadId) return null;
+  const conversation = await prisma.conversation.findUnique({ where: { zaloAccountId_externalThreadId: { zaloAccountId: accountId, externalThreadId: threadId } }, select: { id: true } });
+  if (!conversation) return null;
+  const updated = await prisma.message.updateMany({ where: { conversationId: conversation.id, zaloMsgId }, data: { isDeleted: true, deletedAt: new Date() } });
+  return updated.count ? conversation.id : null;
 }
 
 /**

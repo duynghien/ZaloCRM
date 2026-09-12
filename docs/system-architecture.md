@@ -41,6 +41,7 @@ graph TD
 ### 2.2. API & WebSocket Server (Fastify + Socket.IO)
 - **Fastify Framework:** Lựa chọn nhờ tốc độ xử lý vượt trội, hệ sinh thái plugin mạnh mẽ (`@fastify/jwt`, `@fastify/cors`, `@fastify/rate-limit`, `@fastify/static`).
 - **Real-time Gateway:** Socket.IO tích hợp trực tiếp trên server HTTP của Fastify, xác thực kết nối bằng JWT Token.
+- **App factory:** `backend/src/app-factory.ts` dựng cùng HTTP routes và Socket.IO production cho ứng dụng và integration fixture; entrypoint sở hữu việc khởi động worker, cron và Zalo listeners.
 
 ### 2.3. Zalo Account Connection Pool (`ZaloPool`)
 - **Quản lý đa phiên Zalo:** `ZaloPool` duy trì danh sách các thể hiện (instances) của thư viện `zca-js` cho từng tài khoản Zalo đang hoạt động.
@@ -70,9 +71,36 @@ sequenceDiagram
     Zalo->>Pool: Event: incoming_message
     Pool->>Fastify: Chuyển tiếp payload tin nhắn
     Fastify->>DB: Lưu tin nhắn & Cập nhật Conversation (unread_count++)
-    Fastify->>WS: Emit event 'message:new' tới room 'org:{orgId}'
+    Fastify->>WS: emitAccountEvent(accountId, 'chat:message', payload)
+    WS->>DB: Đọc account org và session/ACL hiện tại của từng ứng viên
+    DB-->>WS: Identity cùng org, có quyền read
+    Note over WS: Kiểm tra invalidation/session lần cuối rồi emit từng socket
     WS->>Agent: Hiển thị tin nhắn mới & Thông báo âm thanh
 ```
+
+Room `org:{orgId}` chỉ chọn ứng viên, không cấp quyền nhận payload. Chat/status cần session DB hợp lệ và quyền `read` hiện tại trên account; không yêu cầu subscribe. Owner/Admin bypass grant chỉ trong organization của mình. Thiếu account/context hoặc lỗi kiểm tra DB thì từ chối gửi, không fallback broadcast toàn cục.
+
+### 3.1.1. QR, reminder và khôi phục realtime
+
+- `zalo:qr`, `zalo:qr-expired`, `zalo:scanned` cần quyền account `admin` hiện tại và intent subscribe còn hiệu lực ở server. Client chờ ack `zalo:subscribe` thành công trước HTTP login; reconnect khôi phục intent của dialog còn mở, unsubscribe/cancel vô hiệu hóa yêu cầu đang chờ.
+- `appointment:reminder` dùng `apt.orgId` đọc từ DB và kiểm tra session/org của từng người nhận qua `emitOrganizationEvent`. Visibility vẫn toàn organization, kể cả người không được assign; cập nhật reminder flag theo cả `id` và `orgId`.
+- Account delivery được tuần tự hóa theo account, giới hạn 100 sự kiện đang giữ; overflow gộp tín hiệu `realtime:resync-required` chỉ chứa reason/generation. Frontend tải lại conversation list và conversation đang mở qua REST khi có tín hiệu hoặc reconnect, gộp fetch và dùng ACL hiện hành để loại dữ liệu không còn quyền. Queue này không phải durable event log.
+- ACL/account mutation vô hiệu hóa thao tác đang chờ trước response thành công; session revoke vô hiệu hóa cả handshake đang chờ. Delivery kiểm tra lại trạng thái ngay trước emit, không giữ cache quyền dương lâu dài.
+- Bảo đảm invalidation hiện giới hạn **một backend process với Socket.IO default adapter**. Cần shared invalidation và kiểm chứng riêng trước khi dùng nhiều replica/distributed adapter.
+
+### 3.1.2. Message replay và thu hồi
+
+Transaction ingestion khóa hội thoại và unique `(conversationId, zaloMsgId)` để một sự kiện phát lại không tạo message, tăng unread, tải attachment, phát socket hoặc webhook lần nữa. Undo tìm conversation bằng org/account/thread trước khi cập nhật message; cùng mã tin nhắn ở hội thoại khác không bị thu hồi theo.
+
+### 3.1.3. Nguồn AI, ngân sách và delivery
+
+Generate resolve từng cặp account/thread thành snapshot `(orgId, zaloAccountId, groupThreadId, conversationId)` bất biến. Selector chỉ có thread được hỗ trợ khi duy nhất trong org; mơ hồ trả `409`. Job v2, archive và cấu hình dùng cùng định danh nguồn. Đọc cần quyền `read`; generate/delivery cần quyền `chat`, cấu hình nhóm cần `admin`. Sender là account được chọn tường minh, không dùng account kết nối đầu tiên.
+
+Worker kiểm tra ngân sách trước từng provider attempt, bao gồm attachment-expanded context, map/reduce/final và retry. Reservation được persist với lease fence để recovery không đặt lại ngân sách. Trước mỗi Zalo part và email send, guard kiểm tra quyền hiện tại và ownership/cancellation/lease tương ứng; request SDK đã bắt đầu không thể thu hồi.
+
+Resend lưu attempt và dispatch ledger dưới idempotency key; replay trả ledger, không gửi lại. Kết quả partial/uncertain phải đối soát người nhận trước khi người dùng tạo lượt mới. Hệ thống không bảo đảm exactly-once đối với dịch vụ gửi bên ngoài.
+
+Cutover giữ config không resolve ở `needs_resolution`, không chạy lịch cho nguồn đó; report cũ `legacy_unverified` chỉ Owner/Admin cùng org đọc và không resend. Job v1 chưa terminal chuyển failed, giữ payload/result và ledger claimed/sent; không tự khởi chạy lại. Shutdown đóng admission rồi chờ producer/cron/worker/send trước migration; timeout chặn cutover. Xem [deployment guide](deployment-guide.md).
 
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
@@ -90,7 +118,9 @@ sequenceDiagram
 - **Contact Visibility:** Mọi role trong cùng organization được xem contact. `assignedUserId` phục vụ phân công/KPI, không phải ranh giới đọc dữ liệu.
 - **AI Reports:** Mọi role được sử dụng; member bị giới hạn theo Zalo account ACL, còn owner/admin có phạm vi toàn organization và quản lý cấu hình SMTP/automation.
 
-### 4.1. Trạng thái kiểm chứng ngày 2026-09-02
+### 4.1. Ghi nhận lịch sử ngày 2026-09-02
+
+Nội dung dưới đây giữ ghi nhận của đợt remediation cũ, **không phải bằng chứng nghiệm thu hiện tại**. Thay đổi realtime/test harness ngày 2026-09-08 vẫn phải hoàn tất ma trận kiểm chứng trong [Phase 1](../plans/260902-1756-post-remediation-audit-fixes/phase-01-start.md); các thay đổi hiện tại được mô tả phía trên, release toàn bộ vẫn chờ bằng chứng revision cuối.
 
 Release remediation đã đưa tenant scoping, RBAC/ACL Zalo, session rotation và SSRF policy vào các ranh giới backend. Access token có hạn 15 phút và chỉ tồn tại trong memory của browser; refresh token opaque được hash ở server, xoay vòng qua HttpOnly cookie, và bị revoke khi đổi mật khẩu, role hoặc trạng thái hoạt động. Socket.IO tái kiểm tra session và quyền account trong lúc kết nối còn sống.
 

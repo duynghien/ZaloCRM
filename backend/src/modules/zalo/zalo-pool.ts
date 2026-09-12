@@ -8,6 +8,7 @@
  */
 import { createRequire } from 'module';
 import type { Server } from 'socket.io';
+import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { config } from '../../config/index.js';
@@ -34,6 +35,7 @@ interface ZaloInstance {
   zaloUid?: string;
   orgId?: string;
   lastActivity: Date;
+  drainListener?: () => Promise<void>;
 }
 
 class ZaloAccountPool {
@@ -44,151 +46,190 @@ class ZaloAccountPool {
   // Circuit breaker: track disconnect timestamps per account
   private disconnectHistory = new Map<string, number[]>();
 
+  private connectionAttempts = new Map<string, object>();
+  private drainingListeners = new Set<Promise<void>>();
+  private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
   setIO(io: Server): void {
     this.io = io;
   }
 
-  // Emit event to org room if orgId is known, else broadcast
-  private emitToOrg(orgId: string | undefined, event: string, payload: any): void {
-    if (!this.io) return;
-    if (orgId) {
-      this.io.to(`org:${orgId}`).emit(event, payload);
-    } else {
-      this.io.emit(event, payload);
-    }
+  private async emitForAccount(accountId: string, event: string, payload: unknown): Promise<void> {
+    if (this.io) await emitAccountEvent(this.io, accountId, event, payload);
+  }
+
+  private scheduleReconnect(accountId: string, delay: number): void {
+    clearTimeout(this.reconnectTimers.get(accountId));
+    const owner = this.instances.get(accountId);
+    if (!owner) return;
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(accountId);
+      if (this.instances.get(accountId) === owner) void this.autoReconnect(accountId);
+    }, delay);
+    timer.unref();
+    this.reconnectTimers.set(accountId, timer);
   }
 
   // Initiate QR-based login; emits QR events to frontend via Socket.IO
   async loginQR(accountId: string): Promise<void> {
-    const accountRec = await prisma.zaloAccount.findUnique({
-      where: { id: accountId },
-      select: { orgId: true },
-    });
-    const orgId = accountRec?.orgId;
-
-    const zalo = new Zalo({ logging: false });
-    this.instances.set(accountId, { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() });
-
+    this.disconnect(accountId);
+    const attempt = {};
+    this.connectionAttempts.set(accountId, attempt);
     try {
-      const api = await zalo.loginQR({}, (event: any) => {
-        switch (event.type) {
-          case 0: // QRCodeGenerated
-            this.io?.to(`account:${accountId}`).emit('zalo:qr', { accountId, qrImage: event.data.image });
-            break;
-          case 1: // QRCodeExpired
-            this.io?.to(`account:${accountId}`).emit('zalo:qr-expired', { accountId });
-            event.actions?.retry();
-            break;
-          case 2: // QRCodeScanned
-            this.io?.to(`account:${accountId}`).emit('zalo:scanned', {
-              accountId,
-              displayName: event.data.display_name,
-              avatar: event.data.avatar,
-            });
-            break;
-          case 4: // GotLoginInfo
-            this.saveCredentials(accountId, {
-              cookie: event.data.cookie,
-              imei: event.data.imei,
-              userAgent: event.data.userAgent,
-            });
-            break;
-        }
+      const accountRec = await prisma.zaloAccount.findUnique({
+        where: { id: accountId },
+        select: { orgId: true },
       });
+      if (this.connectionAttempts.get(accountId) !== attempt) return;
+      if (!accountRec) throw new Error('Zalo account not found');
+      const orgId = accountRec.orgId;
 
-      const instance = this.instances.get(accountId)!;
-      instance.api = api;
-      instance.status = 'connected';
-      instance.lastActivity = new Date();
+      const zalo = new Zalo({ logging: false });
+      const pending: ZaloInstance = { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() };
+      this.instances.set(accountId, pending);
 
-      const ownId = await api.getOwnId();
-      instance.zaloUid = ownId;
-
-      // Fetch own profile info for avatar
       try {
-        const userInfo = await api.getUserInfo(ownId);
-        const profiles = userInfo?.changed_profiles || {};
-        const profile = profiles[ownId] || profiles[`${ownId}_0`];
-        if (profile?.avatar) {
-          await prisma.zaloAccount.update({
-            where: { id: accountId },
-            data: { avatarUrl: profile.avatar, displayName: profile.zaloName || profile.zalo_name || profile.displayName || instance.displayName },
-          });
+        const api = await zalo.loginQR({}, (event: any) => {
+          if (this.instances.get(accountId) !== pending) return;
+          switch (event.type) {
+            case 0: // QRCodeGenerated
+              void this.emitForAccount(accountId, 'zalo:qr', { accountId, qrImage: event.data.image });
+              break;
+            case 1: // QRCodeExpired
+              void this.emitForAccount(accountId, 'zalo:qr-expired', { accountId });
+              event.actions?.retry();
+              break;
+            case 2: // QRCodeScanned
+              void this.emitForAccount(accountId, 'zalo:scanned', {
+                accountId,
+                displayName: event.data.display_name,
+                avatar: event.data.avatar,
+              });
+              break;
+            case 4: // GotLoginInfo
+              this.saveCredentials(accountId, {
+                cookie: event.data.cookie,
+                imei: event.data.imei,
+                userAgent: event.data.userAgent,
+              });
+              break;
+          }
+        });
+
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        const instance = pending;
+        instance.api = api;
+        instance.status = 'connected';
+        instance.lastActivity = new Date();
+
+        const ownId = await api.getOwnId();
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        instance.zaloUid = ownId;
+
+        // Fetch own profile info for avatar
+        try {
+          const userInfo = await api.getUserInfo(ownId);
+          const profiles = userInfo?.changed_profiles || {};
+          const profile = profiles[ownId] || profiles[`${ownId}_0`];
+          if (profile?.avatar) {
+            await prisma.zaloAccount.update({
+              where: { id: accountId },
+              data: { avatarUrl: profile.avatar, displayName: profile.zaloName || profile.zalo_name || profile.displayName || instance.displayName },
+            });
+          }
+        } catch {}
+
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        this.attachListener(accountId, api, orgId);
+        await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
+        await this.updateAccountDB(accountId, 'connected', ownId);
+
+        if (orgId) {
+          emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
         }
-      } catch {}
-
-      this.attachListener(accountId, api, orgId);
-      this.emitToOrg(orgId, 'zalo:connected', { accountId, zaloUid: ownId });
-      await this.updateAccountDB(accountId, 'connected', ownId);
-
-      if (orgId) {
-        emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+      } catch (err) {
+        const instance = this.instances.get(accountId);
+        if (instance !== pending) return;
+        instance.status = 'disconnected';
+        await this.emitForAccount(accountId, 'zalo:error', { accountId, error: String(err) });
+        throw err;
       }
-    } catch (err) {
-      const instance = this.instances.get(accountId);
-      if (instance) instance.status = 'disconnected';
-      this.emitToOrg(orgId, 'zalo:error', { accountId, error: String(err) });
-      throw err;
+    } finally {
+      if (this.connectionAttempts.get(accountId) === attempt) this.connectionAttempts.delete(accountId);
     }
   }
 
   // Reconnect using previously saved session credentials
   async reconnect(accountId: string, credentials: ZaloCredentials): Promise<void> {
-    const accountRec = await prisma.zaloAccount.findUnique({
-      where: { id: accountId },
-      select: { orgId: true },
-    });
-    const orgId = accountRec?.orgId;
-
-    const zalo = new Zalo({ logging: false });
-    this.instances.set(accountId, { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() });
-
+    this.disconnect(accountId);
+    const attempt = {};
+    this.connectionAttempts.set(accountId, attempt);
     try {
-      const api = await zalo.login({
-        cookie: credentials.cookie,
-        imei: credentials.imei,
-        userAgent: credentials.userAgent,
+      const accountRec = await prisma.zaloAccount.findUnique({
+        where: { id: accountId },
+        select: { orgId: true },
       });
+      if (this.connectionAttempts.get(accountId) !== attempt) return;
+      if (!accountRec) throw new Error('Zalo account not found');
+      const orgId = accountRec.orgId;
 
-      const instance = this.instances.get(accountId)!;
-      instance.api = api;
-      instance.status = 'connected';
-      instance.lastActivity = new Date();
+      const zalo = new Zalo({ logging: false });
+      const pending: ZaloInstance = { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() };
+      this.instances.set(accountId, pending);
 
-      const ownId = await api.getOwnId();
-      instance.zaloUid = ownId;
-
-      // Fetch own profile info for avatar
       try {
-        const userInfo = await api.getUserInfo(ownId);
-        const profiles = userInfo?.changed_profiles || {};
-        const profile = profiles[ownId] || profiles[`${ownId}_0`];
-        if (profile?.avatar) {
-          await prisma.zaloAccount.update({
-            where: { id: accountId },
-            data: { avatarUrl: profile.avatar, displayName: profile.zaloName || profile.zalo_name || profile.displayName || instance.displayName },
-          });
+        const api = await zalo.login({
+          cookie: credentials.cookie,
+          imei: credentials.imei,
+          userAgent: credentials.userAgent,
+        });
+
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        const instance = pending;
+        instance.api = api;
+        instance.status = 'connected';
+        instance.lastActivity = new Date();
+
+        const ownId = await api.getOwnId();
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        instance.zaloUid = ownId;
+
+        // Fetch own profile info for avatar
+        try {
+          const userInfo = await api.getUserInfo(ownId);
+          const profiles = userInfo?.changed_profiles || {};
+          const profile = profiles[ownId] || profiles[`${ownId}_0`];
+          if (profile?.avatar) {
+            await prisma.zaloAccount.update({
+              where: { id: accountId },
+              data: { avatarUrl: profile.avatar, displayName: profile.zaloName || profile.zalo_name || profile.displayName || instance.displayName },
+            });
+          }
+        } catch {}
+
+        if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        this.attachListener(accountId, api, orgId);
+        await this.updateAccountDB(accountId, 'connected', ownId);
+        await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
+
+        if (orgId) {
+          emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
         }
-      } catch {}
-
-      this.attachListener(accountId, api, orgId);
-      await this.updateAccountDB(accountId, 'connected', ownId);
-      this.emitToOrg(orgId, 'zalo:connected', { accountId, zaloUid: ownId });
-
-      if (orgId) {
-        emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+      } catch (err) {
+        const instance = this.instances.get(accountId);
+        if (instance !== pending) return;
+        instance.status = 'disconnected';
+        await this.updateAccountDB(accountId, 'qr_pending', null);
+        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: String(err) });
       }
-    } catch (err) {
-      const instance = this.instances.get(accountId);
-      if (instance) instance.status = 'disconnected';
-      await this.updateAccountDB(accountId, 'qr_pending', null);
-      this.emitToOrg(orgId, 'zalo:reconnect-failed', { accountId, error: String(err) });
+    } finally {
+      if (this.connectionAttempts.get(accountId) === attempt) this.connectionAttempts.delete(accountId);
     }
   }
 
   // Delegate listener setup to zalo-listener-factory
   private attachListener(accountId: string, api: any, orgId?: string): void {
-    attachZaloListener({
+    const drainListener = attachZaloListener({
       accountId,
       orgId,
       api,
@@ -196,7 +237,8 @@ class ZaloAccountPool {
       userInfoCache: this.userInfoCache,
       onDisconnected: (id) => {
         const inst = this.instances.get(id);
-        if (inst) inst.status = 'disconnected';
+        if (!inst || inst.api !== api) return;
+        inst.status = 'disconnected';
         this.updateAccountDB(id, 'disconnected', null);
 
         if (orgId) {
@@ -214,15 +256,17 @@ class ZaloAccountPool {
           // >5 disconnects in 5 min → stop reconnecting, require QR re-login
           logger.error(`[zalo:${id}] Circuit breaker: ${history.length} disconnects in 5 min — stopping auto-reconnect. QR re-login required.`);
           this.updateAccountDB(id, 'qr_pending', null);
-          this.emitToOrg(orgId, 'zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
+          void this.emitForAccount(id, 'zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
           this.disconnectHistory.delete(key);
           return; // DON'T reconnect
         }
 
         // Normal auto-reconnect after 30 seconds
-        setTimeout(() => this.autoReconnect(id), 30_000);
+        this.scheduleReconnect(id, 30_000);
       },
     });
+    const instance = this.instances.get(accountId);
+    if (instance && instance.api === api) instance.drainListener = drainListener;
   }
 
   // Persist session credentials to DB (encrypted with AES-256)
@@ -253,7 +297,7 @@ class ZaloAccountPool {
   private async autoReconnect(accountId: string): Promise<void> {
     const inst = this.instances.get(accountId);
     // Skip if already reconnected or manually disconnected
-    if (inst?.status === 'connected') return;
+    if (!inst || inst.status === 'connected') return;
 
     try {
       const account = await prisma.zaloAccount.findUnique({
@@ -261,24 +305,33 @@ class ZaloAccountPool {
         select: { sessionData: true, orgId: true },
       });
 
+      if (this.instances.get(accountId) !== inst) return;
       const session = decryptData<ZaloCredentials>(account?.sessionData, config.encryptionKey);
       if (session?.imei) {
         logger.info(`[zalo:${accountId}] Auto-reconnecting...`);
         await this.reconnect(accountId, session);
       } else {
         logger.warn(`[zalo:${accountId}] No saved session, cannot auto-reconnect`);
-        this.emitToOrg(account?.orgId, 'zalo:reconnect-failed', { accountId, error: 'No saved session' });
+        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: 'No saved session' });
       }
     } catch (err) {
       logger.error(`[zalo:${accountId}] Auto-reconnect failed:`, err);
       // Retry again in 2 minutes
-      setTimeout(() => this.autoReconnect(accountId), 120_000);
+      this.scheduleReconnect(accountId, 120_000);
     }
   }
 
   // Stop listener and remove from pool
   disconnect(accountId: string): void {
+    this.connectionAttempts.delete(accountId);
+    clearTimeout(this.reconnectTimers.get(accountId));
+    this.reconnectTimers.delete(accountId);
     const instance = this.instances.get(accountId);
+    this.instances.delete(accountId);
+    if (instance?.drainListener) {
+      const drain = instance.drainListener().finally(() => this.drainingListeners.delete(drain));
+      this.drainingListeners.add(drain);
+    }
     if (instance?.api?.listener) {
       try { instance.api.listener.stop(); } catch (err) {
         logger.warn(`[zalo:${accountId}] Error stopping listener:`, err);
@@ -288,7 +341,11 @@ class ZaloAccountPool {
   }
 
   disconnectAll(): void {
-    for (const accountId of [...this.instances.keys()]) this.disconnect(accountId);
+    for (const accountId of new Set([...this.instances.keys(), ...this.connectionAttempts.keys()])) this.disconnect(accountId);
+  }
+
+  async drain(): Promise<void> {
+    await Promise.allSettled(this.drainingListeners);
   }
 
   getStatus(accountId: string): string {

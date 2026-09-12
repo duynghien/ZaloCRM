@@ -27,6 +27,8 @@ docker --version
 docker compose version
 ```
 
+Cài **Node.js 24 LTS và npm** trên máy chủ để chạy deployment gate. Gate chỉ dùng module có sẵn của Node; Docker build tự cài dependency từ root lockfile.
+
 ## Bước 2: Tải mã nguồn
 
 ```bash
@@ -80,13 +82,10 @@ Lưu file: nhấn `Ctrl + X`, chọn `Y`, nhấn `Enter`.
 
 ```bash
 # Build và khởi chạy (lần đầu mất 2-5 phút)
-docker compose up -d --build
+npm run docker:up
 ```
 
-Chờ cho tới khi hiện:
-```
-Container zalo-crm-app Started
-```
+Lệnh build image, dừng app cũ và xác nhận exit code 0, chạy một migrator mới, rồi khởi chạy app khi migration thành công. Nếu drain hoặc migration lỗi, dừng triển khai để kiểm tra log; không bỏ qua gate bằng lệnh khởi chạy app riêng.
 
 **Kiểm tra hoạt động:**
 
@@ -94,16 +93,14 @@ Container zalo-crm-app Started
 # Xem trạng thái các container
 docker compose ps
 
-# Kết quả mong đợi: 3 container đều "Up"
-# - zalo-crm-app    Up
-# - zalo-crm-db     Up (healthy)
-# - zalo-crm-backup Up (healthy)
+# Kết quả mong đợi: app healthy, db healthy, backup Up
+# migrator đã hoàn tất với exit code 0 (xem thêm: docker compose ps -a)
 ```
 
 ## Bước 5: Truy cập lần đầu
 
-1. Mở trình duyệt → vào **http://IP-VPS:3080**
-   - Ví dụ: `http://123.45.67.89:3080`
+1. Thiết lập HTTPS theo phần **Reverse Proxy** bên dưới, rồi mở URL trong `APP_URL`.
+   - Ví dụ: `https://crm.your-domain.com`; cổng backend `3080` chỉ bind loopback.
 
 2. Lần đầu sẽ hiện trang **Thiết lập ban đầu**:
    - Tên tổ chức: tên công ty/phòng khám
@@ -196,7 +193,7 @@ cd ZaloCRM
 git pull
 
 # Build và khởi chạy lại
-docker compose up -d --build
+npm run docker:up
 ```
 
 Dữ liệu không bị mất — database lưu trong Docker volume.
@@ -214,14 +211,14 @@ Hệ thống **tự động sao lưu** hàng ngày vào thư mục `backups/`:
 
 ```bash
 # Tạo bản sao lưu ngay
-docker exec zalo-crm-db pg_dump -U crmuser zalocrm > backup-manual.sql
+docker compose exec -T db pg_dump -U crmuser zalocrm > backup-manual.sql
 ```
 
 **Khôi phục từ bản sao lưu:**
 
 ```bash
 # Khôi phục database
-cat backup-manual.sql | docker exec -i zalo-crm-db psql -U crmuser zalocrm
+docker compose exec -T db psql -U crmuser zalocrm < backup-manual.sql
 ```
 
 ---
@@ -234,13 +231,14 @@ cat backup-manual.sql | docker exec -i zalo-crm-db psql -U crmuser zalocrm
 # Xem log lỗi
 docker compose logs app
 
-# Khởi chạy lại
-docker compose restart app
+# Xem cả migration trước khi khắc phục nguyên nhân và triển khai lại
+docker compose logs migrator
+npm run docker:up
 ```
 
 ### Không truy cập được web
 
-- Kiểm tra firewall: mở port 3080
+- Kiểm tra domain, HTTPS và reverse proxy tới `127.0.0.1:3080`; firewall chỉ cần mở cổng web 80/443
 - Kiểm tra container: `docker compose ps`
 - Kiểm tra log: `docker compose logs app`
 
@@ -254,7 +252,7 @@ docker compose restart app
 
 ```bash
 # Truy cập database trực tiếp
-docker exec -it zalo-crm-db psql -U crmuser zalocrm
+docker compose exec db psql -U crmuser zalocrm
 
 # Xem email admin
 SELECT email, role FROM users WHERE role = 'owner';
@@ -264,3 +262,21 @@ SELECT email, role FROM users WHERE role = 'owner';
 ```
 
 Liên hệ developer để reset mật khẩu qua database.
+
+
+## Development và kiểm tra container
+
+```bash
+npm run docker:dev
+```
+
+Mở **http://localhost:5173** để dùng Vite; backend publish tại **http://localhost:3080**. Vite proxy API và Socket.IO tới backend. Compose đặt `APP_URL` của backend từ `DEV_APP_URL` (mặc định `http://localhost:5173`), độc lập với production. Nếu trình duyệt dùng origin khác, đặt `DEV_APP_URL` khớp origin đó; giữ kiểm tra Origin/CSRF.
+
+```bash
+npm ci
+npm exec --workspace=frontend -- playwright install chromium
+npm run verify:production-container
+npm run verify:development-compose
+```
+
+Smoke dùng project, database và cấu hình giả lập riêng; tự dọn container/volume khi kết thúc. Cần các cổng trống: production `13080`, `15433`; development `13081`, `15173`, `15434`. Nếu trùng cổng hoặc đã có tài nguyên fixture, script báo lỗi để kiểm tra chủ sở hữu, không dừng stack đang chạy. Xem [deployment guide](./docs/deployment-guide.md) để xử lý migration và drain thất bại.

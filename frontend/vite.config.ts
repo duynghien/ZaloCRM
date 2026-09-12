@@ -15,10 +15,11 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    strictPort: true,
     proxy: {
-      '/api': 'http://localhost:3000',
+      '/api': process.env.VITE_PROXY_TARGET || 'http://localhost:3000',
       '/socket.io': {
-        target: 'http://localhost:3000',
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:3000',
         ws: true,
       },
     },

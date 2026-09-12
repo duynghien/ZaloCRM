@@ -1,20 +1,20 @@
+import { calendarInstant, RequestValidationError } from './request-schemas.js';
 export function boundedPositiveInt(value: unknown, fallback: number, maximum: number): number {
-  if (typeof value !== 'string' || !/^\d+$/.test(value)) return fallback;
+  if (value === undefined) return fallback;
+  if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new RequestValidationError('Invalid pagination');
   const parsed = Number(value);
-  return Number.isSafeInteger(parsed) && parsed >= 1 && parsed <= maximum ? parsed : fallback;
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) throw new RequestValidationError('Pagination out of range');
+  return parsed;
 }
-
 export function boundedString(value: unknown, maximum: number): string {
-  return typeof value === 'string' ? value.trim().slice(0, maximum) : '';
+  if (value === undefined) return '';
+  if (typeof value !== 'string' || value.length > maximum) throw new RequestValidationError('Invalid query string');
+  return value;
 }
-
 export function validOptionalDate(value: unknown): Date | undefined {
-  if (typeof value !== 'string' || value.length > 40) return undefined;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+  if (value === undefined) return undefined;
+  return new Date(calendarInstant(value));
 }
-
 export function boundedFiniteNumber(value: unknown, minimum: number, maximum: number): number | undefined {
-  const parsed = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : Number.NaN;
-  return Number.isFinite(parsed) && parsed >= minimum && parsed <= maximum ? parsed : undefined;
+  return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum ? value : undefined;
 }

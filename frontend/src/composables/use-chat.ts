@@ -1,4 +1,5 @@
-import { ref, computed, onUnmounted } from 'vue';
+import { ref, computed, onUnmounted, watch } from 'vue';
+import { useChatRecovery } from './use-chat-recovery';
 import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
 import type { Contact } from '@/composables/use-contacts';
@@ -49,69 +50,41 @@ export function useChat() {
   const accountFilter = ref<string | null>(null);
   let socket: Socket | null = null;
   let socketRefreshAttempted = false;
+  let lastSocketRefresh = 0;
   let removeTokenListener: (() => void) | null = null;
 
   const selectedConv = computed(() =>
     conversations.value.find(c => c.id === selectedConvId.value) || null,
   );
 
-  async function fetchConversations() {
-    loadingConvs.value = true;
-    try {
-      const res = await api.get('/conversations', {
-        params: { limit: 100, search: searchQuery.value, accountId: accountFilter.value || undefined },
-      });
-      conversations.value = res.data.conversations;
-    } catch (err) {
-      console.error('Failed to fetch conversations:', err);
-    } finally {
-      loadingConvs.value = false;
-    }
-  }
+  const recovery = useChatRecovery({ conversations, selectedConvId, messages,
+    loadingConvs, loadingMsgs, searchQuery, accountFilter });
+  const fetchConversations = recovery.request;
+  watch(selectedConvId, () => { messages.value = []; recovery.invalidate(); }, { flush: 'sync' });
 
   async function selectConversation(convId: string) {
     selectedConvId.value = convId;
-    await fetchMessages(convId);
-    // Fetch full conversation detail to populate contact CRM fields
-    try {
-      const convDetail = await api.get(`/conversations/${convId}`);
-      const conv = conversations.value.find(c => c.id === convId);
-      if (conv && convDetail.data.contact) {
-        conv.contact = convDetail.data.contact;
-      }
-    } catch {
-      // Non-critical — panel will show partial data from list
-    }
-    // Mark as read
+    await recovery.request();
+    if (selectedConvId.value !== convId) return;
     try {
       await api.post(`/conversations/${convId}/mark-read`);
       const conv = conversations.value.find(c => c.id === convId);
       if (conv) conv.unreadCount = 0;
     } catch {
-      // Ignore mark-read errors
-    }
-  }
-
-  async function fetchMessages(convId: string) {
-    loadingMsgs.value = true;
-    try {
-      const res = await api.get(`/conversations/${convId}/messages`, {
-        params: { limit: 100 },
-      });
-      messages.value = res.data.messages;
-    } catch (err) {
-      console.error('Failed to fetch messages:', err);
-    } finally {
-      loadingMsgs.value = false;
+      // Recovery owns authorization failures and clears unavailable data.
     }
   }
 
   async function sendMessage(content: string) {
     if (!selectedConvId.value || !content.trim()) return;
+    const convId = selectedConvId.value;
+    const generation = recovery.generation();
     sendingMsg.value = true;
     try {
-      const res = await api.post(`/conversations/${selectedConvId.value}/messages`, { content });
-      messages.value.push(res.data);
+      const res = await api.post(`/conversations/${convId}/messages`, { content });
+      if (selectedConvId.value === convId && recovery.generation() === generation
+        && !messages.value.some(message => message.id === res.data.id)) messages.value.push(res.data);
+      void recovery.request();
     } catch (err) {
       console.error('Failed to send message:', err);
     } finally {
@@ -128,13 +101,17 @@ export function useChat() {
     socket = io({
       auth: (callback) => callback({ token: getAccessToken() }),
       transports: ['websocket', 'polling'],
-      reconnection: false,
+      reconnection: true,
+      reconnectionAttempts: 5,
     });
 
     const onTokenChanged = (event: Event) => {
       const nextToken = (event as CustomEvent<string>).detail || '';
       if (!socket) return;
       if (!nextToken) {
+        selectedConvId.value = null;
+        messages.value = [];
+        conversations.value = [];
         destroySocket();
         return;
       }
@@ -150,18 +127,40 @@ export function useChat() {
     if (removeTokenListener) removeTokenListener();
     removeTokenListener = () => window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
 
+    socket.on('disconnect', async (reason) => {
+      // Server-enforced token expiry is not retried by Socket.IO. Refresh once per
+      // disconnect burst; a rejected refresh follows the REST logout policy.
+      if (reason !== 'io server disconnect' || !socket || !getAccessToken()) return;
+      const now = Date.now();
+      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
+      lastSocketRefresh = now;
+      const disconnectedSocket = socket;
+      try {
+        await refreshAccessToken();
+        if (socket === disconnectedSocket) socket.connect();
+      } catch {
+        // A later explicit token change may reconnect after a transient failure.
+      }
+    });
+
     socket.on('connect_error', async (error) => {
       const unauthorized = isSocketAuthenticationFailure(error.message);
       if (!unauthorized || socketRefreshAttempted || !socket) return;
 
+      const now = Date.now();
+      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
+      lastSocketRefresh = now;
       socketRefreshAttempted = true;
       try {
         await refreshAccessToken();
-        socket.connect();
+        socket?.connect();
       } catch {
         // The REST client redirects only after an explicit refresh 401/403.
       }
     });
+
+    socket.on('connect', () => { void recovery.request(); });
+    socket.on('realtime:resync-required', () => { void recovery.request(); });
 
     socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
       // Add to messages if viewing this conversation
@@ -172,18 +171,22 @@ export function useChat() {
         }
       }
       // Refresh conversation list to update last message / unread count
-      fetchConversations();
+      void recovery.request();
     });
 
-    socket.on('chat:deleted', (data: { msgId: string }) => {
-      const msg = messages.value.find(m => m.zaloMsgId === data.msgId);
+    socket.on('chat:deleted', (data: { accountId: string; conversationId?: string; msgId: string }) => {
+      const msg = selectedConv.value?.zaloAccount?.id === data.accountId && selectedConv.value?.id === data.conversationId
+        ? messages.value.find(m => m.zaloMsgId === data.msgId) : undefined;
       if (msg) {
         msg.isDeleted = true;
       }
+      void recovery.request();
     });
   }
 
   function destroySocket() {
+    recovery.cancel();
+    socket?.removeAllListeners();
     socket?.disconnect();
     socket = null;
     socketRefreshAttempted = false;
@@ -194,6 +197,7 @@ export function useChat() {
   }
 
   onUnmounted(() => {
+    recovery.dispose();
     destroySocket();
   });
 

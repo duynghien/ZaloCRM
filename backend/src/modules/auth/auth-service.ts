@@ -12,7 +12,7 @@ export interface SessionTokens { accessToken: string; refreshToken: string; expi
 type RefreshLookup = { id: string; familyId: string; refreshTokenHash: string; expiresAt: Date; revokedAt: Date | null; replacedBySessionId: string | null; user: AuthIdentity & { isActive: boolean }; };
 type SessionRevocationListener = (sessionIds: string[]) => void;
 
-let sessionRevocationListener: SessionRevocationListener | undefined;
+const sessionRevocationListeners = new Set<SessionRevocationListener>();
 
 const passwordPolicy = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,}$/;
 const authError = (message: string, statusCode: number) => Object.assign(new Error(message), { statusCode });
@@ -39,12 +39,13 @@ export function validatePassword(password: string): void {
 
 function identityOf(user: AuthIdentity): AuthIdentity { return { id: user.id, email: user.email, role: user.role, orgId: user.orgId }; }
 
-export function registerSessionRevocationListener(listener: SessionRevocationListener): void {
-  sessionRevocationListener = listener;
+export function registerSessionRevocationListener(listener: SessionRevocationListener): () => void {
+  sessionRevocationListeners.add(listener);
+  return () => { sessionRevocationListeners.delete(listener); };
 }
 
 function notifySessionRevocations(sessionIds: string[]): void {
-  if (sessionIds.length) sessionRevocationListener?.(sessionIds);
+  if (sessionIds.length) for (const listener of sessionRevocationListeners) listener(sessionIds);
 }
 
 export async function checkSetupStatus(): Promise<{ needsSetup: boolean }> { return { needsSetup: (await prisma.user.count()) === 0 }; }
@@ -111,21 +112,21 @@ export async function revokeSession(sessionId: string, reason: string): Promise<
 }
 
 export async function revokeUserSessions(userId: string, reason: string): Promise<void> {
-  const sessionIds = await prisma.$transaction(async (tx) => {
-    const sessions = await tx.authSession.findMany({ where: { userId, revokedAt: null }, select: { id: true } });
-    await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
-    return sessions.map((session) => session.id);
+  const sessions = await prisma.authSession.updateManyAndReturn({
+    where: { userId, revokedAt: null },
+    data: { revokedAt: new Date(), revokedReason: reason },
+    select: { id: true },
   });
-  notifySessionRevocations(sessionIds);
+  notifySessionRevocations(sessions.map((session) => session.id));
 }
 
 export async function revokeSessionFamily(familyId: string, reason: string): Promise<void> {
-  const sessionIds = await prisma.$transaction(async (tx) => {
-    const sessions = await tx.authSession.findMany({ where: { familyId, revokedAt: null }, select: { id: true } });
-    await tx.authSession.updateMany({ where: { familyId, revokedAt: null }, data: { revokedAt: new Date(), revokedReason: reason } });
-    return sessions.map((session) => session.id);
+  const sessions = await prisma.authSession.updateManyAndReturn({
+    where: { familyId, revokedAt: null },
+    data: { revokedAt: new Date(), revokedReason: reason },
+    select: { id: true },
   });
-  notifySessionRevocations(sessionIds);
+  notifySessionRevocations(sessions.map((session) => session.id));
 }
 
 export async function validateSessionUser(sessionId: string, userId: string): Promise<AuthIdentity> {

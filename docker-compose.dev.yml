@@ -1,40 +1,62 @@
-# Development Docker Compose - Hot Reload Enabled
-version: "3.8"
-
 services:
   app:
     build:
       context: .
       dockerfile: docker/Dockerfile.dev
-    container_name: zalo-crm-app-dev
+    image: ${DEV_IMAGE:-zalocrm-dev:local}
     restart: unless-stopped
+    stop_grace_period: 70s
     ports:
-      - "3080:3000"
+      - "127.0.0.1:${APP_PORT:-3080}:3000"
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
-      - NODE_ENV=development
-      - DATABASE_URL=postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
+      NODE_ENV: development
+      APP_URL: ${DEV_APP_URL:-http://localhost:5173}
+      DATABASE_URL: postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
     depends_on:
-      db:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     volumes:
-      # Mount backend source for hot reload
-      - ./backend:/app/backend
-      # Mount frontend source for hot reload
-      - ./frontend:/app/frontend
-      # Named volumes for node_modules to avoid host OS conflicts
-      - backend_node_modules:/app/backend/node_modules
-      - frontend_node_modules:/app/frontend/node_modules
+      - ./backend/src:/app/backend/src
       - file_storage:/var/lib/zalo-crm/files
     tmpfs:
       - /tmp
     security_opt:
       - no-new-privileges:true
 
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: ${DEV_IMAGE:-zalocrm-dev:local}
+    command: ["npm", "run", "dev", "--workspace=frontend", "--", "--host", "0.0.0.0"]
+    ports:
+      - "127.0.0.1:${VITE_PORT:-5173}:5173"
+    environment:
+      VITE_PROXY_TARGET: http://app:3000
+    depends_on:
+      - app
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - ./frontend/index.html:/app/frontend/index.html
+      - ./frontend/vite.config.ts:/app/frontend/vite.config.ts
+
+  migrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: ${DEV_IMAGE:-zalocrm-dev:local}
+    command: ["node", "node_modules/prisma/build/index.js", "migrate", "deploy", "--config", "backend/prisma.config.ts"]
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
-    container_name: zalo-crm-db-dev
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-crmuser}
@@ -43,15 +65,13 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser} -d ${DB_NAME:-zalocrm}"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
 
 volumes:
   pg_data:
-  backend_node_modules:
-  frontend_node_modules:
   file_storage:

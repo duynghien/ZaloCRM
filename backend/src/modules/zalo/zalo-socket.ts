@@ -1,98 +1,80 @@
-/**
- * Zalo Socket.IO event handlers.
- * Manages room subscriptions for org-level and per-account events.
- */
+/** QR subscription intent is distinct from transport room membership. */
 import type { Server, Socket } from 'socket.io';
-import { logger } from '../../shared/utils/logger.js';
-import { prisma } from '../../shared/database/prisma-client.js';
 import { hasZaloAccess } from './zalo-access-middleware.js';
+import { beginAccountOperation, currentSocketIdentity, invalidateAccountOperations, socketSessionIsCurrent } from '../../shared/realtime/socket-authorization.js';
+import { logger } from '../../shared/utils/logger.js';
 
-type SocketUser = { id: string; orgId: string; role: string };
+const subscriptions = new WeakMap<Socket, Map<string, object>>();
+const pending = new WeakMap<Socket, Map<string, object>>();
+type Ack = (result: { ok: boolean; error?: string }) => void;
 
-// Keep the requested account subscriptions server-side. Socket.IO's room list
-// is transport state, so it is not a suitable source of authorization intent:
-// only the successful subscribe handler can add an account to this collection.
-const accountSubscriptions = new WeakMap<Socket, Set<string>>();
+export function accountSubscription(socket: Socket, accountId: string): object | undefined {
+  return subscriptions.get(socket)?.get(accountId);
+}
 
-function currentSocketUser(socket: Socket): SocketUser | null {
-  const user = socket.data.user as Partial<SocketUser> | undefined;
-  if (!user?.id || !user.orgId || !user.role) return null;
-  return { id: user.id, orgId: user.orgId, role: user.role };
+function cancelSubscription(socket: Socket, accountId: string): void {
+  pending.get(socket)?.delete(accountId);
+  subscriptions.get(socket)?.delete(accountId);
+  void socket.leave(`account:${accountId}`);
 }
 
 export async function pruneSocketAccountRooms(socket: Socket): Promise<void> {
-  const user = currentSocketUser(socket);
-  if (!user) return;
-
-  const subscribedAccountIds = accountSubscriptions.get(socket);
-  if (!subscribedAccountIds?.size) return;
-
-  for (const accountId of [...subscribedAccountIds]) {
-    if (!(await hasZaloAccess(user, accountId, 'read'))) {
-      socket.leave(`account:${accountId}`);
-      subscribedAccountIds.delete(accountId);
-      socket.emit('zalo:error', { accountId, error: 'Forbidden' });
+  for (const accountId of [...(subscriptions.get(socket)?.keys() ?? [])]) {
+    const intent = accountSubscription(socket, accountId);
+    try {
+      const user = await currentSocketIdentity(socket);
+      if (await hasZaloAccess(user, accountId, 'admin')) continue;
+    } catch {
+      logger.warn('[realtime] Subscription validation failed');
     }
+    if (accountSubscription(socket, accountId) === intent) cancelSubscription(socket, accountId);
   }
 }
 
-/** Promptly reconcile every current subscriber after an ACL mutation. */
+/** The synchronous invalidation is the mutation-success barrier for pending reads. */
 export async function pruneSocketsForZaloAccount(io: Server, accountId: string): Promise<void> {
-  await Promise.all(
-    [...io.sockets.sockets.values()]
-      .filter((socket) => accountSubscriptions.get(socket)?.has(accountId))
-      .map((socket) => pruneSocketAccountRooms(socket)),
-  );
+  invalidateAccountOperations(accountId);
+  await Promise.all([...io.sockets.sockets.values()].map((socket) => pruneSocketAccountRooms(socket)));
 }
 
 export function registerZaloSocketHandlers(io: Server): void {
-  io.on('connection', (socket: Socket) => {
-    // Automatically ensure user is in their org room
-    const connectedUser = currentSocketUser(socket);
-    if (connectedUser?.orgId) {
-      socket.join(`org:${connectedUser.orgId}`);
-    }
-
-    // Client org:join check (ensures user only joins their own org room)
-    socket.on('org:join', (data: { orgId: string }) => {
-      const user = currentSocketUser(socket);
-      if (!user || user.orgId !== data?.orgId) return;
-      socket.join(`org:${user.orgId}`);
-      logger.debug(`Socket ${socket.id} joined org:${user.orgId}`);
+  io.on('connection', (socket) => {
+    socket.on('org:join', (data: { orgId?: string }) => {
+      if (socketSessionIsCurrent(socket) && data?.orgId === socket.data.user.orgId) void socket.join(`org:${data.orgId}`);
     });
-
-    // Subscribe to QR/status updates for a specific Zalo account
-    socket.on('zalo:subscribe', async (data: { accountId: string }) => {
-      const user = currentSocketUser(socket);
-      if (!user || !data?.accountId) return socket.emit('zalo:error', { accountId: data?.accountId, error: 'Account ID required' });
-      const currentUser = await prisma.user.findFirst({
-        where: { id: user.id, orgId: user.orgId, isActive: true },
-        select: { id: true, orgId: true, role: true },
-      });
-      if (!currentUser || !(await hasZaloAccess(currentUser, data.accountId, 'read'))) {
-        return socket.emit('zalo:error', { accountId: data.accountId, error: 'Forbidden' });
+    socket.on('zalo:subscribe', async (data: { accountId?: string }, ack?: Ack) => {
+      const respond = (result: { ok: boolean; error?: string }) => { if (typeof ack === 'function') ack(result); };
+      const accountId = data?.accountId;
+      if (typeof accountId !== 'string' || !accountId || accountId.length > 128) return respond({ ok: false, error: 'Account ID required' });
+      const intent = {};
+      const requests = pending.get(socket) ?? new Map<string, object>();
+      requests.set(accountId, intent);
+      pending.set(socket, requests);
+      const operation = beginAccountOperation(accountId);
+      try {
+        const user = await currentSocketIdentity(socket);
+        const allowed = await hasZaloAccess(user, accountId, 'admin');
+        if (!allowed || !operation.valid || !socketSessionIsCurrent(socket) || requests.get(accountId) !== intent) {
+          return respond({ ok: false, error: 'Forbidden or subscription cancelled' });
+        }
+        // The default in-process adapter joins synchronously; no await between guard and commit.
+        void socket.join(`account:${accountId}`);
+        const active = subscriptions.get(socket) ?? new Map<string, object>();
+        active.set(accountId, intent);
+        subscriptions.set(socket, active);
+        respond({ ok: true });
+      } catch {
+        logger.warn('[realtime] Subscription denied after validation failure');
+        respond({ ok: false, error: 'Forbidden' });
+      } finally {
+        if (requests.get(accountId) === intent) requests.delete(accountId);
+        operation.release();
       }
-      socket.join(`account:${data.accountId}`);
-      const subscriptions = accountSubscriptions.get(socket) ?? new Set<string>();
-      subscriptions.add(data.accountId);
-      accountSubscriptions.set(socket, subscriptions);
-      logger.debug(`Socket ${socket.id} joined account:${data.accountId}`);
     });
-
-    // Unsubscribe from a specific account room
-    socket.on('zalo:unsubscribe', async (data: { accountId: string }) => {
-      const user = currentSocketUser(socket);
-      if (!user || !data?.accountId) return socket.emit('zalo:error', { accountId: data?.accountId, error: 'Account ID required' });
-      const currentUser = await prisma.user.findFirst({
-        where: { id: user.id, orgId: user.orgId, isActive: true },
-        select: { id: true, orgId: true, role: true },
-      });
-      if (!currentUser || !(await hasZaloAccess(currentUser, data.accountId, 'read'))) {
-        return socket.emit('zalo:error', { accountId: data.accountId, error: 'Forbidden' });
-      }
-      socket.leave(`account:${data.accountId}`);
-      accountSubscriptions.get(socket)?.delete(data.accountId);
-      logger.debug(`Socket ${socket.id} left account:${data.accountId}`);
+    socket.on('zalo:unsubscribe', (data: { accountId?: string }, ack?: Ack) => {
+      if (typeof data?.accountId === 'string') cancelSubscription(socket, data.accountId);
+      if (typeof ack === 'function') ack({ ok: true });
     });
+    socket.on('disconnect', () => { subscriptions.delete(socket); pending.delete(socket); });
   });
 }

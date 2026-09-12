@@ -311,8 +311,10 @@ export async function extractAttachmentContent(params: AttachmentParseParams): P
   return new Promise<ExtractedContentResult>((resolve, reject) => {
     let child;
     try {
-      child = fork(new URL('./attachment-parser-worker.js', import.meta.url), [], {
+      const sourceMode = import.meta.url.endsWith('.ts');
+      child = fork(new URL(sourceMode ? './attachment-parser-worker.ts' : './attachment-parser-worker.js', import.meta.url), [], {
         serialization: 'advanced',
+        ...(sourceMode ? { execArgv: ['--import', 'tsx'] } : {}),
       });
     } catch (spawnError) {
       releaseParseWorker();

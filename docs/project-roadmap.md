@@ -14,7 +14,7 @@ gantt
     Public API & Webhook       :done,    des3, 2026-05, 2026-07
     section Quality & Security
     Security & Build Docs      :active,  des4, 2026-08, 2026-09
-    Automated Testing & CI/CD  :done,    des5, 2026-09, 2026-09
+    Automated Testing & CI/CD  :active,    des5, 2026-09, 2026-09
     section Intelligence
     AI Sales Assistant (Phase 6):        des6, 2026-11, 2027-02
 ```
@@ -40,7 +40,7 @@ gantt
 ---
 
 ### Phase 4: Hardening Bảo Mật & Chuẩn Hóa Quy Trình Build (ĐANG THỰC HIỆN)
-- [ ] Đóng các finding từ audit toàn bộ codebase ngày 2026-08-31; scan và báo cáo đã hoàn tất, remediation chưa thực hiện.
+- [ ] Đóng các finding từ audit toàn bộ codebase ngày 2026-08-31; scan và báo cáo đã hoàn tất; remediation có implementation local, còn chờ nghiệm thu revision cuối.
 - [x] Đồng bộ các lệnh build, dev, typecheck thông qua file `package.json` tại root repository.
 - [x] Sửa tenant/RBAC/ACL ở Orders, Zalo, Chat, Socket.IO và AI Reports; member vẫn xem toàn bộ contact nhưng dữ liệu Zalo/AI phải theo account ACL.
 - [x] Chặn SSRF ở webhook/attachment downloader và giới hạn tài nguyên parser/download stream.
@@ -52,7 +52,7 @@ gantt
 
 ---
 
-### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (HOÀN THÀNH 09/2026)
+### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (ĐANG NGHIỆM THU)
 - [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds và các security/runtime invariant P1.
 - [x] Bổ sung browser smoke Playwright xác nhận login route không khôi phục bearer token qua persistent storage.
 - [x] Tích hợp GitHub Actions (`.github/workflows/ci.yml`) chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build trên pull request/main.
@@ -64,3 +64,19 @@ gantt
 - [ ] Tích hợp LLM API (Claude 3.5 Sonnet / Gemini 1.5 Pro) gợi ý câu trả lời tự động cho nhân viên tư vấn.
 - [ ] Tự động phân tích tâm lý khách hàng (Sentiment Analysis) và tóm tắt nội dung cuộc trò chuyện dài.
 - [ ] Tự động trích xuất thông tin khách hàng từ tin nhắn hội thoại để tạo hồ sơ Contact / Order tự động.
+
+
+## 3. Cập nhật remediation — 2026-09-12
+
+Các checkbox tính năng phía trên giữ lịch sử triển khai, không chứng minh release đã hoàn tất. [Kế hoạch năm pha](../plans/260902-1756-post-remediation-audit-fixes/plan.md) là nguồn theo dõi nghiệm thu hiện tại.
+
+| Phạm vi | Trạng thái |
+|---|---|
+| Socket session/account ACL, QR intent, reminder org, REST resync | Đã có implementation local và bộ kiểm thử hành vi |
+| AI account-qualified targets, legacy migration, budgets, sender/resend ledger | Đã có implementation local và bộ kiểm thử hành vi |
+| Strict input/null/date, order counter/unique, message replay/undo | Đã có implementation local và bộ kiểm thử hành vi |
+| Production audit policy, Docker runtime/dev, migration drain gate | Đã có implementation local và smoke scripts |
+| Tài liệu hợp đồng/triển khai | Đã đồng bộ source local; docs impact: major |
+| Commit cuối, hosted CI không skip, review cuối và đóng audit | **Pending** |
+
+Release chưa được xác nhận hoàn tất. Bằng chứng local theo ngày trong thư mục `reports/` của kế hoạch phải gắn với revision được kiểm thử; commit hoặc thay đổi mới cần kiểm tra lại gate bị ảnh hưởng. Preflight dữ liệu production và cutover là công việc vận hành riêng, không suy ra từ fixture disposable.

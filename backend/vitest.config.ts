@@ -5,5 +5,8 @@ export default defineConfig({
     include: ['tests/**/*.test.ts'],
     environment: 'node',
     restoreMocks: true,
+    // Database suites import production singletons and each own their disposable DB.
+    fileParallelism: false,
+    testTimeout: 10_000,
   },
 });

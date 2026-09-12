@@ -1,22 +1,22 @@
-#version: "3.8"
-
 services:
   app:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    container_name: zalo-crm-app
+      target: runtime
+    image: ${APP_IMAGE:-zalocrm-app:local}
+    stop_grace_period: 70s
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3080:3000"
+      - "127.0.0.1:${APP_PORT:-3080}:3000"
     env_file:
-      - .env
+      - ${ENV_FILE:-.env}
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
     depends_on:
-      db:
-        condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     volumes:
       - file_storage:/var/lib/zalo-crm/files
     tmpfs:
@@ -24,9 +24,23 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  migrator:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: migrator
+    image: ${MIGRATOR_IMAGE:-zalocrm-migrator:local}
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
+    depends_on:
+      db:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
   db:
     image: postgres:16-alpine
-    container_name: zalo-crm-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:-crmuser}
@@ -35,7 +49,7 @@ services:
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
-      - "127.0.0.1:5433:5432"
+      - "127.0.0.1:${DB_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser}"]
       interval: 10s
@@ -49,7 +63,6 @@ services:
 
   backup:
     image: prodrigestivill/postgres-backup-local
-    container_name: zalo-crm-backup
     restart: unless-stopped
     volumes:
       - ./backups:/backups

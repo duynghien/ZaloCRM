@@ -4,6 +4,7 @@
  * Extracted from ZaloAccountPool to keep zalo-pool.ts under 200 lines.
  */
 import type { Server } from 'socket.io';
+import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { logger } from '../../shared/utils/logger.js';
 import { handleIncomingMessage, handleMessageUndo } from '../chat/message-handler.js';
 import { detectContentType, updateContactAvatar } from './zalo-message-helpers.js';
@@ -79,121 +80,138 @@ export interface ListenerContext {
  * Attach all zca-js listener events for the given account.
  * Calls listener.start() with retryOnClose at the end.
  */
-export function attachZaloListener(ctx: ListenerContext): void {
-  const { accountId, orgId, api, io, userInfoCache, onDisconnected } = ctx;
+export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
+  const { accountId, api, io, userInfoCache, onDisconnected } = ctx;
   const listener = api.listener;
 
-  // Helper to emit events either to org room or fallback to global
-  const emitScoped = (event: string, payload: any) => {
-    if (io) {
-      if (orgId) {
-        io.to(`org:${orgId}`).emit(event, payload);
-      } else {
-        io.emit(event, payload);
-      }
-    }
+  // Keep the existing concurrent ingestion path. Only an undo for the same ID
+  // waits for its message; a slow lookup must not queue unrelated payloads.
+  const messagesInFlight = new Map<string, Promise<void>>();
+  const active = new Set<Promise<void>>();
+  let closed = false;
+  const track = (work: () => Promise<void>) => {
+    if (closed) return Promise.resolve();
+    const run = work().catch(() => logger.error(`[zalo:${accountId}] Incoming event failed`))
+      .finally(() => active.delete(run));
+    active.add(run);
+    return run;
+  };
+  const emitScoped = async (event: string, payload: unknown) => {
+    if (!closed && io) await emitAccountEvent(io, accountId, event, payload);
   };
 
   listener.on('connected', () => {
     logger.info(`[zalo:${accountId}] Listener connected`);
   });
 
-  listener.on('message', async (message: any) => {
-    try {
-      // ThreadType in zca-js: 0 = User, 1 = Group
-      const isGroup = message.type === 1;
-      const senderUid = String(message.data?.uidFrom || '');
+  listener.on('message', (message: any) => {
+    const msgId = String(message.data?.msgId || '');
+    const messageKey = JSON.stringify([message.threadId, msgId]);
+    if (msgId && messagesInFlight.has(messageKey)) return messagesInFlight.get(messageKey);
+    const run = track(async () => {
+      try {
+        // ThreadType in zca-js: 0 = User, 1 = Group
+        const isGroup = message.type === 1;
+        const senderUid = String(message.data?.uidFrom || '');
 
-      // Resolve display name — prefer zaloName from API over dName
-      let senderName: string = message.data?.dName || '';
-      if (!message.isSelf && senderUid && api.getUserInfo) {
-        const userInfo = await resolveZaloName(api, senderUid, userInfoCache);
-        if (userInfo.zaloName) senderName = userInfo.zaloName;
-        if (userInfo.avatar) updateContactAvatar(senderUid, userInfo.avatar);
-      }
+        // Resolve display name — prefer zaloName from API over dName
+        let senderName: string = message.data?.dName || '';
+        if (!message.isSelf && senderUid && api.getUserInfo) {
+          const userInfo = await resolveZaloName(api, senderUid, userInfoCache);
+          if (userInfo.zaloName) senderName = userInfo.zaloName;
+          if (userInfo.avatar) updateContactAvatar(senderUid, userInfo.avatar);
+        }
 
-      // Resolve group name for group threads
-      let groupName: string | undefined;
-      if (isGroup && message.threadId) {
-        groupName = await resolveGroupName(api, message.threadId);
-      }
+        // Resolve group name for group threads
+        let groupName: string | undefined;
+        if (isGroup && message.threadId) {
+          groupName = await resolveGroupName(api, message.threadId);
+        }
 
-      const rawContent = message.data?.content;
-      let parsedContentObj: any = null;
-      if (typeof rawContent === 'object' && rawContent !== null) {
-        parsedContentObj = rawContent;
-      } else if (typeof rawContent === 'string' && (rawContent.startsWith('{') || rawContent.startsWith('['))) {
-        try {
-          parsedContentObj = JSON.parse(rawContent);
-        } catch {}
-      }
+        const rawContent = message.data?.content;
+        let parsedContentObj: any = null;
+        if (typeof rawContent === 'object' && rawContent !== null) {
+          parsedContentObj = rawContent;
+        } else if (typeof rawContent === 'string' && (rawContent.startsWith('{') || rawContent.startsWith('['))) {
+          try {
+            parsedContentObj = JSON.parse(rawContent);
+          } catch {}
+        }
 
-      const attachments: any[] = [];
-      const fileUrl =
-        parsedContentObj?.href ||
-        parsedContentObj?.url ||
-        parsedContentObj?.fileUrl ||
-        message.data?.url ||
-        message.data?.href;
+        const attachments: any[] = [];
+        const fileUrl =
+          parsedContentObj?.href ||
+          parsedContentObj?.url ||
+          parsedContentObj?.fileUrl ||
+          message.data?.url ||
+          message.data?.href;
 
-      if (fileUrl) {
-        attachments.push({
-          url: fileUrl,
-          title: parsedContentObj?.title || parsedContentObj?.name || message.data?.title || '',
-          thumb: parsedContentObj?.thumb || message.data?.thumb || '',
-          size: parsedContentObj?.size || message.data?.size,
-          extension: parsedContentObj?.extension || '',
-          msgType: message.data?.msgType,
-        });
-      }
+        if (fileUrl) {
+          attachments.push({
+            url: fileUrl,
+            title: parsedContentObj?.title || parsedContentObj?.name || message.data?.title || '',
+            thumb: parsedContentObj?.thumb || message.data?.thumb || '',
+            size: parsedContentObj?.size || message.data?.size,
+            extension: parsedContentObj?.extension || '',
+            msgType: message.data?.msgType,
+          });
+        }
 
-      if (Array.isArray(message.data?.attachments)) {
-        attachments.push(...message.data.attachments);
-      }
+        if (Array.isArray(message.data?.attachments)) {
+          attachments.push(...message.data.attachments);
+        }
 
-      const content =
-        typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
-      const contentType = detectContentType(message.data?.msgType, rawContent);
+        const content =
+          typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent || '');
+        const contentType = detectContentType(message.data?.msgType, rawContent);
 
-      const result = await handleIncomingMessage({
-        accountId,
-        senderUid,
-        senderName,
-        content,
-        contentType,
-        msgId: String(message.data?.msgId || ''),
-        timestamp: parseInt(message.data?.ts || String(Date.now())),
-        isSelf: message.isSelf || false,
-        threadId: message.threadId || '',
-        threadType: isGroup ? 'group' : 'user',
-        groupName,
-        attachments,
-      });
-
-      if (result) {
-        emitScoped('chat:message', {
+        const result = await handleIncomingMessage({
           accountId,
-          message: result.message,
-          conversationId: result.conversationId,
+          senderUid,
+          senderName,
+          content,
+          contentType,
+          msgId: String(message.data?.msgId || ''),
+          timestamp: parseInt(message.data?.ts || String(Date.now())),
+          isSelf: message.isSelf || false,
+          threadId: message.threadId || '',
+          threadType: isGroup ? 'group' : 'user',
+          groupName,
+          attachments,
         });
+
+        if (result) {
+          await emitScoped('chat:message', {
+            accountId,
+            message: result.message,
+            conversationId: result.conversationId,
+          });
+        }
+      } catch (err) {
+        logger.error(`[zalo:${accountId}] Message handler error:`, err);
       }
-    } catch (err) {
-      logger.error(`[zalo:${accountId}] Message handler error:`, err);
-    }
+    });
+    if (msgId) messagesInFlight.set(messageKey, run);
+    void run.finally(() => { if (messagesInFlight.get(messageKey) === run) messagesInFlight.delete(messageKey); });
+    return run;
   });
 
-  listener.on('undo', async (data: any) => {
+  listener.on('undo', (data: any) => track(async () => {
     const msgId = data.data?.msgId || data.msgId;
+    const threadId = data.threadId;
+    if (typeof threadId !== 'string' || !threadId) return;
+    await messagesInFlight.get(JSON.stringify([threadId, String(msgId)]));
     if (msgId) {
-      await handleMessageUndo(accountId, String(msgId));
-      emitScoped('chat:deleted', { accountId, msgId: String(msgId) });
+      const conversationId = await handleMessageUndo(accountId, String(msgId), threadId);
+      if (conversationId) await emitScoped('chat:deleted', { accountId, conversationId, msgId: String(msgId) });
     }
-  });
+  }));
 
   listener.on('closed', (code: number, reason: string) => {
     logger.warn(`[zalo:${accountId}] Listener closed: ${code} ${reason}`);
     onDisconnected(accountId);
-    emitScoped('zalo:disconnected', { accountId, code, reason });
+    void emitScoped('zalo:disconnected', { accountId, code, reason })
+      .catch(() => logger.error(`[zalo:${accountId}] Disconnected delivery failed`));
   });
 
   listener.on('error', (err: any) => {
@@ -201,4 +219,8 @@ export function attachZaloListener(ctx: ListenerContext): void {
   });
 
   listener.start({ retryOnClose: true });
+  return async () => {
+    closed = true;
+    await Promise.allSettled(active);
+  };
 }

@@ -21,7 +21,8 @@ export interface GroupConfig {
   id?: string;
   groupThreadId: string;
   groupName?: string | null;
-  zaloAccountId?: string | null;
+  zaloAccountId: string | null;
+  targetResolutionStatus?: string;
   isEnabled: boolean;
   customPrompt?: string | null;
   focusKeywords: string[];
@@ -38,6 +39,9 @@ export interface GeneratedReportItem {
   periodFrom: string;
   periodTo: string;
   groupThreadIds: string[];
+  targetSchemaVersion: number;
+  targetResolutionStatus: 'legacy_unverified' | 'verified';
+  sourceTargets: Array<{ zaloAccountId: string; groupThreadId: string; conversationId: string }> | null;
   summaryContent: string;
   structuredData: any;
   sentZalo: boolean;
@@ -47,6 +51,7 @@ export interface GeneratedReportItem {
 }
 
 export interface AutomationSettings {
+  senderAccountId?: string;
   dailyEnabled: boolean;
   weeklyEnabled: boolean;
   sendZalo: boolean;
@@ -69,9 +74,10 @@ export interface SmtpSettings {
 export interface GenerateReportPayload {
   from_date: string;
   to_date: string;
-  group_thread_ids?: string[];
+  group_targets: Array<{ zalo_account_id: string; group_thread_id: string }>;
   title?: string;
   report_type?: 'daily' | 'weekly' | 'on_demand';
+  zalo_account_id?: string;
   send_zalo?: boolean;
   send_email?: boolean;
   zalo_destination_type?: 'self' | 'cloud' | 'uid';
@@ -80,6 +86,7 @@ export interface GenerateReportPayload {
 }
 
 export interface ResendReportPayload {
+  zalo_account_id?: string;
   send_zalo?: boolean;
   send_email?: boolean;
   zalo_destination_type?: 'self' | 'cloud' | 'uid';
@@ -92,9 +99,17 @@ export interface AiReportJob {
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
   resultReportId: string | null;
   errorMessage: string | null;
+  createdAt: string;
+  finishedAt: string | null;
+  cancellationRequestedAt: string | null;
 }
 
 export const aiReportApi = {
+  async getSenderAccounts(): Promise<Array<{ id: string; displayName: string | null; zaloUid: string | null; status: string }>> {
+    const res = await api.get('/zalo-accounts');
+    return res.data;
+  },
+
   // Groups & Configs
   async getGroups(): Promise<{ groups: GroupItem[] }> {
     const res = await api.get('/ai-reports/groups');
@@ -109,13 +124,14 @@ export const aiReportApi = {
   async updateConfig(
     groupThreadId: string,
     data: {
+      zalo_account_id: string;
       group_name?: string;
       is_enabled?: boolean;
       custom_prompt?: string;
       focus_keywords?: string[];
     },
   ): Promise<{ success: boolean; config: GroupConfig }> {
-    const res = await api.put(`/ai-reports/configs/${groupThreadId}`, data);
+    const res = await api.put(`/ai-reports/configs/${encodeURIComponent(groupThreadId)}`, data);
     return res.data;
   },
 
@@ -158,8 +174,11 @@ export const aiReportApi = {
   async resendReport(
     id: string,
     payload: ResendReportPayload,
-  ): Promise<{ success: boolean; zalo?: any; email?: any }> {
-    const res = await api.post(`/ai-reports/${id}/resend`, payload);
+    idempotencyKey: string,
+  ): Promise<{ success: boolean; resendId: string; replay?: boolean;
+    zalo?: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string } | null;
+    email?: { success: boolean; error?: string } | null }> {
+    const res = await api.post(`/ai-reports/${id}/resend`, payload, { headers: { 'Idempotency-Key': idempotencyKey } });
     return res.data;
   },
 

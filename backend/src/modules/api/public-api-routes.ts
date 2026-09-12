@@ -8,6 +8,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { boundedPositiveInt, boundedString, validOptionalDate } from '../../shared/http/request-bounds.js';
 
+import { validatePublicRequest } from './public-api-schemas.js';
+
 // ── API key auth middleware ────────────────────────────────────────────────────
 
 async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
@@ -26,6 +28,7 @@ async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
 
 export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', apiKeyAuth);
+  app.addHook('preHandler', validatePublicRequest);
 
   // ── Contacts ─────────────────────────────────────────────────────────────
 

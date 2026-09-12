@@ -93,3 +93,14 @@ export function decryptData<T = any>(encryptedStr: string | any, secretKey: stri
     }
   }
 }
+
+/** Decode authenticated string ciphertext without interpreting JSON-looking secrets. */
+export function decryptString(encrypted: string, secretKey: string): string | null {
+  if (!/^[a-f0-9]{24}:[a-f0-9]{32}:(?:[a-f0-9]{2})*$/i.test(encrypted)) return null;
+  const [iv, tag, ciphertext] = encrypted.split(':');
+  try {
+    const decipher = crypto.createDecipheriv(ALGORITHM, deriveKey(secretKey), Buffer.from(iv, 'hex'));
+    decipher.setAuthTag(Buffer.from(tag, 'hex'));
+    return decipher.update(ciphertext, 'hex', 'utf8') + decipher.final('utf8');
+  } catch { return null; }
+}

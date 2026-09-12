@@ -1,0 +1,68 @@
+import { expect, test } from '@playwright/test';
+
+test('HTTPS session rotates once for concurrent expired requests, reloads and logs out with Secure cookies', async ({ page, context, request }) => {
+  const fixture = await (await request.post('/__fixture/seed')).json();
+  await page.goto('/login');
+  await page.getByLabel('Email', { exact: true }).fill(fixture.email);
+  await page.getByLabel('Mật khẩu', { exact: true }).fill(fixture.password);
+  const login = page.waitForResponse(response => response.url().endsWith('/auth/login'));
+  await page.getByRole('button', { name: 'Đăng nhập', exact: true }).click();
+  const token = (await (await login).json()).token;
+  const claims = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
+  expect(claims.exp - claims.iat).toBe(15 * 60);
+  await expect(page).toHaveURL('/');
+  const cookies = await context.cookies();
+  const refresh = cookies.find(cookie => cookie.name === 'zalo_crm_refresh')!;
+  expect(refresh).toMatchObject({ httpOnly: true, secure: true, sameSite: 'Lax', path: '/api/v1/auth' });
+  expect(cookies.find(cookie => cookie.name === 'zalo_crm_csrf')).toMatchObject({ httpOnly: false, secure: true, sameSite: 'Lax' });
+  expect(await page.evaluate(() => document.cookie)).not.toContain('zalo_crm_refresh');
+  const expired = (await (await request.post('/__fixture/expired-token', { data: { token } })).json()).token;
+  let refreshRequests = 0;
+  page.on('request', req => { if (req.url().endsWith('/auth/refresh')) refreshRequests++; });
+  let deniedResponses = 0;
+  page.on('response', response => { if (response.status() === 401 && /\/api\/v1\/(?:conversations|zalo-accounts)/.test(response.url())) deniedResponses++; });
+  let releaseRefresh!: () => void;
+  const refreshHeld = new Promise<void>(resolve => { releaseRefresh = resolve; });
+  await page.route('**/api/v1/auth/refresh', async route => { await refreshHeld; await route.continue(); });
+  let intercepted = 0;
+  let release!: () => void;
+  const both = new Promise<void>(resolve => { release = resolve; });
+  // Both real endpoints receive the same expired access JWT. The server validates it normally.
+  await page.route(/\/api\/v1\/(?:conversations(?:\?.*)?|zalo-accounts)$/, async route => {
+    if (intercepted >= 2) return route.continue();
+    intercepted++;
+    if (intercepted === 2) release();
+    await both;
+    await route.continue({ headers: { ...route.request().headers(), authorization: `Bearer ${expired}` } });
+  });
+  await page.getByRole('link', { name: 'Tin nhắn', exact: true }).click();
+  await expect.poll(() => deniedResponses).toBe(2);
+  await expect.poll(() => refreshRequests).toBe(1);
+  releaseRefresh();
+  await expect(page.getByText('Browser Contact', { exact: true })).toBeVisible();
+  expect(intercepted).toBe(2);
+  expect(refreshRequests).toBe(1);
+  expect((await context.cookies()).find(cookie => cookie.name === refresh.name)?.value).not.toBe(refresh.value);
+  await page.unrouteAll({ behavior: 'wait' });
+  await page.reload();
+  await expect(page.getByText('Browser Contact', { exact: true })).toBeVisible();
+  expect(refreshRequests).toBe(2);
+  expect(await page.evaluate(() => [...Object.values(localStorage), ...Object.values(sessionStorage)].some(value => /eyJ[A-Za-z0-9_-]+\./.test(value)))).toBe(false);
+  const cookieHeader = (await context.cookies()).map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+  const csrfDenied = await request.post('/api/v1/auth/refresh', { headers: { cookie: cookieHeader, origin: 'https://127.0.0.1:4183' } });
+  expect(csrfDenied.status()).toBe(403);
+  const csrf = (await context.cookies()).find(cookie => cookie.name === 'zalo_crm_csrf')!.value;
+  const originDenied = await request.post('/api/v1/auth/refresh', { headers: { cookie: cookieHeader, origin: 'https://foreign.invalid', 'x-csrf-token': csrf } });
+  expect(originDenied.status()).toBe(403);
+  const logout = page.waitForResponse(response => response.url().endsWith('/auth/logout'));
+  await page.locator('button').filter({ has: page.locator('.mdi-logout') }).click();
+  expect((await logout).status()).toBe(200);
+  await expect(page).toHaveURL('/login');
+  await expect.poll(async () => (await context.cookies()).some(cookie => cookie.name === 'zalo_crm_refresh')).toBe(false);
+  // A fresh document tests persisted logout without racing the previous tab's auth redirect.
+  const loggedOutPage = await context.newPage();
+  await loggedOutPage.goto('/chat', { waitUntil: 'commit' });
+  await expect(loggedOutPage).toHaveURL('/login');
+  await expect(loggedOutPage.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible();
+  await expect(loggedOutPage.getByText('Browser Contact', { exact: true })).toHaveCount(0);
+});

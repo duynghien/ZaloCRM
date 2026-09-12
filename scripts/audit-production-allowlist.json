@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-09-02",
+  "reassessWhen": "Any advisory, resolved version, dependency path or Prisma chain changes. New findings require separate approval; fixed dependencies need no waiver.",
+  "reviewEvidence": "plans/260831-zalocrm-codebase-audit/reports/reviewer-20260902-plan-audit.md",
+  "waivers": [
+    {
+      "advisoryId": "GHSA-ggr8-5vv4-36mx",
+      "package": "deepmerge-ts",
+      "reason": "Accepted residual Prisma CLI configuration dependency; exact reviewed graph only.",
+      "chain": [
+        { "path": "node_modules/prisma", "version": "7.10.0" },
+        { "path": "node_modules/@prisma/config", "version": "7.10.0" },
+        { "path": "node_modules/deepmerge-ts", "version": "7.1.5" }
+      ]
+    },
+    {
+      "advisoryId": "GHSA-3f6p-5ww8-9rcr",
+      "package": "mysql2",
+      "reason": "Accepted residual Prisma CLI MySQL dependency in PostgreSQL deployment; exact reviewed graph only.",
+      "chain": [
+        { "path": "node_modules/prisma", "version": "7.10.0" },
+        { "path": "node_modules/mysql2", "version": "3.15.3" }
+      ]
+    }
+  ]
+}

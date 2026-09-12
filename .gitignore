@@ -8,3 +8,5 @@ backups/
 .agentkit/
 release-manifest.json
 plans/
+frontend/test-results/
+frontend/playwright-report/

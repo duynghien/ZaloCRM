@@ -1,0 +1,30 @@
+[
+  {
+    "name": "00000000000000_baseline",
+    "checksum": "e79a9e7e7b385238d82bd61ce3b2e188038ceea6a87cdce55ee1807b65c61d43"
+  },
+  {
+    "name": "20260901000001_sync_current_schema",
+    "checksum": "681b0ac0cb9db4cc68827199d4158ab3ff6d8f93e538972a810f2a2bf19061f4"
+  },
+  {
+    "name": "20260901000002_auth_sessions",
+    "checksum": "8e2953292a6ee2c10b86624e6dfc4005ae9875d8b34149441661aca95842d144"
+  },
+  {
+    "name": "20260901000003_integrity_and_secure_settings",
+    "checksum": "f827c3431b8307161fd20bd1350aa96edf2a86fc736481f109d6b6994d88df66"
+  },
+  {
+    "name": "20260901000004_ai_report_jobs",
+    "checksum": "9b9ca38e854c5338958a5959574ff155de721b6dbe76a100bbe1b879975f5b32"
+  },
+  {
+    "name": "20260909090000_account_qualified_report_targets",
+    "checksum": "ea0ac61f4b1bac8c6d896a4a927987f9498e073d7e6ef5f692e4538cc50f405f"
+  },
+  {
+    "name": "20260910000000_unique_order_codes",
+    "checksum": "8e0b7e8cea40ccdf6f295086b5ac21e812b5d7aba822920d992a3786ccc20940"
+  }
+]

@@ -1,7 +1,7 @@
 {
   "name": "zalocrm-monorepo",
   "version": "1.0.0",
-  "description": "ZaloCRM — Multi-Zalo Sales & Customer Relationship Management System",
+  "description": "ZaloCRM \u2014 Multi-Zalo Sales & Customer Relationship Management System",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,13 +23,15 @@
     "typecheck:backend": "npm run typecheck --prefix backend",
     "typecheck:frontend": "npm run typecheck --prefix frontend",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
-    "test": "npm run test --workspace=backend",
+    "test": "npm run test --workspaces",
     "test:e2e": "npm run test:e2e --workspace=frontend",
-    "audit:production": "npm audit --omit=dev --audit-level=critical",
+    "audit:production": "node scripts/audit-production-policy.mjs",
     "db:migrate": "npm run db:migrate --prefix backend",
     "db:push": "npm run db:push --prefix backend",
     "db:seed": "npm run db:seed --prefix backend",
-    "docker:up": "docker compose up -d --build",
+    "docker:up": "node scripts/deploy-compose.mjs",
+    "verify:production-container": "node scripts/verify-production-container.mjs",
+    "verify:development-compose": "node scripts/verify-development-compose.mjs",
     "docker:dev": "docker compose -f docker-compose.dev.yml up -d --build",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f app"
@@ -45,5 +47,13 @@
     "socket.io"
   ],
   "author": "ZaloCRM Team",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "exceljs@4.4.0": {
+      "uuid": "11.1.1"
+    },
+    "prisma@7.10.0": {
+      "mysql2": "3.23.1"
+    }
+  }
 }

@@ -11,6 +11,22 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_fixture
+          POSTGRES_PASSWORD: test-only-password
+          POSTGRES_DB: zalocrm_test_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test_fixture -d zalocrm_test_admin"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_POSTGRES_ADMIN_URL: postgresql://test_fixture:test-only-password@127.0.0.1:5432/zalocrm_test_admin
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -24,4 +40,5 @@ jobs:
       - run: npm run audit:production
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
-      - run: docker build -f docker/Dockerfile -t zalocrm-ci .
+      - run: npm run verify:production-container
+      - run: npm run verify:development-compose
