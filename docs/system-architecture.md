@@ -96,9 +96,13 @@ Room `org:{orgId}` chỉ chọn ứng viên, không cấp quyền nhận payload
 - ACL/account mutation vô hiệu hóa thao tác đang chờ trước response thành công; session revoke vô hiệu hóa cả handshake đang chờ. Delivery kiểm tra lại trạng thái ngay trước emit, không giữ cache quyền dương lâu dài.
 - Bảo đảm invalidation hiện giới hạn **một backend process với Socket.IO default adapter**. Cần shared invalidation và kiểm chứng riêng trước khi dùng nhiều replica/distributed adapter.
 
-### 3.1.2. Message replay và thu hồi
+### 3.1.2. Message replay, self-listen và thu hồi
 
-Transaction ingestion khóa hội thoại và unique `(conversationId, zaloMsgId)` để một sự kiện phát lại không tạo message, tăng unread, tải attachment, phát socket hoặc webhook lần nữa. Undo tìm conversation bằng org/account/thread trước khi cập nhật message; cùng mã tin nhắn ở hội thoại khác không bị thu hồi theo.
+- **Self-listen từ thiết bị ngoài:** Zalo SDK khởi tạo với `selfListen: true` để lắng nghe tin nhắn gửi từ iPad/điện thoại (`isSelf: true`). Listener bỏ qua self-reaction/typing, tự động tra cứu thông tin người nhận (`getUserInfo` timeout 3s) và đồng bộ real-time lên Dashboard (`senderType: 'self'`).
+- **Deduplication & Race Condition:** Trích xuất `zaloMsgId` đa tầng từ response `sendMessage`. Nếu WebSocket echo dội về trước khi API route lưu DB, route bắt lỗi `P2002` và cập nhật lại `repliedByUserId` cùng `senderName` của nhân viên.
+- **Tự lành hội thoại & Contact:** Hội thoại có `contactId: null` tự động liên kết với Contact khi có tin nhắn mới. Khi khách hàng phản hồi, tên Contact tự động cập nhật từ tên thật trên Zalo nếu trước đó là tên mặc định ('Khách Zalo').
+- **Rate Limit Pacing:** Cache dedup `zaloMsgId` (TTL 60s) chống đếm x2. Tin nhắn từ iPad chỉ tính vào hạn mức ngày (200 tin/ngày), không làm kẹt nhịp gửi (burst 3 tin/30s, delay 2s) của nhân viên trên Dashboard. Hỗ trợ tham số `force: true` gửi khẩn cấp khi vượt 200 tin/ngày.
+- **Message replay & Undo:** Transaction ingestion khóa hội thoại và unique `(conversationId, zaloMsgId)` để một sự kiện phát lại không tạo message, tăng unread, tải attachment, phát socket hoặc webhook lần nữa. Undo tìm conversation bằng org/account/thread trước khi cập nhật message (`isDeleted: true`, `deletedAt: new Date()`); cùng mã tin nhắn ở hội thoại khác không bị thu hồi theo.
 
 ### 3.1.3. Nguồn AI, ngân sách và delivery
 

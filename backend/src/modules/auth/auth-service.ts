@@ -6,8 +6,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
 
-export interface JwtPayload { id: string; email: string; role: string; orgId: string; sessionId: string; }
-export interface AuthIdentity { id: string; email: string; role: string; orgId: string; }
+export interface JwtPayload { id: string; email: string; role: string; orgId: string; sessionId: string; fullName?: string; }
+export interface AuthIdentity { id: string; email: string; role: string; orgId: string; fullName: string; }
 export interface SessionTokens { accessToken: string; refreshToken: string; expiresAt: Date; }
 type RefreshLookup = { id: string; familyId: string; refreshTokenHash: string; expiresAt: Date; revokedAt: Date | null; replacedBySessionId: string | null; user: AuthIdentity & { isActive: boolean }; };
 type SessionRevocationListener = (sessionIds: string[]) => void;
@@ -37,7 +37,7 @@ export function validatePassword(password: string): void {
   if (!passwordPolicy.test(password)) throw authError('Password must be at least 12 characters and include upper-case, lower-case, and a number', 400);
 }
 
-function identityOf(user: AuthIdentity): AuthIdentity { return { id: user.id, email: user.email, role: user.role, orgId: user.orgId }; }
+function identityOf(user: AuthIdentity): AuthIdentity { return { id: user.id, email: user.email, role: user.role, orgId: user.orgId, fullName: user.fullName }; }
 
 export function registerSessionRevocationListener(listener: SessionRevocationListener): () => void {
   sessionRevocationListeners.add(listener);
@@ -80,7 +80,7 @@ export async function createSession(app: FastifyInstance, identity: AuthIdentity
 export async function rotateSession(app: FastifyInstance, opaqueToken: string): Promise<{ tokens: SessionTokens; identity: AuthIdentity }> {
   const tokenHash = refreshTokenHash(opaqueToken); const now = new Date();
   const result = await prisma.$transaction(async (tx) => {
-    const session = await tx.authSession.findUnique({ where: { refreshTokenHash: tokenHash }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true } } } }) as (RefreshLookup & { revokedReason?: string | null; rotatedAt?: Date | null; lastUsedAt?: Date | null }) | null;
+    const session = await tx.authSession.findUnique({ where: { refreshTokenHash: tokenHash }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true, fullName: true } } } }) as (RefreshLookup & { revokedReason?: string | null; rotatedAt?: Date | null; lastUsedAt?: Date | null }) | null;
     if (!session || !safeTokenEquals(session.refreshTokenHash, tokenHash)) return { kind: 'invalid' as const };
     if (isConsumedRefreshSession(session) || session.revokedAt) return { kind: 'reused' as const, familyId: session.familyId };
     if (session.expiresAt <= now || !session.user.isActive) {
@@ -130,7 +130,7 @@ export async function revokeSessionFamily(familyId: string, reason: string): Pro
 }
 
 export async function validateSessionUser(sessionId: string, userId: string): Promise<AuthIdentity> {
-  const session = await prisma.authSession.findFirst({ where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true } } } });
+  const session = await prisma.authSession.findFirst({ where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true, fullName: true } } } });
   if (!session || !session.user.isActive) throw authError('Session is no longer valid', 401);
   return identityOf(session.user);
 }

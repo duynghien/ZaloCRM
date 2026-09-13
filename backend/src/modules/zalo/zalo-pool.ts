@@ -19,7 +19,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Zalo } = require('zca-js') as { Zalo: new (opts: { logging: boolean }) => any };
+const { Zalo } = require('zca-js') as { Zalo: new (opts: { logging: boolean; selfListen?: boolean }) => any };
 
 interface ZaloCredentials {
   cookie: any;
@@ -78,13 +78,13 @@ class ZaloAccountPool {
     try {
       const accountRec = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { orgId: true },
+        select: { orgId: true, displayName: true },
       });
       if (this.connectionAttempts.get(accountId) !== attempt) return;
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false });
+      const zalo = new Zalo({ logging: false, selfListen: true });
       const pending: ZaloInstance = { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
 
@@ -140,7 +140,7 @@ class ZaloAccountPool {
         } catch {}
 
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
-        this.attachListener(accountId, api, orgId);
+        this.attachListener(accountId, api, orgId, instance.displayName || accountRec.displayName || undefined);
         await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
         await this.updateAccountDB(accountId, 'connected', ownId);
 
@@ -167,13 +167,13 @@ class ZaloAccountPool {
     try {
       const accountRec = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { orgId: true },
+        select: { orgId: true, displayName: true },
       });
       if (this.connectionAttempts.get(accountId) !== attempt) return;
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false });
+      const zalo = new Zalo({ logging: false, selfListen: true });
       const pending: ZaloInstance = { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
 
@@ -208,7 +208,7 @@ class ZaloAccountPool {
         } catch {}
 
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
-        this.attachListener(accountId, api, orgId);
+        this.attachListener(accountId, api, orgId, instance.displayName || accountRec.displayName || undefined);
         await this.updateAccountDB(accountId, 'connected', ownId);
         await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
 
@@ -228,9 +228,10 @@ class ZaloAccountPool {
   }
 
   // Delegate listener setup to zalo-listener-factory
-  private attachListener(accountId: string, api: any, orgId?: string): void {
+  private attachListener(accountId: string, api: any, orgId?: string, displayName?: string): void {
     const drainListener = attachZaloListener({
       accountId,
+      accountDisplayName: displayName,
       orgId,
       api,
       io: this.io,

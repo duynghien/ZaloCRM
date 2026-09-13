@@ -7,13 +7,16 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
-import { downloadAttachment } from '../attachments/attachment-downloader.js';
-import { extractAttachmentContent } from '../attachments/attachment-parser.js';
+import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
+import { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
+export { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
 
 export interface IncomingMessage {
   accountId: string;
   senderUid: string;
   senderName: string;       // zaloName (from cache or dName fallback)
+  recipientName?: string;   // resolved recipient name when isSelf
+  recipientAvatar?: string; // resolved recipient avatar when isSelf
   content: string;
   contentType: string;      // text, image, sticker, video, voice, gif, link, file
   msgId: string;
@@ -57,9 +60,13 @@ export async function handleIncomingMessage(
     });
     if (!account) return null;
 
+    if (msg.isSelf) {
+      zaloRateLimiter.recordSend(msg.accountId, msg.msgId || null, true);
+    }
+
     const persisted = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`inbound-thread:${msg.accountId}:${msg.threadId}`}));`;
-      const contactUid = msg.threadType === 'group' ? msg.threadId : msg.senderUid;
+      const contactUid = msg.threadId;
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`inbound-contact:${account.orgId}:${contactUid}`}));`;
       const { contactId, createdContact } = await upsertContact(tx, msg, account.orgId);
       const conversation = await findOrCreateConversation(tx, msg, account.orgId, contactId);
@@ -156,30 +163,49 @@ async function upsertContact(db: Prisma.TransactionClient, msg: IncomingMessage,
     return { contactId: groupContact.id, createdContact };
   }
 
-  // User messages: self messages don't create a contact
-  if (msg.isSelf) return { contactId: null, createdContact: null };
-
+  // User messages (both customer incoming and self outbound from external devices)
+  const contactUid = msg.threadId;
   let contact = await db.contact.findFirst({
-    where: { zaloUid: msg.senderUid, orgId },
-    select: { id: true, fullName: true },
+    where: { zaloUid: contactUid, orgId },
+    select: { id: true, fullName: true, avatarUrl: true },
   });
 
   if (!contact) {
+    const fullName = (msg.isSelf ? msg.recipientName : msg.senderName) || 'Khách Zalo';
+    const avatarUrl = msg.isSelf ? (msg.recipientAvatar || null) : null;
     contact = await db.contact.create({
       data: {
         id: randomUUID(),
         orgId,
-        zaloUid: msg.senderUid,
-        fullName: msg.senderName || 'Unknown',
+        zaloUid: contactUid,
+        fullName,
+        avatarUrl,
       },
-      select: { id: true, fullName: true },
+      select: { id: true, fullName: true, avatarUrl: true },
     });
     createdContact = { contactId: contact.id, fullName: contact.fullName };
-  } else if (msg.senderName && contact.fullName !== msg.senderName) {
-    await db.contact.update({
-      where: { id: contact.id },
-      data: { fullName: msg.senderName },
-    });
+  } else {
+    // Self-healing: if generic name or customer sent updated name
+    const isGeneric = !contact.fullName || contact.fullName === 'Khách Zalo' || contact.fullName === 'Unknown';
+    if (!msg.isSelf && msg.senderName && (isGeneric || contact.fullName !== msg.senderName)) {
+      await db.contact.update({
+        where: { id: contact.id },
+        data: { fullName: msg.senderName },
+      });
+    } else if (msg.isSelf && msg.recipientName && msg.recipientName !== 'Khách Zalo' && isGeneric) {
+      await db.contact.update({
+        where: { id: contact.id },
+        data: {
+          fullName: msg.recipientName,
+          ...(msg.recipientAvatar && !contact.avatarUrl ? { avatarUrl: msg.recipientAvatar } : {}),
+        },
+      });
+    } else if (msg.isSelf && msg.recipientAvatar && !contact.avatarUrl) {
+      await db.contact.update({
+        where: { id: contact.id },
+        data: { avatarUrl: msg.recipientAvatar },
+      });
+    }
   }
 
   return { contactId: contact.id, createdContact };
@@ -199,7 +225,7 @@ async function findOrCreateConversation(
     create: { id: randomUUID(), orgId, zaloAccountId: msg.accountId, contactId,
       threadType: msg.threadType, externalThreadId, lastMessageAt: new Date(msg.timestamp),
       unreadCount: 0, isReplied: msg.isSelf },
-    update: {}, select: { id: true },
+    update: contactId ? { contactId } : {}, select: { id: true },
   });
 }
 
@@ -228,80 +254,4 @@ export async function handleMessageUndo(accountId: string, zaloMsgId: string, th
   if (!conversation) return null;
   const updated = await prisma.message.updateMany({ where: { conversationId: conversation.id, zaloMsgId }, data: { isDeleted: true, deletedAt: new Date() } });
   return updated.count ? conversation.id : null;
-}
-
-/**
- * Asynchronously download and extract text/tables from message attachments.
- */
-async function extractAttachmentSafely(params: Parameters<typeof extractAttachmentContent>[0]) {
-  try {
-    return await extractAttachmentContent(params);
-  } catch (error) {
-    logger.warn('[message-handler] Attachment parsing failed:', error instanceof Error ? error.message : error);
-    return null;
-  }
-}
-
-export async function processMessageAttachmentsAsync(
-  messageId: string,
-  attachments: any[],
-): Promise<void> {
-  if (!attachments || attachments.length === 0) return;
-
-  const updatedAttachments: any[] = [];
-
-  for (const att of attachments) {
-    let localPath = att.localPath;
-    let filename = att.filename;
-    let extractedText = att.extractedText;
-    let isScanned = att.isScanned;
-    let sheetNames = att.sheetNames;
-
-    if (att.url && !localPath) {
-      const downloadRes = await downloadAttachment(att.url, {
-        originalFilename: att.title || att.name,
-      });
-      if (downloadRes) {
-        localPath = downloadRes.localPath;
-        filename = downloadRes.filename;
-
-        const parseRes = await extractAttachmentSafely({
-          filename: downloadRes.originalName,
-          localPath: downloadRes.localPath,
-          mimeType: downloadRes.mimeType,
-        });
-
-        if (parseRes) {
-          extractedText = parseRes.text;
-          isScanned = parseRes.isScanned;
-          sheetNames = parseRes.sheetNames;
-        }
-      }
-    } else if (localPath && !extractedText) {
-      const parseRes = await extractAttachmentSafely({
-        filename: att.title || filename,
-        localPath,
-        mimeType: att.mimeType,
-      });
-      if (parseRes) {
-        extractedText = parseRes.text;
-        isScanned = parseRes.isScanned;
-        sheetNames = parseRes.sheetNames;
-      }
-    }
-
-    updatedAttachments.push({
-      ...att,
-      localPath,
-      filename,
-      extractedText,
-      isScanned,
-      sheetNames,
-    });
-  }
-
-  await prisma.message.update({
-    where: { id: messageId },
-    data: { attachments: updatedAttachments },
-  });
 }

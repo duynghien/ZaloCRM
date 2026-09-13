@@ -12,6 +12,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
 import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
+import { emitWebhook } from '../api/webhook-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -117,7 +118,7 @@ export async function chatRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/messages', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    const { content } = request.body as { content: string };
+    const { content, force } = (request.body || {}) as { content?: string; force?: boolean };
 
     if (!content?.trim()) return reply.status(400).send({ error: 'Content required' });
 
@@ -132,8 +133,8 @@ export async function chatRoutes(app: FastifyInstance) {
 
     // Rate limit check — prevent account blocking
     const limits = zaloRateLimiter.checkLimits(conversation.zaloAccountId);
-    if (!limits.allowed) {
-      return reply.status(429).send({ error: limits.reason });
+    if (!limits.allowed && !force) {
+      return reply.status(429).send({ error: limits.reason, canForce: limits.canForce });
     }
 
     try {
@@ -141,22 +142,29 @@ export async function chatRoutes(app: FastifyInstance) {
       // zca-js sendMessage(message, threadId, type) — type: 0=User, 1=Group
       const threadType = conversation.threadType === 'group' ? 1 : 0;
 
-      zaloRateLimiter.recordSend(conversation.zaloAccountId);
-      await instance.api.sendMessage({ msg: content }, threadId, threadType);
+      const res = await instance.api.sendMessage({ msg: content }, threadId, threadType);
+      const rawId = (res as any)?.message?.msgId ?? (res as any)?.data?.msgId ?? (res as any)?.msgId;
+      const zaloMsgId = rawId ? String(rawId) : null;
+      zaloRateLimiter.recordSend(conversation.zaloAccountId, zaloMsgId, false);
 
-      const message = await prisma.message.create({
-        data: {
-          id: randomUUID(),
-          conversationId: id,
-          senderType: 'self',
-          senderUid: conversation.zaloAccount.zaloUid || '',
-          senderName: 'Staff',
-          content,
-          contentType: 'text',
-          sentAt: new Date(),
-          repliedByUserId: user.id,
-        },
-      });
+      const senderName = user.fullName || 'Staff';
+      let message;
+      try {
+        message = await prisma.message.create({
+          data: {
+            id: randomUUID(), conversationId: id, zaloMsgId, senderType: 'self',
+            senderUid: conversation.zaloAccount.zaloUid || '', senderName, content,
+            contentType: 'text', sentAt: new Date(), repliedByUserId: user.id,
+          },
+        });
+      } catch (err: any) {
+        if (err?.code === 'P2002' && zaloMsgId) {
+          message = await prisma.message.update({
+            where: { conversationId_zaloMsgId: { conversationId: id, zaloMsgId } },
+            data: { repliedByUserId: user.id, senderName },
+          });
+        } else throw err;
+      }
 
       await prisma.conversation.update({
         where: { id },
@@ -164,6 +172,10 @@ export async function chatRoutes(app: FastifyInstance) {
       });
 
       await emitAccountEvent(app.io, conversation.zaloAccountId, 'chat:message', { accountId: conversation.zaloAccountId, message, conversationId: id });
+      emitWebhook(conversation.zaloAccount.orgId, 'message.sent', {
+        messageId: message.id, conversationId: id, senderUid: conversation.zaloAccount.zaloUid || '',
+        content: message.content, contentType: message.contentType, sentAt: message.sentAt,
+      });
 
       return message;
     } catch (err) {

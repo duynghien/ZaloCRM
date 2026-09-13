@@ -7,20 +7,26 @@ const DAILY_LIMIT = 200;
 const BURST_LIMIT = 3;            // max messages in BURST_WINDOW_MS
 const BURST_WINDOW_MS = 30_000;    // 30 seconds
 const MIN_INTERVAL_MS = 2_000;     // minimum 2 seconds between consecutive sends
+const DEDUP_TTL_MS = 60_000;       // 60 seconds dedup cache TTL
 
 class ZaloRateLimiter {
   private dailyCounts = new Map<string, { count: number; date: string }>();
   private recentSends = new Map<string, number[]>(); // timestamps per account
   private lastSendTime = new Map<string, number>();
+  private recentMsgIds = new Map<string, number>();  // msgKey -> timestamp for dedup
 
   /** Check if sending is allowed for accountId */
-  checkLimits(accountId: string): { allowed: boolean; reason?: string } {
+  checkLimits(accountId: string): { allowed: boolean; reason?: string; canForce?: boolean } {
     const today = new Date().toISOString().split('T')[0];
     const daily = this.dailyCounts.get(accountId);
 
     // 1. Daily limit check
     if (daily && daily.date === today && daily.count >= DAILY_LIMIT) {
-      return { allowed: false, reason: `Đã đạt giới hạn an toàn ${DAILY_LIMIT} tin/ngày` };
+      return {
+        allowed: false,
+        reason: `Đã đạt giới hạn an toàn ${DAILY_LIMIT} tin/ngày`,
+        canForce: true,
+      };
     }
 
     const now = Date.now();
@@ -33,37 +39,61 @@ class ZaloRateLimiter {
       return {
         allowed: false,
         reason: `Gửi quá nhanh — vui lòng chờ ${waitSec}s trước khi gửi tin tiếp theo để đảm bảo an toàn tài khoản Zalo`,
+        canForce: false,
       };
     }
 
     // 3. Burst window check
     const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
     if (recent.length >= BURST_LIMIT) {
-      return { allowed: false, reason: `Tần suất gửi quá cao (tối đa ${BURST_LIMIT} tin/30s)` };
+      return {
+        allowed: false,
+        reason: `Tần suất gửi quá cao (tối đa ${BURST_LIMIT} tin/30s)`,
+        canForce: false,
+      };
     }
 
     return { allowed: true };
   }
 
   /** Record a successful send for rate tracking */
-  recordSend(accountId: string): void {
+  recordSend(accountId: string, zaloMsgId?: string | null, isExternal: boolean = false): void {
     const now = Date.now();
     const today = new Date().toISOString().split('T')[0];
 
-    // Update last send timestamp
-    this.lastSendTime.set(accountId, now);
+    // Deduplication check via recentMsgIds
+    let isDuplicate = false;
+    if (zaloMsgId) {
+      const msgKey = `${accountId}:${zaloMsgId}`;
+      const cachedAt = this.recentMsgIds.get(msgKey);
+      if (cachedAt && now - cachedAt < DEDUP_TTL_MS) {
+        isDuplicate = true;
+      } else {
+        this.recentMsgIds.set(msgKey, now);
+        if (this.recentMsgIds.size > 1000) {
+          for (const [k, ts] of this.recentMsgIds) {
+            if (now - ts >= DEDUP_TTL_MS) this.recentMsgIds.delete(k);
+          }
+        }
+      }
+    }
 
-    // Update burst window timestamps
-    const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
-    recent.push(now);
-    this.recentSends.set(accountId, recent);
+    // Update pacing timestamps only for internal sends (Dashboard / AI)
+    if (!isExternal) {
+      this.lastSendTime.set(accountId, now);
+      const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
+      recent.push(now);
+      this.recentSends.set(accountId, recent);
+    }
 
-    // Update daily count
-    const daily = this.dailyCounts.get(accountId);
-    if (daily && daily.date === today) {
-      daily.count++;
-    } else {
-      this.dailyCounts.set(accountId, { count: 1, date: today });
+    // Update daily count only if not duplicate
+    if (!isDuplicate) {
+      const daily = this.dailyCounts.get(accountId);
+      if (daily && daily.date === today) {
+        daily.count++;
+      } else {
+        this.dailyCounts.set(accountId, { count: 1, date: today });
+      }
     }
   }
 

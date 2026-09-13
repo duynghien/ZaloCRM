@@ -55,6 +55,30 @@ async function resolveZaloName(
   return { zaloName: '', avatar: '' };
 }
 
+// Fetch zaloName + avatar from API with a per-pool in-memory cache and 3s safety timeout
+async function resolveZaloNameWithTimeout(
+  api: any,
+  uid: string,
+  cache: Map<string, UserInfoCacheEntry>,
+  timeoutMs = 3000,
+): Promise<{ zaloName: string; avatar: string }> {
+  try {
+    let timer: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<{ zaloName: string; avatar: string }>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('timeout')), timeoutMs);
+      timer.unref?.();
+    });
+    const res = await Promise.race([
+      resolveZaloName(api, uid, cache),
+      timeoutPromise,
+    ]);
+    if (timer) clearTimeout(timer);
+    return res;
+  } catch {
+    return { zaloName: '', avatar: '' };
+  }
+}
+
 // Fetch group display name from the zca-js API
 async function resolveGroupName(api: any, groupId: string): Promise<string> {
   try {
@@ -69,6 +93,7 @@ async function resolveGroupName(api: any, groupId: string): Promise<string> {
 
 export interface ListenerContext {
   accountId: string;
+  accountDisplayName?: string;
   orgId?: string;
   api: any;
   io: Server | null;
@@ -105,6 +130,11 @@ export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
   });
 
   listener.on('message', (message: any) => {
+    // Ignore self reaction or self typing events
+    if (message.isSelf && (message.data?.cmd === 612 || message.data?.msgType?.includes('reaction') || message.data?.msgType?.includes('typing'))) {
+      return;
+    }
+
     const msgId = String(message.data?.msgId || '');
     const messageKey = JSON.stringify([message.threadId, msgId]);
     if (msgId && messagesInFlight.has(messageKey)) return messagesInFlight.get(messageKey);
@@ -114,10 +144,22 @@ export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
         const isGroup = message.type === 1;
         const senderUid = String(message.data?.uidFrom || '');
 
-        // Resolve display name — prefer zaloName from API over dName
         let senderName: string = message.data?.dName || '';
-        if (!message.isSelf && senderUid && api.getUserInfo) {
-          const userInfo = await resolveZaloName(api, senderUid, userInfoCache);
+        let recipientName: string | undefined;
+        let recipientAvatar: string | undefined;
+
+        if (message.isSelf) {
+          senderName = ctx.accountDisplayName || 'Bạn';
+          if (!isGroup && message.threadId && api.getUserInfo) {
+            const recipientInfo = await resolveZaloNameWithTimeout(api, message.threadId, userInfoCache, 3000);
+            if (recipientInfo.zaloName) recipientName = recipientInfo.zaloName;
+            if (recipientInfo.avatar) {
+              recipientAvatar = recipientInfo.avatar;
+              updateContactAvatar(message.threadId, recipientInfo.avatar);
+            }
+          }
+        } else if (senderUid && api.getUserInfo) {
+          const userInfo = await resolveZaloNameWithTimeout(api, senderUid, userInfoCache, 3000);
           if (userInfo.zaloName) senderName = userInfo.zaloName;
           if (userInfo.avatar) updateContactAvatar(senderUid, userInfo.avatar);
         }
@@ -169,6 +211,8 @@ export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
           accountId,
           senderUid,
           senderName,
+          recipientName,
+          recipientAvatar,
           content,
           contentType,
           msgId: String(message.data?.msgId || ''),
