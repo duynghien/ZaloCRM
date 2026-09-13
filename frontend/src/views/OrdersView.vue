@@ -1,8 +1,8 @@
 <template>
   <div>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h4">
-        <v-icon class="mr-2" style="color: #00F2FF;">mdi-cart-outline</v-icon>
+      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
+        <v-icon class="mr-2" color="primary">mdi-cart-outline</v-icon>
         Đơn hàng
       </h1>
       <v-spacer />
@@ -15,35 +15,35 @@
         <v-card variant="outlined">
           <v-card-text class="text-center pa-3">
             <v-icon icon="mdi-cart" color="primary" size="28" class="mb-1" />
-            <div class="text-h5 font-weight-bold">{{ stats?.totalOrders ?? '—' }}</div>
-            <div class="text-caption text-grey">Tổng đơn</div>
+            <div class="text-h4 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.totalOrders ?? '—' }}</div>
+            <div class="neo-subtitle" style="color: var(--text-muted);">Tổng đơn</div>
           </v-card-text>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
         <v-card variant="outlined">
           <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-check-circle" color="green" size="28" class="mb-1" />
-            <div class="text-h5 font-weight-bold">{{ stats?.completedOrders ?? '—' }}</div>
-            <div class="text-caption text-grey">Hoàn thành</div>
+            <v-icon icon="mdi-check-circle" color="success" size="28" class="mb-1" />
+            <div class="text-h4 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.completedOrders ?? '—' }}</div>
+            <div class="neo-subtitle" style="color: var(--text-muted);">Hoàn thành</div>
           </v-card-text>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
         <v-card variant="outlined">
           <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-currency-usd" color="teal" size="28" class="mb-1" />
-            <div class="text-h6 font-weight-bold">{{ formatVND(stats?.totalRevenue ?? 0) }}</div>
-            <div class="text-caption text-grey">Doanh thu</div>
+            <v-icon icon="mdi-currency-usd" color="info" size="28" class="mb-1" />
+            <div class="text-h5 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ formatVND(stats?.totalRevenue ?? 0) }}</div>
+            <div class="neo-subtitle" style="color: var(--text-muted);">Doanh thu</div>
           </v-card-text>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
         <v-card variant="outlined">
           <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-calendar-today" color="orange" size="28" class="mb-1" />
-            <div class="text-h6 font-weight-bold">{{ formatVND(stats?.todayRevenue ?? 0) }}</div>
-            <div class="text-caption text-grey">Doanh thu hôm nay</div>
+            <v-icon icon="mdi-calendar-today" color="warning" size="28" class="mb-1" />
+            <div class="text-h5 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ formatVND(stats?.todayRevenue ?? 0) }}</div>
+            <div class="neo-subtitle" style="color: var(--text-muted);">Doanh thu hôm nay</div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -86,7 +86,7 @@
             <td>{{ o.contact?.fullName || '—' }}</td>
             <td>{{ formatVND(o.totalAmount) }}</td>
             <td>
-              <v-chip size="x-small" :color="statusColor(o.status)" variant="tonal">
+              <v-chip size="x-small" :color="statusColor(o.status)" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
                 {{ statusLabel(o.status) }}
               </v-chip>
             </td>

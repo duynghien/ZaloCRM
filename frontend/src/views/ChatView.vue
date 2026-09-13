@@ -1,7 +1,11 @@
 <template>
-  <div class="chat-container d-flex" style="height: calc(100vh - 64px);">
-    <!-- Conversation list — resizable -->
-    <div class="chat-panel-left" :style="{ width: leftWidth + 'px' }">
+  <div class="chat-container d-flex" style="height: calc(100vh - 56px);">
+    <!-- Conversation list — resizable (hidden on mobile if conversation is selected) -->
+    <div
+      v-if="!mobile || !selectedConvId"
+      class="chat-panel-left"
+      :style="{ width: mobile ? '100%' : leftWidth + 'px' }"
+    >
       <ConversationList
         :conversations="conversations"
         :selected-id="selectedConvId"
@@ -10,25 +14,31 @@
         @select="selectConversation"
         @filter-account="onFilterAccount"
       />
-      <!-- Resize handle -->
-      <div class="resize-handle" @mousedown="startResize('left', $event)" />
+      <!-- Resize handle (only on desktop) -->
+      <div v-if="!mobile" class="resize-handle" @mousedown="startResize('left', $event)" />
     </div>
 
-    <!-- Message thread — flexible center -->
+    <!-- Message thread — flexible center (hidden on mobile if no conversation selected) -->
     <MessageThread
+      v-if="!mobile || selectedConvId"
       :conversation="selectedConv"
       :messages="messages"
       :loading="loadingMsgs"
       :sending="sendingMsg"
+      :show-contact-panel="showContactPanel"
       @send="sendMessage"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
-      :show-contact-panel="showContactPanel"
+      @back="selectedConvId = null"
       style="flex: 1; min-width: 300px;"
     />
 
-    <!-- Contact panel — resizable -->
-    <div v-if="showContactPanel && selectedConv?.contact" class="chat-panel-right" :style="{ width: rightWidth + 'px' }">
-      <div class="resize-handle resize-handle-left" @mousedown="startResize('right', $event)" />
+    <!-- Contact panel — resizable (desktop only or modal/panel) -->
+    <div
+      v-if="showContactPanel && selectedConv?.contact"
+      class="chat-panel-right"
+      :style="{ width: mobile ? '100%' : rightWidth + 'px' }"
+    >
+      <div v-if="!mobile" class="resize-handle resize-handle-left" @mousedown="startResize('right', $event)" />
       <ChatContactPanel
         :contact-id="selectedConv.contact.id"
         :contact="selectedConv.contact"
@@ -41,10 +51,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { useDisplay } from 'vuetify';
 import ConversationList from '@/components/chat/ConversationList.vue';
 import MessageThread from '@/components/chat/MessageThread.vue';
 import ChatContactPanel from '@/components/chat/ChatContactPanel.vue';
 import { useChat } from '@/composables/use-chat';
+
+const { mobile } = useDisplay();
 
 const {
   conversations, selectedConvId, selectedConv, messages,
@@ -112,7 +125,8 @@ watch(searchQuery, () => {
 
 <style scoped>
 .chat-container {
-  margin: -12px;
+  margin: -16px;
+  background-color: var(--bg-main);
 }
 
 .chat-panel-left {
@@ -134,17 +148,17 @@ watch(searchQuery, () => {
   position: absolute;
   top: 0;
   right: -2px;
-  width: 5px;
+  width: 6px;
   height: 100%;
   cursor: col-resize;
   z-index: 10;
   background: transparent;
-  transition: background 0.2s;
+  transition: background 0.15s ease-in-out;
 }
 
 .resize-handle:hover,
 .resize-handle:active {
-  background: rgba(0, 242, 255, 0.3);
+  background: var(--primary-brand);
 }
 
 .resize-handle-left {

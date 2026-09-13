@@ -10,7 +10,15 @@
 
     <template v-else>
       <!-- Header -->
-      <div class="pa-3 d-flex align-center" style="border-bottom: 1px solid var(--border-glow, rgba(0,242,255,0.1));">
+      <div class="pa-3 d-flex align-center" style="border-bottom: 1.5px solid var(--border-color);">
+        <v-btn
+          v-if="mobile"
+          icon="mdi-arrow-left"
+          size="small"
+          variant="text"
+          class="mr-2"
+          @click="$emit('back')"
+        />
         <v-avatar size="36" color="grey-lighten-2" class="mr-3">
           <v-icon v-if="conversation.threadType === 'group'" icon="mdi-account-group" />
           <v-img v-else-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
@@ -33,10 +41,10 @@
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
         <div v-for="msg in messages" :key="msg.id" class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
           <div style="max-width: 70%;">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1" style="color: #00F2FF; font-weight: 500;">
+            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1 font-weight-bold" style="color: var(--primary-brand);">
               {{ msg.senderName || 'Unknown' }}
             </div>
-            <div class="message-bubble pa-2 px-3 rounded-lg" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'bg-white'" style="word-wrap: break-word;">
+            <div class="message-bubble pa-2 px-3" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'msg-contact-bubble'" style="word-wrap: break-word;">
               <!-- Deleted -->
               <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
                 {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
@@ -89,7 +97,7 @@
 
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
-        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="solo-filled" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
+        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="sm" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
         <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
       </div>
     </template>
@@ -97,8 +105,8 @@
     <!-- Image preview dialog -->
     <v-dialog v-model="showImagePreview" max-width="900" content-class="elevation-0">
       <div class="text-center" @click="showImagePreview = false" style="cursor: pointer;">
-        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);" />
-        <div class="text-caption mt-2" style="color: #aaa;">Nhấn để đóng</div>
+        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 4px; border: 2px solid var(--border-color);" />
+        <div class="text-caption mt-2 neo-subtitle" style="color: var(--text-muted);">Nhấn để đóng</div>
       </div>
     </v-dialog>
 
@@ -109,8 +117,11 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
+import { useDisplay } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
+
+const { mobile } = useDisplay();
 
 const props = defineProps<{
   conversation: Conversation | null;
@@ -120,7 +131,11 @@ const props = defineProps<{
   showContactPanel?: boolean;
 }>();
 
-const emit = defineEmits<{ send: [content: string]; 'toggle-contact-panel': [] }>();
+const emit = defineEmits<{
+  send: [content: string];
+  'toggle-contact-panel': [];
+  back: [];
+}>();
 
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -130,7 +145,18 @@ const syncSnack = ref({ show: false, text: '', color: 'success' });
 
 function handleSend() { if (!inputText.value.trim()) return; emit('send', inputText.value); inputText.value = ''; }
 function formatMessageTime(d: string) { return new Date(d).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
-function openFile(url: string) { window.open(url, '_blank'); }
+
+function openFile(url: string) {
+  if (!url) return;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+  } catch {
+    // Invalid URL scheme rejected
+  }
+}
 
 /** Extract image URL from JSON content */
 function getImageUrl(msg: Message): string | null {
@@ -224,9 +250,46 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 </script>
 
 <style scoped>
-.message-bubble { box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1); }
-.reminder-card { padding: 8px 12px; border-left: 3px solid #FFB74D; border-radius: 8px; background: rgba(255, 183, 77, 0.08); }
-.file-card { display: flex; align-items: center; padding: 8px 12px; border-radius: 8px; background: rgba(0, 242, 255, 0.05); border: 1px solid rgba(0, 242, 255, 0.1); }
-.chat-image { max-width: 100%; max-height: 300px; border-radius: 12px; cursor: pointer; transition: transform 0.2s; }
-.chat-image:hover { transform: scale(1.02); }
+.message-bubble {
+  box-shadow: none !important;
+  border-radius: 4px !important;
+  border-width: 1.5px !important;
+  border-style: solid !important;
+}
+
+.msg-contact-bubble {
+  background-color: var(--surface-card) !important;
+  color: var(--text-main) !important;
+  border-color: var(--border-color) !important;
+}
+
+.reminder-card {
+  padding: 8px 12px;
+  border-left: 3px solid var(--primary-brand) !important;
+  border: 1.5px solid var(--border-color);
+  border-radius: 4px;
+  background: var(--surface-variant);
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--surface-variant);
+  border: 1.5px solid var(--border-color);
+}
+
+.chat-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 4px;
+  border: 1.5px solid var(--border-color);
+  cursor: pointer;
+  transition: transform 0.15s ease-in-out;
+}
+
+.chat-image:hover {
+  transform: scale(1.01);
+}
 </style>

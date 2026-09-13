@@ -1,9 +1,9 @@
 <template>
   <div>
     <div class="d-flex align-center mb-4">
-      <span class="text-h6">Danh sách đội nhóm</span>
+      <span class="text-h6 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Danh sách đội nhóm</span>
       <v-spacer />
-      <v-btn v-if="authStore.isAdmin" color="primary" prepend-icon="mdi-plus" @click="openCreate">
+      <v-btn v-if="authStore.isAdmin" color="primary" rounded="sm" elevation="0" prepend-icon="mdi-plus" @click="openCreate">
         Thêm đội nhóm
       </v-btn>
     </div>
@@ -12,17 +12,17 @@
       {{ error }}
     </v-alert>
 
-    <v-progress-linear v-if="loading" indeterminate color="cyan" class="mb-2" />
+    <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
 
     <div v-if="teams.length === 0 && !loading" class="text-center py-8 text-medium-emphasis">
       Chưa có đội nhóm nào
     </div>
 
-    <v-expansion-panels v-model="expandedPanel" variant="accordion">
+    <v-expansion-panels v-model="expandedPanel" variant="accordion" class="neo-expansion-panels">
       <v-expansion-panel v-for="team in teams" :key="team.id" @click="onPanelClick(team.id)">
         <v-expansion-panel-title>
           <div class="d-flex align-center w-100">
-            <v-icon class="mr-2" color="cyan">mdi-account-group</v-icon>
+            <v-icon class="mr-2" color="primary">mdi-account-group</v-icon>
             <span class="font-weight-medium">{{ team.name }}</span>
             <v-chip size="x-small" class="ml-2" variant="tonal">
               {{ memberMap[team.id]?.length ?? 0 }} thành viên
@@ -65,7 +65,7 @@
 
     <!-- Create team dialog -->
     <v-dialog v-model="showCreate" max-width="400">
-      <v-card>
+      <v-card rounded="sm" elevation="0">
         <v-card-title>Thêm đội nhóm</v-card-title>
         <v-card-text>
           <v-text-field v-model="teamName" label="Tên đội nhóm *" autofocus @keyup.enter="handleCreate" />
@@ -73,15 +73,15 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showCreate = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="saving" @click="handleCreate">Tạo</v-btn>
+          <v-btn rounded="sm" @click="showCreate = false">Hủy</v-btn>
+          <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="handleCreate">Tạo</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Edit team dialog -->
     <v-dialog v-model="showEdit" max-width="400">
-      <v-card>
+      <v-card rounded="sm" elevation="0">
         <v-card-title>Sửa đội nhóm</v-card-title>
         <v-card-text>
           <v-text-field v-model="teamName" label="Tên đội nhóm *" autofocus @keyup.enter="handleUpdate" />
@@ -89,28 +89,28 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showEdit = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="saving" @click="handleUpdate">Lưu</v-btn>
+          <v-btn rounded="sm" @click="showEdit = false">Hủy</v-btn>
+          <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="handleUpdate">Lưu</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Delete confirm dialog -->
     <v-dialog v-model="showDelete" max-width="400">
-      <v-card>
+      <v-card rounded="sm" elevation="0">
         <v-card-title>Xác nhận xóa</v-card-title>
         <v-card-text>Bạn có chắc muốn xóa đội nhóm "{{ selectedTeam?.name }}"?</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showDelete = false">Hủy</v-btn>
-          <v-btn color="error" :loading="saving" @click="handleDelete">Xóa</v-btn>
+          <v-btn rounded="sm" @click="showDelete = false">Hủy</v-btn>
+          <v-btn color="error" rounded="sm" elevation="0" :loading="saving" @click="handleDelete">Xóa</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Add member dialog -->
     <v-dialog v-model="showAddMember" max-width="420">
-      <v-card>
+      <v-card rounded="sm" elevation="0">
         <v-card-title>Thêm thành viên</v-card-title>
         <v-card-text>
           <v-select
@@ -125,8 +125,8 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showAddMember = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="saving" @click="handleAddMember">Thêm</v-btn>
+          <v-btn rounded="sm" @click="showAddMember = false">Hủy</v-btn>
+          <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="handleAddMember">Thêm</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -248,3 +248,14 @@ onMounted(async () => {
   await Promise.all([fetchTeams(), fetchUsers()]);
 });
 </script>
+
+<style scoped>
+:deep(.v-expansion-panel) {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 4px !important;
+  margin-bottom: 8px !important;
+}
+:deep(.v-expansion-panel__shadow) {
+  display: none !important;
+}
+</style>

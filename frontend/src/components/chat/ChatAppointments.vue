@@ -14,7 +14,7 @@
     <div
       v-if="showForm"
       class="mb-2 pa-2"
-      style="background: rgba(255,183,77,0.05); border-radius: 8px;"
+      style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);"
     >
       <v-text-field
         v-model="createForm.date"
@@ -58,7 +58,7 @@
       v-for="apt in appointments"
       :key="apt.id"
       class="mb-1 pa-2"
-      style="background: rgba(255,183,77,0.05); border-radius: 8px; border: 1px solid rgba(255,183,77,0.1);"
+      style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);"
     >
       <!-- View mode -->
       <div v-if="editingId !== apt.id" class="d-flex align-center">

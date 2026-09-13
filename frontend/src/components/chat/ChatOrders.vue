@@ -11,7 +11,7 @@
     </div>
 
     <!-- Quick create form -->
-    <div v-if="showCreate" class="mb-2 pa-2" style="background: rgba(76,175,80,0.05); border-radius: 8px;">
+    <div v-if="showCreate" class="mb-2 pa-2" style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);">
       <v-text-field v-model.number="newOrder.totalAmount" label="Tổng tiền" type="number"
         density="compact" variant="outlined" hide-details class="mb-1" />
       <v-text-field v-model="newOrder.notes" label="Ghi chú" density="compact"
@@ -22,7 +22,7 @@
     <!-- Order list -->
     <div v-for="o in contactOrders" :key="o.id"
       class="mb-1 pa-2 d-flex align-center"
-      style="border-radius: 8px; border: 1px solid rgba(76,175,80,0.1); background: rgba(76,175,80,0.03);"
+      style="border-radius: 4px; border: 1.5px solid var(--border-color); background: var(--surface-variant);"
     >
       <div class="flex-grow-1">
         <div class="text-body-2 font-weight-medium">{{ formatVND(o.totalAmount) }}</div>

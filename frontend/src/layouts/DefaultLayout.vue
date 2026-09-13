@@ -1,19 +1,19 @@
 <template>
-  <v-app :class="{ 'liquid-bg': isDark }">
-    <!-- Top bar — glass effect -->
+  <v-app>
+    <!-- Top bar — Neo-Brutalism bar -->
     <v-app-bar density="comfortable" flat>
       <v-app-bar-nav-icon @click="drawer = !drawer" />
 
-      <!-- AI Core Orb + Title -->
-      <div class="d-flex align-center" style="gap: 12px;">
+      <!-- Neo-Brutalism Logo + Title -->
+      <div class="d-flex align-center" style="gap: 10px;">
         <div
-          class="ai-core-orb d-flex align-center justify-center"
-          style="width: 32px; height: 32px; background: linear-gradient(135deg, #00F2FF, #0077B6);"
+          class="d-flex align-center justify-center font-weight-bold"
+          style="width: 32px; height: 32px; background: #0068FF; border: 1.5px solid var(--border-color); border-radius: 4px; color: #FFFFFF; font-family: 'Space Grotesk', sans-serif;"
         >
-          <v-icon size="18" color="white">mdi-robot</v-icon>
+          Z
         </div>
         <v-app-bar-title>
-          <span class="font-weight-bold">Zalo</span><span style="color: #00F2FF;">CRM</span>
+          <span class="font-weight-black" style="font-family: 'Space Grotesk', sans-serif; letter-spacing: -0.5px;">Zalo</span><span class="font-weight-black px-1 ml-1" style="background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 4px; font-family: 'Space Grotesk', sans-serif; font-size: 0.85rem;">CRM</span>
         </v-app-bar-title>
       </div>
 
@@ -24,17 +24,23 @@
 
       <!-- Status indicator -->
       <div
-        class="d-flex align-center mr-4 px-3 py-1 rounded-pill"
-        style="background: rgba(76,175,80,0.1); border: 1px solid rgba(76,175,80,0.2);"
+        class="d-flex align-center mr-3 px-2 py-1"
+        style="background: var(--surface-variant); border: 1.5px solid var(--border-color); border-radius: 4px;"
       >
         <span
           class="status-dot"
-          style="width: 8px; height: 8px; border-radius: 50%; background: #4CAF50; display: inline-block; margin-right: 8px;"
+          style="width: 8px; height: 8px; border-radius: 2px; background: #10B981; display: inline-block; margin-right: 6px;"
         ></span>
-        <span class="text-caption font-weight-bold" style="color: #4CAF50; letter-spacing: 1px;">ONLINE</span>
+        <span class="text-caption font-weight-bold neo-subtitle" style="color: var(--text-main); font-size: 0.7rem; letter-spacing: 0.5px;">ONLINE</span>
       </div>
 
-      <span class="text-body-2 mr-3" v-if="authStore.user">{{ authStore.user.fullName }}</span>
+      <div
+        v-if="authStore.user"
+        class="d-none d-sm-flex align-center mr-3 px-2 py-1 text-body-2 font-weight-bold"
+        style="border: 1.5px solid var(--border-color); border-radius: 4px; background: var(--surface-card);"
+      >
+        {{ authStore.user.fullName }}
+      </div>
       <NotificationBell />
       <v-btn icon variant="text" @click="toggleTheme">
         <v-icon>{{ isDark ? 'mdi-weather-sunny' : 'mdi-weather-night' }}</v-icon>
@@ -45,7 +51,13 @@
     </v-app-bar>
 
     <!-- Sidebar navigation -->
-    <v-navigation-drawer v-model="drawer" :rail="rail" permanent @click="rail = false">
+    <v-navigation-drawer
+      v-model="drawer"
+      :rail="rail && !mobile"
+      :temporary="mobile"
+      :permanent="!mobile"
+      @click="rail = false"
+    >
       <v-list density="compact" nav class="mt-2">
         <v-list-item
           v-for="item in menuItems"
@@ -54,7 +66,7 @@
           :prepend-icon="item.icon"
           :title="item.title"
           :value="item.path"
-          rounded="xl"
+          rounded="sm"
           class="mb-1 mx-2"
         />
       </v-list>
@@ -65,7 +77,7 @@
             prepend-icon="mdi-chevron-left"
             title="Thu gọn"
             @click.stop="rail = !rail"
-            rounded="xl"
+            rounded="sm"
             class="mx-2"
           />
         </v-list>
@@ -83,7 +95,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useTheme } from 'vuetify';
+import { useDisplay, useTheme } from 'vuetify';
 import { useAuthStore } from '@/stores/auth';
 import { useRouter } from 'vue-router';
 import NotificationBell from '@/components/NotificationBell.vue';
@@ -92,10 +104,11 @@ import GlobalSearch from '@/components/GlobalSearch.vue';
 const theme = useTheme();
 const authStore = useAuthStore();
 const router = useRouter();
+const { mobile } = useDisplay();
 
 const drawer = ref(true);
 const rail = ref(false);
-const isDark = ref(localStorage.getItem('theme') !== 'light');
+const isDark = ref(localStorage.getItem('theme') === 'dark');
 
 onMounted(() => {
   theme.global.name.value = isDark.value ? 'dark' : 'light';

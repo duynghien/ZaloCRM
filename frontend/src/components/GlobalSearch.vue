@@ -4,10 +4,10 @@
       v-model="query"
       placeholder="Tìm kiếm..."
       prepend-inner-icon="mdi-magnify"
-      variant="solo-filled"
+      variant="outlined"
       density="compact"
       hide-details
-      rounded="xl"
+      rounded="sm"
       clearable
       @update:model-value="debouncedSearch"
     />

@@ -1,7 +1,7 @@
 <template>
   <v-dialog v-model="show" max-width="680" persistent scrollable>
-    <v-card>
-      <v-card-title class="d-flex align-center">
+    <v-card rounded="sm" elevation="0">
+      <v-card-title class="d-flex align-center font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">
         <span>{{ isNew ? 'Thêm khách hàng' : 'Chi tiết khách hàng' }}</span>
         <v-spacer />
         <v-btn icon="mdi-close" variant="text" @click="close" />
@@ -107,7 +107,7 @@
         </v-btn>
         <v-spacer />
         <v-btn variant="text" @click="close">Huỷ</v-btn>
-        <v-btn color="primary" :loading="saving" @click="onSave">Lưu</v-btn>
+        <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="onSave">Lưu</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

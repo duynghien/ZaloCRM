@@ -1,8 +1,8 @@
 <template>
-  <v-card class="pa-6" elevation="8">
+  <v-card class="pa-6" elevation="0">
     <div class="text-center mb-6">
       <v-icon icon="mdi-cog" size="64" color="primary" />
-      <h1 class="text-h5 mt-2">Thiết lập ban đầu</h1>
+      <h1 class="text-h5 mt-2 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Thiết lập ban đầu</h1>
       <p class="text-body-2 text-grey mt-1">Tạo tổ chức và tài khoản quản trị viên</p>
     </div>
     <v-form @submit.prevent="handleSetup" ref="form">

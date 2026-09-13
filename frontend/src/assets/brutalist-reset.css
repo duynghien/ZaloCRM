@@ -1,0 +1,76 @@
+/* Zero Shadow across Vuetify components */
+.v-card,
+.v-btn,
+.v-field,
+.v-navigation-drawer,
+.v-app-bar,
+.v-dialog,
+.v-chip,
+.v-table,
+.v-sheet,
+.v-overlay__content > .v-card {
+  box-shadow: none !important;
+}
+
+/* Outlined Input Fields with crisp 1.5px border */
+.v-field--variant-outlined .v-field__outline {
+  color: var(--border-color) !important;
+  --v-field-border-opacity: 1 !important;
+  --v-field-border-width: 1.5px !important;
+}
+
+.v-field {
+  border-radius: 4px !important;
+}
+
+/* Mechanical card & dialog borders */
+.v-card {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 4px !important;
+}
+
+.v-dialog:not(.lightbox-dialog) > .v-card {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 4px !important;
+}
+
+.v-table {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 4px !important;
+}
+
+/* Scoped Avatar & Badge (exclude avatars in chips) */
+.v-avatar:not(.v-chip .v-avatar) {
+  border-radius: 4px !important;
+  border: 1.5px solid var(--border-color) !important;
+  overflow: hidden !important;
+}
+
+.v-badge__badge {
+  border-radius: 4px !important;
+}
+
+/* Typography: Space Grotesk for headings, buttons, tabs, labels */
+.v-btn,
+.v-btn__content,
+.v-tab,
+h1, h2, h3, h4, h5, h6,
+.text-h1, .text-h2, .text-h3, .text-h4, .text-h5, .text-h6,
+.neo-title {
+  font-family: 'Space Grotesk', sans-serif !important;
+}
+
+.neo-subtitle {
+  font-family: 'Space Grotesk', sans-serif !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+/* Mechanical click feedback */
+.v-btn:active,
+.v-card--link:active,
+.clickable:active {
+  transform: translate(1px, 1px) !important;
+}

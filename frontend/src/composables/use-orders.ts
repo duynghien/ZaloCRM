@@ -22,12 +22,12 @@ export interface Order {
 }
 
 export const ORDER_STATUS_OPTIONS = [
-  { text: 'Mới', value: 'new', color: 'grey' },
-  { text: 'Đã xác nhận', value: 'confirmed', color: 'blue' },
-  { text: 'Đã thanh toán', value: 'paid', color: 'teal' },
-  { text: 'Đang giao', value: 'shipped', color: 'indigo' },
-  { text: 'Hoàn thành', value: 'completed', color: 'green' },
-  { text: 'Đã huỷ', value: 'cancelled', color: 'red' },
+  { text: 'Mới', value: 'new', color: 'info' },
+  { text: 'Đã xác nhận', value: 'confirmed', color: 'primary' },
+  { text: 'Đã thanh toán', value: 'paid', color: 'success' },
+  { text: 'Đang giao', value: 'shipped', color: 'warning' },
+  { text: 'Hoàn thành', value: 'completed', color: 'success' },
+  { text: 'Đã huỷ', value: 'cancelled', color: 'error' },
 ];
 
 export function useOrders() {

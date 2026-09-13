@@ -1,6 +1,6 @@
 <template>
   <v-card>
-    <v-card-title class="text-body-1">Trạng thái lịch hẹn</v-card-title>
+    <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Trạng thái lịch hẹn</v-card-title>
     <v-card-text>
       <Pie v-if="chartData" :data="chartData" :options="chartOptions" style="height: 250px;" />
       <div v-else class="text-center pa-8 text-grey">Không có dữ liệu</div>
@@ -10,20 +10,24 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useTheme } from 'vuetify';
 import { Pie } from 'vue-chartjs';
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
 
 ChartJS.register(ArcElement, Tooltip, Legend);
+
+const theme = useTheme();
+const isDark = computed(() => theme.current.value.dark);
 
 const props = defineProps<{
   data: { status: string; _count: { _all: number } | number }[];
 }>();
 
 const statusColors: Record<string, string> = {
-  'scheduled': '#42A5F5',
-  'completed': '#66BB6A',
-  'cancelled': '#9E9E9E',
-  'no_show': '#EF5350',
+  'scheduled': '#0068FF',
+  'completed': '#10B981',
+  'cancelled': '#71717A',
+  'no_show': '#EF4444',
 };
 
 const statusLabels: Record<string, string> = {
@@ -43,14 +47,33 @@ const chartData = computed(() => {
     labels: props.data.map(d => statusLabels[d.status] || d.status),
     datasets: [{
       data: props.data.map(d => getCount(d)),
-      backgroundColor: props.data.map(d => statusColors[d.status] || '#BDBDBD'),
+      backgroundColor: props.data.map(d => statusColors[d.status] || '#A1A1AA'),
+      borderWidth: 1.5,
+      borderColor: isDark.value ? '#1F1F23' : '#FFFFFF',
     }],
   };
 });
 
-const chartOptions = {
+const chartOptions = computed(() => ({
   responsive: true,
   maintainAspectRatio: false,
-  plugins: { legend: { position: 'right' as const, labels: { boxWidth: 12 } } },
-};
+  plugins: {
+    legend: {
+      position: 'right' as const,
+      labels: {
+        boxWidth: 12,
+        color: isDark.value ? '#F4F4F5' : '#18181B',
+        font: { family: 'Plus Jakarta Sans' },
+      },
+    },
+    tooltip: {
+      backgroundColor: isDark.value ? '#1F1F23' : '#FFFFFF',
+      titleColor: isDark.value ? '#F4F4F5' : '#18181B',
+      bodyColor: isDark.value ? '#F4F4F5' : '#18181B',
+      borderColor: isDark.value ? '#3F3F46' : '#18181B',
+      borderWidth: 1.5,
+      cornerRadius: 4,
+    },
+  },
+}));
 </script>

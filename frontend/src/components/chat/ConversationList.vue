@@ -1,5 +1,5 @@
 <template>
-  <div class="conversation-list d-flex flex-column" style="width: 100%; border-right: 1px solid var(--border-glow, rgba(0,242,255,0.1)); height: 100%;">
+  <div class="conversation-list d-flex flex-column" style="width: 100%; border-right: 1.5px solid var(--border-color); height: 100%;">
     <!-- Account filter + Search -->
     <div class="pa-2">
       <v-select
@@ -9,7 +9,8 @@
         item-value="value"
         label="Tất cả Zalo"
         density="compact"
-        variant="solo-filled"
+        variant="outlined"
+        rounded="sm"
         hide-details
         clearable
         class="mb-2"
@@ -20,7 +21,8 @@
         @update:model-value="$emit('update:search', $event)"
         placeholder="Tìm kiếm..."
         prepend-inner-icon="mdi-magnify"
-        variant="solo-filled"
+        variant="outlined"
+        rounded="sm"
         density="compact"
         hide-details
         clearable
@@ -37,7 +39,7 @@
         :active="conv.id === selectedId"
         @click="$emit('select', conv.id)"
         class="py-2"
-        :class="{ 'conversation-active': conv.id === selectedId, 'bg-blue-lighten-5': conv.unreadCount > 0 && conv.id !== selectedId }"
+        :class="{ 'conversation-active': conv.id === selectedId, 'unread-conversation': conv.unreadCount > 0 && conv.id !== selectedId }"
       >
         <template #prepend>
           <v-avatar size="40" color="grey-lighten-2">
@@ -168,3 +170,10 @@ function formatTime(dateStr: string | null): string {
   return date.toLocaleDateString('vi-VN');
 }
 </script>
+
+<style scoped>
+.unread-conversation {
+  background-color: var(--secondary-brand) !important;
+  opacity: 0.9;
+}
+</style>

@@ -3,9 +3,9 @@
     <v-col v-for="card in cards" :key="card.title" cols="6" sm="4" md="2">
       <v-card variant="outlined">
         <v-card-text class="text-center pa-3">
-          <v-icon :icon="card.icon" :color="card.color" size="32" class="mb-1" />
-          <div class="text-h5 font-weight-bold">{{ card.value }}</div>
-          <div class="text-caption text-grey">{{ card.title }}</div>
+          <v-icon :icon="card.icon" :color="card.color" size="28" class="mb-1" />
+          <div class="text-h4 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ card.value }}</div>
+          <div class="neo-subtitle text-truncate" style="color: var(--text-muted);">{{ card.title }}</div>
         </v-card-text>
       </v-card>
     </v-col>

@@ -2,20 +2,20 @@
   <v-dialog v-model="open" max-width="520">
     <v-card>
       <v-card-title class="d-flex align-center">
-        <v-icon class="mr-2" color="cyan">mdi-shield-account</v-icon>
+        <v-icon class="mr-2" color="primary">mdi-shield-account</v-icon>
         Phân quyền truy cập — {{ accountName }}
       </v-card-title>
 
       <v-card-text>
-        <v-progress-linear v-if="loading" indeterminate color="cyan" class="mb-3" />
+        <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-3" />
 
         <!-- Current access list -->
         <div v-if="accessList.length" class="mb-4">
           <div class="text-subtitle-2 mb-2">Người có quyền truy cập</div>
-          <v-list density="compact" rounded="lg" variant="tonal">
+          <v-list density="compact" rounded="sm" variant="tonal">
             <v-list-item v-for="a in accessList" :key="a.id">
               <template #prepend>
-                <v-icon color="cyan">mdi-account</v-icon>
+                <v-icon color="primary">mdi-account</v-icon>
               </template>
               <v-list-item-title>{{ a.fullName }}</v-list-item-title>
               <v-list-item-subtitle>{{ a.email }}</v-list-item-subtitle>

@@ -1,0 +1,50 @@
+:root,
+.v-theme--light {
+  --border-color: #18181B;
+  --bg-main: #F5F2EB;
+  --surface-card: #FFFFFF;
+  --surface-variant: #E8E5DE;
+  --primary-brand: #0068FF;
+  --primary-hover: #0056D2;
+  --secondary-brand: #EBF3FE;
+  --text-main: #18181B;
+  --text-muted: #71717A;
+  --text-subtle: #A1A1AA;
+  --status-new-bg: #E0F2FE;
+  --status-new-text: #0369A1;
+  --status-confirmed-bg: #CFFAFE;
+  --status-confirmed-text: #0E7490;
+  --status-paid-bg: #DCFCE7;
+  --status-paid-text: #15803D;
+  --status-shipped-bg: #F3E8FF;
+  --status-shipped-text: #7E22CE;
+  --status-completed-bg: #D1FAE5;
+  --status-completed-text: #047857;
+  --status-cancelled-bg: #F4F4F5;
+  --status-cancelled-text: #71717A;
+}
+
+.v-theme--dark {
+  --border-color: #3F3F46;
+  --bg-main: #121214;
+  --surface-card: #1F1F23;
+  --surface-variant: #27272A;
+  --primary-brand: #388BFD;
+  --primary-hover: #1F6FEB;
+  --secondary-brand: #0C2B59;
+  --text-main: #F4F4F5;
+  --text-muted: #A1A1AA;
+  --text-subtle: #71717A;
+  --status-new-bg: #075985;
+  --status-new-text: #E0F2FE;
+  --status-confirmed-bg: #155E75;
+  --status-confirmed-text: #CFFAFE;
+  --status-paid-bg: #166534;
+  --status-paid-text: #DCFCE7;
+  --status-shipped-bg: #6B21A8;
+  --status-shipped-text: #F3E8FF;
+  --status-completed-bg: #065F46;
+  --status-completed-text: #D1FAE5;
+  --status-cancelled-bg: #27272A;
+  --status-cancelled-text: #D4D4D8;
+}

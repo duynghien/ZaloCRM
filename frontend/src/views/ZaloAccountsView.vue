@@ -1,7 +1,10 @@
 <template>
   <div>
     <div class="d-flex align-center mb-4">
-      <h1 class="text-h4">Tài khoản Zalo</h1>
+      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
+        <v-icon class="mr-2" color="primary">mdi-cellphone-link</v-icon>
+        Tài khoản Zalo
+      </h1>
       <v-spacer />
       <v-btn color="primary" prepend-icon="mdi-plus" @click="showAddDialog = true">Thêm Zalo</v-btn>
     </div>
@@ -9,12 +12,12 @@
     <v-card>
       <v-data-table :headers="headers" :items="accounts" :loading="loading" no-data-text="Chưa có tài khoản Zalo nào">
         <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.liveStatus || item.status)" size="small" variant="flat">
+          <v-chip :color="statusColor(item.liveStatus || item.status)" size="small" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
             {{ statusText(item.liveStatus || item.status) }}
           </v-chip>
         </template>
         <template #item.actions="{ item }">
-          <v-btn v-if="authStore.isAdmin" icon size="small" color="cyan" title="Phân quyền truy cập" @click="openAccess(item)">
+          <v-btn v-if="authStore.isAdmin" icon size="small" color="primary" title="Phân quyền truy cập" @click="openAccess(item)">
             <v-icon>mdi-shield-account</v-icon>
           </v-btn>
           <v-btn icon size="small" color="success" @click="syncContacts(item.id)" title="Đồng bộ danh bạ Zalo" :loading="syncing === item.id">
@@ -54,7 +57,7 @@
         <v-card-title>Quét QR để đăng nhập Zalo</v-card-title>
         <v-card-text>
           <div v-if="qrImage" class="mb-4">
-            <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px;" />
+            <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px; border: 1.5px solid var(--border-color); border-radius: 4px;" />
           </div>
           <div v-else-if="qrScanned" class="mb-4">
             <v-icon icon="mdi-check-circle" size="64" color="success" />

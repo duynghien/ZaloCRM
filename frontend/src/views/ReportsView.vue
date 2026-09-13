@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h4">Báo cáo</h1>
+      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">Báo cáo</h1>
       <v-spacer />
       <v-text-field
         v-model="dateFrom"
@@ -23,8 +23,8 @@
         class="mr-2"
         hide-details
       />
-      <v-btn color="primary" prepend-icon="mdi-refresh" :loading="loading" @click="fetchReport">Xem</v-btn>
-      <v-btn color="success" prepend-icon="mdi-file-excel" class="ml-2" :loading="exporting" @click="exportExcel">Xuất Excel</v-btn>
+      <v-btn color="primary" rounded="sm" elevation="0" prepend-icon="mdi-refresh" :loading="loading" @click="fetchReport">Xem</v-btn>
+      <v-btn color="success" rounded="sm" elevation="0" prepend-icon="mdi-file-excel" class="ml-2" :loading="exporting" @click="exportExcel">Xuất Excel</v-btn>
     </div>
 
     <v-tabs v-model="tab" class="mb-4">
@@ -35,28 +35,34 @@
 
     <v-window v-model="tab">
       <v-window-item value="messages">
-        <v-data-table
-          :headers="msgHeaders"
-          :items="msgData"
-          :loading="loading"
-          no-data-text="Không có dữ liệu"
-        />
+        <v-card rounded="sm" elevation="0">
+          <v-data-table
+            :headers="msgHeaders"
+            :items="msgData"
+            :loading="loading"
+            no-data-text="Không có dữ liệu"
+          />
+        </v-card>
       </v-window-item>
       <v-window-item value="contacts">
-        <v-data-table
-          :headers="contactHeaders"
-          :items="contactData"
-          :loading="loading"
-          no-data-text="Không có dữ liệu"
-        />
+        <v-card rounded="sm" elevation="0">
+          <v-data-table
+            :headers="contactHeaders"
+            :items="contactData"
+            :loading="loading"
+            no-data-text="Không có dữ liệu"
+          />
+        </v-card>
       </v-window-item>
       <v-window-item value="appointments">
-        <v-data-table
-          :headers="aptHeaders"
-          :items="aptData"
-          :loading="loading"
-          no-data-text="Không có dữ liệu"
-        />
+        <v-card rounded="sm" elevation="0">
+          <v-data-table
+            :headers="aptHeaders"
+            :items="aptData"
+            :loading="loading"
+            no-data-text="Không có dữ liệu"
+          />
+        </v-card>
       </v-window-item>
     </v-window>
   </div>

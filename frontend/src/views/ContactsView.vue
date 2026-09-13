@@ -2,7 +2,10 @@
   <div>
     <!-- Toolbar -->
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h5 mr-4">Khách hàng</h1>
+      <h1 class="text-h4 font-weight-black mr-4" style="font-family: 'Space Grotesk', sans-serif;">
+        <v-icon class="mr-2" color="primary">mdi-account-group</v-icon>
+        Khách hàng
+      </h1>
       <v-spacer />
       <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">Thêm KH</v-btn>
     </div>
@@ -50,7 +53,10 @@
           v-if="item.status"
           :color="statusColor(item.status)"
           size="small"
-          variant="tonal"
+          variant="flat"
+          rounded="sm"
+          class="font-weight-bold"
+          style="border: 1px solid var(--border-color);"
         >
           {{ statusLabel(item.status) }}
         </v-chip>

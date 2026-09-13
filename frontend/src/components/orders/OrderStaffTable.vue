@@ -1,6 +1,6 @@
 <template>
-  <v-card variant="outlined">
-    <v-card-title class="text-body-1">
+  <v-card variant="outlined" rounded="sm" elevation="0">
+    <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">
       <v-icon class="mr-1" color="primary">mdi-account-group</v-icon>
       Hiệu suất nhân viên
     </v-card-title>

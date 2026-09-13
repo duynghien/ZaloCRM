@@ -1,27 +1,30 @@
 <template>
   <div class="ai-reports-view">
     <!-- Header Banner -->
-    <v-card class="mb-6 rounded-xl border-0 overflow-hidden" elevation="2">
-      <div class="hero-banner pa-6 d-flex align-center justify-space-between flex-wrap gap-4">
+    <v-card class="mb-6 overflow-hidden" elevation="0">
+      <div class="neo-banner pa-6 d-flex align-center justify-space-between flex-wrap gap-4">
         <div class="d-flex align-center gap-4">
-          <div class="ai-orb-large d-flex align-center justify-center">
-            <v-icon size="32" color="white">mdi-robot-excited-outline</v-icon>
+          <div
+            class="d-flex align-center justify-center font-weight-bold"
+            style="width: 48px; height: 48px; background: #0068FF; border: 1.5px solid var(--border-color); border-radius: 4px; color: #FFFFFF;"
+          >
+            <v-icon size="28" color="white">mdi-robot-excited-outline</v-icon>
           </div>
           <div>
-            <h1 class="text-h5 font-weight-bold text-white mb-1">
+            <h1 class="text-h5 font-weight-black mb-1" style="font-family: 'Space Grotesk', sans-serif;">
               Báo Cáo Điều Hành AI (AI Group Digest)
             </h1>
-            <p class="text-body-2 text-white opacity-80 mb-0">
+            <p class="text-body-2 mb-0" style="color: var(--text-muted);">
               Tổng hợp đa phương tiện (Chat, PDF, Excel, Ảnh) từ nhóm Zalo & phát hành báo cáo đa kênh.
             </p>
           </div>
         </div>
 
         <div class="d-flex align-center gap-2">
-          <v-chip color="cyan-lighten-4" class="text-cyan-darken-4 font-weight-bold" prepend-icon="mdi-flash">
+          <v-chip color="primary" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);" prepend-icon="mdi-flash">
             Gemini AI
           </v-chip>
-          <v-chip color="light-green-lighten-4" class="text-green-darken-4 font-weight-bold" prepend-icon="mdi-check-decagram">
+          <v-chip color="success" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);" prepend-icon="mdi-check-decagram">
             Multi-Channel (Zalo + Web + Email)
           </v-chip>
         </div>
@@ -49,7 +52,7 @@
       <v-row>
         <!-- Generator Controls Panel -->
         <v-col cols="12" md="4">
-          <v-card class="pa-5 rounded-xl mb-4" elevation="1">
+          <v-card class="pa-5 mb-4" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
               <v-icon color="primary" class="mr-2">mdi-filter-variant</v-icon>
               Tùy Chọn Tổng Hợp
@@ -173,8 +176,8 @@
               color="primary"
               size="large"
               class="mt-4 font-weight-bold"
-              rounded="xl"
-              elevation="2"
+              rounded="sm"
+              elevation="0"
               :loading="isGenerating"
               :disabled="isGenerating || selectedGroupIds.length === 0 || selectedGroupIds.length > 20 || (generatorForm.sendZalo && !generatorForm.senderAccountId)"
               @click="handleGenerateReport"
@@ -187,7 +190,7 @@
 
         <!-- Markdown Viewer Panel -->
         <v-col cols="12" md="8">
-          <v-card class="pa-6 rounded-xl min-height-card" elevation="1">
+          <v-card class="pa-6 min-height-card" elevation="0">
             <!-- Empty State -->
             <div v-if="!currentReport && !isGenerating" class="d-flex flex-column align-center justify-center py-16 text-center">
               <v-icon size="64" color="grey-lighten-1" class="mb-4">mdi-text-box-search-outline</v-icon>
@@ -252,7 +255,7 @@
 
     <!-- ── TAB 2: REPORT ARCHIVE ────────────────────────────────────────────── -->
     <div v-show="activeTab === 'archive'">
-      <v-card class="pa-5 rounded-xl" elevation="1">
+      <v-card class="pa-5" elevation="0">
         <div class="d-flex align-center justify-space-between flex-wrap gap-4 mb-4">
           <div class="d-flex align-center gap-2">
             <v-chip
@@ -324,7 +327,7 @@
       <v-row>
         <!-- Cron Schedule & Channels -->
         <v-col cols="12" md="6">
-          <v-card class="pa-5 rounded-xl mb-4" elevation="1">
+          <v-card class="pa-5 mb-4" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
               <v-icon color="primary" class="mr-2">mdi-clock-time-four-outline</v-icon>
               Lịch Tự Động Hóa (Cron Schedules)
@@ -384,7 +387,7 @@
 
         <!-- SMTP Settings -->
         <v-col cols="12" md="6">
-          <v-card class="pa-5 rounded-xl mb-4" elevation="1">
+          <v-card class="pa-5 mb-4" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
               <v-icon color="primary" class="mr-2">mdi-email-outline</v-icon>
               Cấu Hình Email SMTP
@@ -462,7 +465,8 @@
               color="primary"
               block
               size="large"
-              rounded="xl"
+              rounded="sm"
+              elevation="0"
               class="mt-4 font-weight-bold"
               :loading="isSavingSettings"
               @click="saveAllSettings"
@@ -475,7 +479,7 @@
 
         <!-- Monitored Groups Table -->
         <v-col cols="12">
-          <v-card class="pa-5 rounded-xl" elevation="1">
+          <v-card class="pa-5" rounded="sm" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
               <v-icon color="primary" class="mr-2">mdi-account-group-outline</v-icon>
               Cấu Hình Trọng Tâm Từng Nhóm Zalo ({{ groups.length }} nhóm)
@@ -538,7 +542,7 @@
 
     <!-- ── DIALOG: EDIT GROUP CONFIG ──────────────────────────────────────── -->
     <v-dialog v-model="editGroupDialog" max-width="560">
-      <v-card v-if="editingGroup" class="pa-5 rounded-xl">
+      <v-card v-if="editingGroup" class="pa-5" rounded="sm" elevation="0">
         <h3 class="text-h6 font-weight-bold mb-4">Cấu Hình Nhóm: {{ editingGroup.groupName }}</h3>
         <p class="text-body-2 mb-4">{{ groupAccountLabel(editingGroup) }}</p>
 
@@ -581,7 +585,7 @@
 
     <!-- ── DIALOG: RESEND REPORT ─────────────────────────────────────────── -->
     <v-dialog v-model="resendDialog" max-width="500">
-      <v-card v-if="selectedReportForResend" class="pa-5 rounded-xl">
+      <v-card v-if="selectedReportForResend" class="pa-5" rounded="sm" elevation="0">
         <h3 class="text-h6 font-weight-bold mb-3">Gửi Lại Báo Cáo</h3>
         <p class="text-body-2 text-medium-emphasis mb-4">{{ selectedReportForResend.title }}</p>
 
@@ -751,10 +755,19 @@ function deselectAllGroups() {
 }
 
 // Rendered Markdown
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'A') {
+    node.setAttribute('target', '_blank');
+    node.setAttribute('rel', 'noopener noreferrer');
+  }
+});
+
 const renderedMarkdown = computed(() => {
   if (!currentReport.value?.summaryContent) return '';
   const parsed = marked.parse(currentReport.value.summaryContent);
-  return DOMPurify.sanitize(typeof parsed === 'string' ? parsed : '');
+  return DOMPurify.sanitize(typeof parsed === 'string' ? parsed : '', {
+    FORBID_TAGS: ['style', 'form', 'input'],
+  });
 });
 
 // Report Archive State
@@ -1123,20 +1136,39 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.hero-banner {
-  background: linear-gradient(135deg, #0284c7 0%, #0369a1 50%, #075985 100%);
-}
-
-.ai-orb-large {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #00f2ff, #0284c7);
-  box-shadow: 0 0 20px rgba(0, 242, 255, 0.4);
+.neo-banner {
+  background: var(--surface-card);
+  border-bottom: 1.5px solid var(--border-color);
 }
 
 .min-height-card {
   min-height: 560px;
+}
+
+.markdown-body-rendered :deep(blockquote) {
+  border-left: 3px solid #0068FF;
+  background: var(--surface-variant);
+  padding: 0.5rem 1rem;
+  margin: 1rem 0;
+  border-radius: 2px;
+}
+
+.markdown-body-rendered :deep(code) {
+  font-family: monospace;
+  background: var(--surface-variant);
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--border-color);
+  font-size: 0.9em;
+}
+
+.markdown-body-rendered :deep(pre) {
+  background: var(--surface-variant);
+  border: 1.5px solid var(--border-color);
+  padding: 1rem;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin: 1rem 0;
 }
 
 .markdown-body-rendered :deep(h1) {

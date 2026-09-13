@@ -42,11 +42,11 @@ export const APPOINTMENT_TYPE_OPTIONS = [
 
 export function statusChipColor(status: string): string {
   switch (status) {
-    case 'scheduled': return 'blue';
-    case 'completed': return 'green';
-    case 'cancelled': return 'grey';
-    case 'no_show': return 'red';
-    default: return 'grey';
+    case 'scheduled': return 'primary';
+    case 'completed': return 'success';
+    case 'cancelled': return 'secondary';
+    case 'no_show': return 'error';
+    default: return 'secondary';
   }
 }
 

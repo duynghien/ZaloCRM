@@ -1,8 +1,8 @@
 <template>
   <div style="max-width: 480px;">
-    <div class="text-h6 mb-4">Thông tin tổ chức</div>
+    <div class="text-h6 mb-4 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Thông tin tổ chức</div>
 
-    <v-card variant="outlined" class="pa-4">
+    <v-card variant="outlined" rounded="sm" elevation="0" class="pa-4">
       <v-text-field
         v-model="orgName"
         label="Tên tổ chức"
@@ -15,6 +15,8 @@
       <v-btn
         v-if="authStore.isOwner"
         color="primary"
+        rounded="sm"
+        elevation="0"
         :loading="saving"
         :disabled="!orgName.trim()"
         @click="handleSave"

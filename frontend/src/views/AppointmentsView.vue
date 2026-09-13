@@ -2,7 +2,10 @@
   <div>
     <!-- Toolbar -->
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h5 mr-4">Lịch hẹn</h1>
+      <h1 class="text-h4 font-weight-black mr-4" style="font-family: 'Space Grotesk', sans-serif;">
+        <v-icon class="mr-2" color="primary">mdi-calendar-clock</v-icon>
+        Lịch hẹn
+      </h1>
       <v-spacer />
       <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
         Tạo lịch hẹn
@@ -57,7 +60,7 @@
 
       <!-- Status chip -->
       <template #item.status="{ item }">
-        <v-chip :color="statusChipColor(item.status)" size="small" variant="tonal">
+        <v-chip :color="statusChipColor(item.status)" size="small" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
           {{ statusLabel(item.status) }}
         </v-chip>
       </template>
