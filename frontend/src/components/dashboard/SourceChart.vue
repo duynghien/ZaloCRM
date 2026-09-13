@@ -1,7 +1,10 @@
 <template>
-  <v-card>
-    <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Nguồn khách hàng</v-card-title>
-    <v-card-text>
+  <v-card class="chart-card fill-height" elevation="0">
+    <v-card-title class="d-flex align-center py-3 px-4 font-weight-bold neo-subtitle" style="font-size: 0.85rem; border-bottom: 1px solid var(--border-color);">
+      <v-icon size="18" color="primary" class="mr-2">mdi-source-branch</v-icon>
+      NGUỒN KHÁCH HÀNG
+    </v-card-title>
+    <v-card-text class="pt-4">
       <Pie v-if="chartData" :data="chartData" :options="chartOptions" style="height: 250px;" />
       <div v-else class="text-center pa-8 text-grey">Không có dữ liệu</div>
     </v-card-text>
@@ -65,8 +68,16 @@ const chartOptions = computed(() => ({
       bodyColor: isDark.value ? '#F4F4F5' : '#18181B',
       borderColor: isDark.value ? '#3F3F46' : '#18181B',
       borderWidth: 1.5,
-      cornerRadius: 4,
+      cornerRadius: 8,
     },
   },
 }));
 </script>
+
+<style scoped>
+.chart-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+</style>

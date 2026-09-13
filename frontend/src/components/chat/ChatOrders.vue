@@ -11,24 +11,24 @@
     </div>
 
     <!-- Quick create form -->
-    <div v-if="showCreate" class="mb-2 pa-2" style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);">
+    <div v-if="showCreate" class="mb-2 pa-2" style="background: var(--surface-variant); border-radius: var(--radius-btn, 8px); border: 1.5px solid var(--border-color);">
       <v-text-field v-model.number="newOrder.totalAmount" label="Tổng tiền" type="number"
-        density="compact" variant="outlined" hide-details class="mb-1" />
+        density="compact" variant="outlined" rounded="lg" hide-details class="mb-1" />
       <v-text-field v-model="newOrder.notes" label="Ghi chú" density="compact"
-        variant="outlined" hide-details class="mb-1" />
-      <v-btn size="small" color="success" block :loading="creating" @click="submitCreate">Tạo đơn</v-btn>
+        variant="outlined" rounded="lg" hide-details class="mb-1" />
+      <v-btn size="small" color="success" block rounded="lg" elevation="0" :loading="creating" @click="submitCreate">Tạo đơn</v-btn>
     </div>
 
     <!-- Order list -->
     <div v-for="o in contactOrders" :key="o.id"
       class="mb-1 pa-2 d-flex align-center"
-      style="border-radius: 4px; border: 1.5px solid var(--border-color); background: var(--surface-variant);"
+      style="border-radius: var(--radius-btn, 8px); border: 1.5px solid var(--border-color); background: var(--surface-variant);"
     >
       <div class="flex-grow-1">
         <div class="text-body-2 font-weight-medium">{{ formatVND(o.totalAmount) }}</div>
         <div class="text-caption" style="opacity: 0.6;">{{ o.orderCode }} · {{ formatDate(o.createdAt) }}</div>
       </div>
-      <v-chip size="x-small" :color="statusColor(o.status)" variant="tonal">{{ statusLabel(o.status) }}</v-chip>
+      <v-chip size="x-small" :color="statusColor(o.status)" variant="tonal" rounded="pill" class="neo-pill">{{ statusLabel(o.status) }}</v-chip>
     </div>
 
     <div v-if="contactOrders.length === 0 && !showCreate" class="text-caption text-grey text-center py-2">

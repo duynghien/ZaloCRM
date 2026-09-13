@@ -1,12 +1,12 @@
 <template>
   <div style="max-width: 700px;">
-    <h1 class="text-h5 mb-4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
-      <v-icon class="mr-2" color="primary">mdi-api</v-icon>
-      API & Webhook
-    </h1>
+    <div class="mb-4">
+      <h1 class="neo-page-title text-h4 mb-0">KẾT NỐI <span class="neo-title-accent">API & WEBHOOK</span></h1>
+      <p class="text-caption text-medium-emphasis mb-0">Tích hợp dữ liệu bên thứ ba và cấu hình webhook bảo mật</p>
+    </div>
 
     <!-- API Key section -->
-    <v-card class="mb-4" rounded="sm" elevation="0">
+    <v-card class="mb-4" elevation="0">
       <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">API Key</v-card-title>
       <v-card-text>
         <v-text-field
@@ -14,6 +14,7 @@
           label="API Key"
           readonly
           variant="outlined"
+          rounded="lg"
           :type="showApiKey ? 'text' : 'password'"
           :prepend-inner-icon="showApiKey ? 'mdi-eye-off' : 'mdi-eye'"
           append-inner-icon="mdi-content-copy"
@@ -23,7 +24,7 @@
         <v-btn
           color="primary"
           variant="outlined"
-          rounded="sm"
+          rounded="lg"
           elevation="0"
           prepend-icon="mdi-refresh"
           :loading="generatingKey"
@@ -35,7 +36,7 @@
     </v-card>
 
     <!-- Webhook section -->
-    <v-card class="mb-4" rounded="sm" elevation="0">
+    <v-card class="mb-4" elevation="0">
       <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Webhook</v-card-title>
       <v-card-text>
         <v-text-field
@@ -43,6 +44,7 @@
           label="Webhook URL"
           placeholder="https://your-server.com/webhook"
           variant="outlined"
+          rounded="lg"
           class="mb-2"
         />
         <v-text-field
@@ -50,20 +52,21 @@
           label="Secret (HMAC)"
           type="password"
           variant="outlined"
+          rounded="lg"
           class="mb-3"
         />
         <div class="d-flex gap-2">
-          <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="saveWebhook">Lưu</v-btn>
-          <v-btn variant="outlined" rounded="sm" elevation="0" :loading="testing" @click="testWebhook">Test Webhook</v-btn>
+          <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" @click="saveWebhook">Lưu</v-btn>
+          <v-btn variant="outlined" rounded="lg" elevation="0" :loading="testing" @click="testWebhook">Test Webhook</v-btn>
         </div>
       </v-card-text>
     </v-card>
 
     <!-- API Docs -->
-    <v-card rounded="sm" elevation="0">
+    <v-card elevation="0">
       <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">API Documentation</v-card-title>
       <v-card-text>
-        <pre style="font-family: monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; background: var(--surface-variant); padding: 12px; border: 1.5px solid var(--border-color); border-radius: 4px;">Header: X-API-Key: your-key
+        <pre style="font-family: monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; background: var(--surface-variant); padding: 12px; border: 1.5px solid var(--border-color); border-radius: 8px;">Header: X-API-Key: your-key
 
 GET  /api/public/contacts
 POST /api/public/contacts

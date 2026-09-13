@@ -44,15 +44,18 @@ export function useDashboard() {
     try { const res = await api.get('/orders/stats'); orderStats.value = res.data; } catch {}
   }
 
-  async function fetchAll() {
+  async function fetchAll(dateRange?: { from?: string; to?: string }) {
     loading.value = true;
     try {
+      const volParams = dateRange?.from && dateRange?.to ? { from: dateRange.from, to: dateRange.to } : {};
+      const aptParams = dateRange?.from && dateRange?.to ? { from: dateRange.from, to: dateRange.to } : {};
+
       const [kpiRes, volRes, pipRes, srcRes, aptRes] = await Promise.all([
         api.get('/dashboard/kpi'),
-        api.get('/dashboard/message-volume'),
+        api.get('/dashboard/message-volume', { params: volParams }),
         api.get('/dashboard/pipeline'),
         api.get('/dashboard/sources'),
-        api.get('/dashboard/appointments'),
+        api.get('/dashboard/appointments', { params: aptParams }),
       ]);
       kpi.value = kpiRes.data;
       messageVolume.value = volRes.data.data || volRes.data;

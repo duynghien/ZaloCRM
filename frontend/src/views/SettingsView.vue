@@ -1,9 +1,9 @@
 <template>
   <div>
-    <h1 class="text-h4 mb-4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
-      <v-icon class="mr-2" color="primary">mdi-cog-outline</v-icon>
-      Cài đặt
-    </h1>
+    <div class="mb-4">
+      <h1 class="neo-page-title text-h4 mb-0">CÀI ĐẶT <span class="neo-title-accent">HỆ THỐNG</span></h1>
+      <p class="text-caption text-medium-emphasis mb-0">Quản lý nhân viên, phòng ban và thông tin tổ chức</p>
+    </div>
 
     <v-tabs v-model="tab" class="mb-4">
       <v-tab value="users">Nhân viên</v-tab>
@@ -15,7 +15,7 @@
       <!-- Tab 1: User management -->
       <v-window-item value="users">
         <div class="d-flex align-center mb-4">
-          <v-btn v-if="authStore.isAdmin" color="primary" rounded="sm" elevation="0" prepend-icon="mdi-plus" @click="openCreate">
+          <v-btn v-if="authStore.isAdmin" color="primary" rounded="lg" elevation="0" prepend-icon="mdi-plus" @click="openCreate">
             Thêm nhân viên
           </v-btn>
         </div>
@@ -24,13 +24,13 @@
           {{ error }}
         </v-alert>
 
-        <v-card rounded="sm" elevation="0">
+        <v-card elevation="0">
           <v-data-table :headers="headers" :items="users" :loading="loading" no-data-text="Chưa có nhân viên nào">
             <template #item.role="{ item }">
-              <v-chip :color="roleColor(item.role)" size="small" variant="flat" rounded="sm" style="border: 1px solid var(--border-color);">{{ roleLabel(item.role) }}</v-chip>
+              <v-chip :color="roleColor(item.role)" size="small" variant="flat" rounded="pill" class="neo-pill">{{ roleLabel(item.role) }}</v-chip>
             </template>
             <template #item.isActive="{ item }">
-              <v-chip :color="item.isActive ? 'success' : 'default'" size="small" variant="flat" rounded="sm" style="border: 1px solid var(--border-color);">
+              <v-chip :color="item.isActive ? 'success' : 'default'" size="small" variant="flat" rounded="pill" class="neo-pill">
                 {{ item.isActive ? 'Hoạt động' : 'Vô hiệu' }}
               </v-chip>
             </template>
@@ -50,66 +50,66 @@
 
         <!-- Create dialog -->
         <v-dialog v-model="showCreate" max-width="440">
-          <v-card rounded="sm" elevation="0">
-            <v-card-title>Thêm nhân viên</v-card-title>
+          <v-card elevation="0">
+            <v-card-title class="font-weight-bold">Thêm nhân viên</v-card-title>
             <v-card-text>
-              <v-text-field v-model="form.fullName" label="Họ tên *" class="mb-2" />
-              <v-text-field v-model="form.email" label="Email *" type="email" class="mb-2" />
-              <v-text-field v-model="form.password" label="Mật khẩu *" type="password" class="mb-2" />
-              <v-select v-model="form.role" :items="roleOptions" item-title="label" item-value="value" label="Vai trò" />
+              <v-text-field v-model="form.fullName" label="Họ tên *" rounded="lg" class="mb-2" />
+              <v-text-field v-model="form.email" label="Email *" type="email" rounded="lg" class="mb-2" />
+              <v-text-field v-model="form.password" label="Mật khẩu *" type="password" rounded="lg" class="mb-2" />
+              <v-select v-model="form.role" :items="roleOptions" item-title="label" item-value="value" label="Vai trò" rounded="lg" />
               <v-alert v-if="dialogError" type="error" density="compact" class="mt-2">{{ dialogError }}</v-alert>
             </v-card-text>
             <v-card-actions>
               <v-spacer />
-              <v-btn @click="showCreate = false">Hủy</v-btn>
-              <v-btn color="primary" :loading="saving" @click="handleCreate">Tạo</v-btn>
+              <v-btn rounded="lg" @click="showCreate = false">Hủy</v-btn>
+              <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" @click="handleCreate">Tạo</v-btn>
             </v-card-actions>
           </v-card>
         </v-dialog>
 
         <!-- Edit dialog -->
         <v-dialog v-model="showEdit" max-width="440">
-          <v-card rounded="sm" elevation="0">
-            <v-card-title>Chỉnh sửa nhân viên</v-card-title>
+          <v-card elevation="0">
+            <v-card-title class="font-weight-bold">Chỉnh sửa nhân viên</v-card-title>
             <v-card-text>
-              <v-text-field v-model="form.fullName" label="Họ tên" class="mb-2" />
-              <v-text-field v-model="form.email" label="Email" type="email" class="mb-2" />
-              <v-select v-if="authStore.isOwner" v-model="form.role" :items="roleOptions" item-title="label" item-value="value" label="Vai trò" />
+              <v-text-field v-model="form.fullName" label="Họ tên" rounded="lg" class="mb-2" />
+              <v-text-field v-model="form.email" label="Email" type="email" rounded="lg" class="mb-2" />
+              <v-select v-if="authStore.isOwner" v-model="form.role" :items="roleOptions" item-title="label" item-value="value" label="Vai trò" rounded="lg" />
               <v-alert v-if="dialogError" type="error" density="compact" class="mt-2">{{ dialogError }}</v-alert>
             </v-card-text>
             <v-card-actions>
               <v-spacer />
-              <v-btn rounded="sm" @click="showEdit = false">Hủy</v-btn>
-              <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="handleUpdate">Lưu</v-btn>
+              <v-btn rounded="lg" @click="showEdit = false">Hủy</v-btn>
+              <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" @click="handleUpdate">Lưu</v-btn>
             </v-card-actions>
           </v-card>
         </v-dialog>
 
         <!-- Reset password dialog -->
         <v-dialog v-model="showPassword" max-width="400">
-          <v-card rounded="sm" elevation="0">
-            <v-card-title>Đặt lại mật khẩu</v-card-title>
+          <v-card elevation="0">
+            <v-card-title class="font-weight-bold">Đặt lại mật khẩu</v-card-title>
             <v-card-text>
-              <v-text-field v-model="newPassword" label="Mật khẩu mới *" type="password" />
+              <v-text-field v-model="newPassword" label="Mật khẩu mới *" type="password" rounded="lg" />
               <v-alert v-if="dialogError" type="error" density="compact" class="mt-2">{{ dialogError }}</v-alert>
             </v-card-text>
             <v-card-actions>
               <v-spacer />
-              <v-btn rounded="sm" @click="showPassword = false">Hủy</v-btn>
-              <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="handlePassword">Đặt lại</v-btn>
+              <v-btn rounded="lg" @click="showPassword = false">Hủy</v-btn>
+              <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" @click="handlePassword">Đặt lại</v-btn>
             </v-card-actions>
           </v-card>
         </v-dialog>
 
         <!-- Delete confirm dialog -->
         <v-dialog v-model="showDelete" max-width="400">
-          <v-card rounded="sm" elevation="0">
-            <v-card-title>Xác nhận vô hiệu hóa</v-card-title>
+          <v-card elevation="0">
+            <v-card-title class="font-weight-bold">Xác nhận vô hiệu hóa</v-card-title>
             <v-card-text>Bạn có chắc muốn vô hiệu hóa nhân viên "{{ selectedUser?.fullName }}"?</v-card-text>
             <v-card-actions>
               <v-spacer />
-              <v-btn rounded="sm" @click="showDelete = false">Hủy</v-btn>
-              <v-btn color="error" rounded="sm" elevation="0" :loading="saving" @click="handleDelete">Vô hiệu hóa</v-btn>
+              <v-btn rounded="lg" @click="showDelete = false">Hủy</v-btn>
+              <v-btn color="error" rounded="lg" elevation="0" :loading="saving" @click="handleDelete">Vô hiệu hóa</v-btn>
             </v-card-actions>
           </v-card>
         </v-dialog>

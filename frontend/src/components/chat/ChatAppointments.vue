@@ -14,7 +14,7 @@
     <div
       v-if="showForm"
       class="mb-2 pa-2"
-      style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);"
+      style="background: var(--surface-variant); border-radius: var(--radius-btn, 8px); border: 1.5px solid var(--border-color);"
     >
       <v-text-field
         v-model="createForm.date"
@@ -22,6 +22,7 @@
         type="date"
         density="compact"
         variant="outlined"
+        rounded="lg"
         hide-details
         class="mb-1"
       />
@@ -31,6 +32,7 @@
         type="time"
         density="compact"
         variant="outlined"
+        rounded="lg"
         hide-details
         class="mb-1"
       />
@@ -39,6 +41,7 @@
         label="Ghi chú"
         density="compact"
         variant="outlined"
+        rounded="lg"
         hide-details
         class="mb-1"
       />
@@ -46,6 +49,8 @@
         size="small"
         color="warning"
         block
+        rounded="lg"
+        elevation="0"
         :loading="creating"
         @click="submitCreate"
       >
@@ -58,7 +63,7 @@
       v-for="apt in appointments"
       :key="apt.id"
       class="mb-1 pa-2"
-      style="background: var(--surface-variant); border-radius: 4px; border: 1.5px solid var(--border-color);"
+      style="background: var(--surface-variant); border-radius: var(--radius-btn, 8px); border: 1.5px solid var(--border-color);"
     >
       <!-- View mode -->
       <div v-if="editingId !== apt.id" class="d-flex align-center">
@@ -72,7 +77,8 @@
           size="x-small"
           :color="statusColor(apt.status)"
           variant="tonal"
-          class="mr-1"
+          rounded="pill"
+          class="mr-1 neo-pill"
         >
           {{ statusLabel(apt.status) }}
         </v-chip>
@@ -89,6 +95,7 @@
           type="date"
           density="compact"
           variant="outlined"
+          rounded="lg"
           hide-details
           class="mb-1"
         />
@@ -98,6 +105,7 @@
           type="time"
           density="compact"
           variant="outlined"
+          rounded="lg"
           hide-details
           class="mb-1"
         />
@@ -106,6 +114,7 @@
           label="Ghi chú"
           density="compact"
           variant="outlined"
+          rounded="lg"
           hide-details
           class="mb-1"
         />
@@ -117,12 +126,13 @@
           label="Trạng thái"
           density="compact"
           variant="outlined"
+          rounded="lg"
           hide-details
           class="mb-1"
         />
         <div class="d-flex gap-1">
-          <v-btn size="small" color="warning" :loading="saving" @click="submitEdit(apt.id)">Lưu</v-btn>
-          <v-btn size="small" variant="text" @click="editingId = null">Hủy</v-btn>
+          <v-btn size="small" color="warning" rounded="lg" elevation="0" :loading="saving" @click="submitEdit(apt.id)">Lưu</v-btn>
+          <v-btn size="small" variant="text" rounded="lg" @click="editingId = null">Hủy</v-btn>
         </div>
       </div>
     </div>

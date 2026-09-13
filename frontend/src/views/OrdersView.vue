@@ -1,50 +1,68 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
-        <v-icon class="mr-2" color="primary">mdi-cart-outline</v-icon>
-        Đơn hàng
-      </h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">Tạo đơn</v-btn>
+    <!-- Page Header CQA Style -->
+    <div class="d-flex flex-wrap align-center justify-space-between mb-4" style="gap: 12px;">
+      <div>
+        <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
+          QUẢN LÝ <span class="neo-title-accent">ĐƠN HÀNG</span>
+        </h1>
+        <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
+          THEO DÕI VÀ XỬ LÝ ĐƠN HÀNG, DOANH SỐ NHÂN VIÊN.
+        </p>
+      </div>
+      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
+        TẠO ĐƠN HÀNG
+      </v-btn>
     </div>
 
     <!-- Stats cards -->
     <v-row class="mb-4">
       <v-col cols="6" sm="3">
-        <v-card variant="outlined">
-          <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-cart" color="primary" size="28" class="mb-1" />
-            <div class="text-h4 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.totalOrders ?? '—' }}</div>
-            <div class="neo-subtitle" style="color: var(--text-muted);">Tổng đơn</div>
-          </v-card-text>
+        <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
+          <div class="d-flex align-start justify-space-between mb-2">
+            <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">TỔNG ĐƠN</span>
+            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-cart</v-icon></div>
+          </div>
+          <div>
+            <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.totalOrders ?? '—' }}</div>
+            <div class="text-caption text-muted text-truncate" style="font-size: 0.7rem;">Toàn bộ đơn hàng</div>
+          </div>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
-        <v-card variant="outlined">
-          <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-check-circle" color="success" size="28" class="mb-1" />
-            <div class="text-h4 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.completedOrders ?? '—' }}</div>
-            <div class="neo-subtitle" style="color: var(--text-muted);">Hoàn thành</div>
-          </v-card-text>
+        <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
+          <div class="d-flex align-start justify-space-between mb-2">
+            <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">HOÀN THÀNH</span>
+            <div class="neo-icon-box pastel-green flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-check-circle</v-icon></div>
+          </div>
+          <div>
+            <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.completedOrders ?? '—' }}</div>
+            <div class="text-caption text-muted text-truncate" style="font-size: 0.7rem;">Đơn hoàn tất</div>
+          </div>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
-        <v-card variant="outlined">
-          <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-currency-usd" color="info" size="28" class="mb-1" />
-            <div class="text-h5 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ formatVND(stats?.totalRevenue ?? 0) }}</div>
-            <div class="neo-subtitle" style="color: var(--text-muted);">Doanh thu</div>
-          </v-card-text>
+        <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
+          <div class="d-flex align-start justify-space-between mb-2">
+            <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">TỔNG DOANH THU</span>
+            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-currency-usd</v-icon></div>
+          </div>
+          <div>
+            <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif; font-size: 1.6rem;">{{ formatVND(stats?.totalRevenue ?? 0) }}</div>
+            <div class="text-caption text-muted text-truncate" style="font-size: 0.7rem;">Doanh thu lũy kế</div>
+          </div>
         </v-card>
       </v-col>
       <v-col cols="6" sm="3">
-        <v-card variant="outlined">
-          <v-card-text class="text-center pa-3">
-            <v-icon icon="mdi-calendar-today" color="warning" size="28" class="mb-1" />
-            <div class="text-h5 font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ formatVND(stats?.todayRevenue ?? 0) }}</div>
-            <div class="neo-subtitle" style="color: var(--text-muted);">Doanh thu hôm nay</div>
-          </v-card-text>
+        <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
+          <div class="d-flex align-start justify-space-between mb-2">
+            <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">HÔM NAY</span>
+            <div class="neo-icon-box pastel-yellow flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-calendar-today</v-icon></div>
+          </div>
+          <div>
+            <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif; font-size: 1.6rem;">{{ formatVND(stats?.todayRevenue ?? 0) }}</div>
+            <div class="text-caption text-muted text-truncate" style="font-size: 0.7rem;">Doanh thu trong ngày</div>
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -53,17 +71,17 @@
     <v-row class="mb-3">
       <v-col cols="12" sm="6" md="4">
         <v-text-field v-model="search" label="Tìm kiếm mã đơn, khách hàng..." density="compact"
-          variant="outlined" prepend-inner-icon="mdi-magnify" hide-details clearable @update:model-value="onSearch" />
+          variant="outlined" rounded="lg" prepend-inner-icon="mdi-magnify" hide-details clearable @update:model-value="onSearch" />
       </v-col>
       <v-col cols="12" sm="6" md="3">
         <v-select v-model="statusFilter" label="Trạng thái" :items="statusFilterItems"
-          item-title="text" item-value="value" density="compact" variant="outlined"
+          item-title="text" item-value="value" density="compact" variant="outlined" rounded="lg"
           hide-details clearable @update:model-value="onSearch" />
       </v-col>
     </v-row>
 
     <!-- Orders table -->
-    <v-card variant="outlined" class="mb-6">
+    <v-card class="mb-6 chart-card" elevation="0">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
       <v-table density="compact">
         <thead>
@@ -82,11 +100,11 @@
             <td colspan="7" class="text-center text-grey py-6">Không có đơn hàng</td>
           </tr>
           <tr v-for="o in orders" :key="o.id">
-            <td class="text-caption font-weight-medium">{{ o.orderCode }}</td>
+            <td class="text-caption font-weight-bold font-mono">{{ o.orderCode }}</td>
             <td>{{ o.contact?.fullName || '—' }}</td>
-            <td>{{ formatVND(o.totalAmount) }}</td>
+            <td class="font-weight-bold">{{ formatVND(o.totalAmount) }}</td>
             <td>
-              <v-chip size="x-small" :color="statusColor(o.status)" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
+              <v-chip size="small" :color="statusColor(o.status)" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.7rem;">
                 {{ statusLabel(o.status) }}
               </v-chip>
             </td>
@@ -110,22 +128,22 @@
 
     <!-- Create / Edit dialog -->
     <v-dialog v-model="dialog" max-width="480">
-      <v-card>
-        <v-card-title>{{ editingId ? 'Cập nhật đơn hàng' : 'Tạo đơn hàng' }}</v-card-title>
+      <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">{{ editingId ? 'CẬP NHẬT ĐƠN HÀNG' : 'TẠO ĐƠN HÀNG' }}</v-card-title>
         <v-card-text>
           <v-text-field v-if="!editingId" v-model="form.contactId" label="ID Khách hàng" density="compact"
-            variant="outlined" class="mb-3" hide-details />
+            variant="outlined" rounded="lg" class="mb-3" hide-details />
           <v-text-field v-model.number="form.totalAmount" label="Tổng tiền (VND)" type="number"
-            density="compact" variant="outlined" class="mb-3" hide-details />
+            density="compact" variant="outlined" rounded="lg" class="mb-3" hide-details />
           <v-select v-model="form.status" label="Trạng thái" :items="ORDER_STATUS_OPTIONS"
-            item-title="text" item-value="value" density="compact" variant="outlined" class="mb-3" hide-details />
+            item-title="text" item-value="value" density="compact" variant="outlined" rounded="lg" class="mb-3" hide-details />
           <v-textarea v-model="form.notes" label="Ghi chú" rows="2" density="compact"
-            variant="outlined" hide-details />
+            variant="outlined" rounded="lg" hide-details />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="dialog = false">Huỷ</v-btn>
-          <v-btn color="primary" :loading="saving" @click="submit">Lưu</v-btn>
+          <v-btn rounded="lg" @click="dialog = false">Huỷ</v-btn>
+          <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="saving" @click="submit">Lưu</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -206,3 +224,42 @@ onMounted(() => {
   fetchStaffStats();
 });
 </script>
+
+<style scoped>
+.order-stat-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.chart-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.kpi-value {
+  font-size: 2.25rem;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.pastel-blue {
+  background: var(--pastel-blue-bg) !important;
+  color: var(--pastel-blue-fg) !important;
+}
+
+.pastel-green {
+  background: var(--pastel-green-bg) !important;
+  color: var(--pastel-green-fg) !important;
+}
+
+.pastel-yellow {
+  background: var(--pastel-yellow-bg) !important;
+  color: var(--pastel-yellow-fg) !important;
+}
+
+.font-mono {
+  font-family: monospace;
+}
+</style>

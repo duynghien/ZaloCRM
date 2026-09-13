@@ -22,6 +22,24 @@
   --status-completed-text: #047857;
   --status-cancelled-bg: #F4F4F5;
   --status-cancelled-text: #71717A;
+
+  /* Geometry tokens */
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --radius-input: 8px;
+  --radius-pill: 9999px;
+  --radius-bubble: 12px;
+  --radius-icon-box: 8px;
+
+  /* Pastel icon badge tokens (Light mode) */
+  --pastel-blue-bg: #E0F2FE;
+  --pastel-blue-fg: #0284C7;
+  --pastel-pink-bg: #FCE7F3;
+  --pastel-pink-fg: #DB2777;
+  --pastel-green-bg: #DCFCE7;
+  --pastel-green-fg: #16A34A;
+  --pastel-yellow-bg: #FEF9C3;
+  --pastel-yellow-fg: #CA8A04;
 }
 
 .v-theme--dark {
@@ -47,4 +65,22 @@
   --status-completed-text: #D1FAE5;
   --status-cancelled-bg: #27272A;
   --status-cancelled-text: #D4D4D8;
+
+  /* Geometry tokens */
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --radius-input: 8px;
+  --radius-pill: 9999px;
+  --radius-bubble: 12px;
+  --radius-icon-box: 8px;
+
+  /* Pastel icon badge tokens (Dark mode) */
+  --pastel-blue-bg: #0C2B59;
+  --pastel-blue-fg: #38BDF8;
+  --pastel-pink-bg: #4C0519;
+  --pastel-pink-fg: #F472B6;
+  --pastel-green-bg: #064E3B;
+  --pastel-green-fg: #4ADE80;
+  --pastel-yellow-bg: #422006;
+  --pastel-yellow-fg: #FACC15;
 }

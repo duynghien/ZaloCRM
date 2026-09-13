@@ -1,8 +1,8 @@
 <template>
-  <v-card variant="outlined" rounded="sm" elevation="0">
-    <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">
-      <v-icon class="mr-1" color="primary">mdi-account-group</v-icon>
-      Hiệu suất nhân viên
+  <v-card class="chart-card" elevation="0">
+    <v-card-title class="d-flex align-center py-3 px-4 font-weight-bold neo-subtitle" style="font-size: 0.85rem; border-bottom: 1px solid var(--border-color);">
+      <v-icon class="mr-2" color="primary" size="18">mdi-account-group</v-icon>
+      HIỆU SUẤT NHÂN VIÊN
     </v-card-title>
     <v-table density="compact">
       <thead>
@@ -33,3 +33,11 @@ function formatVND(n: number) {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
 }
 </script>
+
+<style scoped>
+.chart-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+</style>

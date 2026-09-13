@@ -2,16 +2,16 @@
   <v-card class="pa-8" elevation="0">
     <div class="text-center mb-8">
       <div
-        class="mx-auto mb-4 d-flex align-center justify-center font-weight-black text-h4"
-        style="width: 64px; height: 64px; background: #0068FF; border: 1.5px solid var(--border-color); border-radius: 4px; color: #FFFFFF; font-family: 'Space Grotesk', sans-serif;"
+        class="mx-auto mb-4 d-flex align-center justify-center neo-icon-box"
+        style="width: 56px; height: 56px; background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 8px;"
       >
-        Z
+        <v-icon size="32" color="#FFFFFF">mdi-message-processing</v-icon>
       </div>
-      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
-        Zalo<span class="px-1 ml-1" style="background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 4px; font-size: 1.25rem;">CRM</span>
+      <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
+        <span>ZALO</span><span class="neo-title-accent ml-1">CRM</span>
       </h1>
-      <p class="text-caption mt-2 neo-subtitle" style="color: var(--text-muted);">
-        ZaloCRM • Hệ Thống Quản Lý Đa Tài Khoản Zalo
+      <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
+        HỆ THỐNG QUẢN LÝ ĐA TÀI KHOẢN ZALO
       </p>
     </div>
 
@@ -32,9 +32,9 @@
         required
         class="mb-5"
       />
-      <v-btn type="submit" color="primary" block size="large" :loading="loading" rounded="sm">
+      <v-btn type="submit" color="primary" block size="large" :loading="loading" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);">
         <v-icon start>mdi-login</v-icon>
-        Đăng nhập
+        ĐĂNG NHẬP
       </v-btn>
     </v-form>
 

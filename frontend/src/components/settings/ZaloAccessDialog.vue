@@ -1,7 +1,7 @@
 <template>
   <v-dialog v-model="open" max-width="520">
-    <v-card>
-      <v-card-title class="d-flex align-center">
+    <v-card elevation="0">
+      <v-card-title class="d-flex align-center font-weight-bold">
         <v-icon class="mr-2" color="primary">mdi-shield-account</v-icon>
         Phân quyền truy cập — {{ accountName }}
       </v-card-title>
@@ -12,7 +12,7 @@
         <!-- Current access list -->
         <div v-if="accessList.length" class="mb-4">
           <div class="text-subtitle-2 mb-2">Người có quyền truy cập</div>
-          <v-list density="compact" rounded="sm" variant="tonal">
+          <v-list density="compact" rounded="lg" variant="tonal">
             <v-list-item v-for="a in accessList" :key="a.id">
               <template #prepend>
                 <v-icon color="primary">mdi-account</v-icon>
@@ -28,6 +28,7 @@
                   density="compact"
                   hide-details
                   variant="outlined"
+                  rounded="lg"
                   style="min-width: 120px;"
                   class="mr-2"
                   @update:model-value="handleUpdatePermission(a.id, $event)"
@@ -56,6 +57,7 @@
             density="compact"
             hide-details
             variant="outlined"
+            rounded="lg"
             no-data-text="Không có nhân viên để thêm"
             class="flex-grow-1"
           />
@@ -68,9 +70,10 @@
             density="compact"
             hide-details
             variant="outlined"
+            rounded="lg"
             style="min-width: 130px;"
           />
-          <v-btn color="primary" :loading="saving" :disabled="!newUserId" @click="handleAddAccess">
+          <v-btn color="primary" rounded="lg" elevation="0" :loading="saving" :disabled="!newUserId" @click="handleAddAccess">
             Thêm
           </v-btn>
         </div>
@@ -79,7 +82,7 @@
 
       <v-card-actions>
         <v-spacer />
-        <v-btn @click="open = false">Đóng</v-btn>
+        <v-btn rounded="lg" @click="open = false">Đóng</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

@@ -49,23 +49,28 @@ Hệ thống hỗ trợ đồng thời hai chế độ **Light Mode** (mặc đ�
      ```
    - Tạo cảm giác nhấn công tắc cơ khí dứt khoát, không dùng hiệu ứng phóng to / thu nhỏ đàn hồi.
 
-4. **Bo Góc Hình Học Tối Giản (Compact Geometric Radii)**:
-   - Loại bỏ hoàn toàn kiểu bo góc tròn hình viên thuốc lạm dụng (`rounded-xl`, `border-radius: 24px+` của Liquid Silicon).
+4. **Bo Góc Hình Học Cao Cấp Chuẩn CQA (Refined Geometric Radii)**:
+   - Tham chiếu thiết kế thực tế từ **CQA (Chat-Quality-Agent - `cqa.toantit.com`)**.
    - Chuẩn bán kính góc:
-     - Nút bấm, Ô nhập liệu, Chip nhãn: `border-radius: 4px;` (hoặc `rounded-sm` trong Vuetify).
-     - Card thẻ, Hộp thoại Dialog: `border-radius: 6px;`.
-     - Avatar người dùng: Có thể giữ hình tròn hoặc hình vuông bo góc nhẹ `4px` để tăng chất Brutalist.
+     - Thẻ card, Hộp thoại Dialog, Bảng dữ liệu: `border-radius: 12px;` viền cơ học `1.5px solid #18181B`.
+     - Nút bấm (Buttons), Ô nhập liệu (Inputs), Khối Icon (`.neo-icon-box`): `border-radius: 8px;` (`rounded: 'lg'` trong Vuetify 4), viền `1.5px`.
+     - Huy hiệu & Trạng thái (Chips/Badges): Dạng viên thuốc (`rounded-pill`, `border-radius: 9999px`), viền `1.5px solid #18181B`, chữ IN HOA.
+     - Bong bóng tin nhắn chat: `border-radius: 12px;` viền `1.5px`.
+     - Avatar người dùng: Hỗ trợ hình tròn (`rounded-circle`, `border-radius: 50%`) cho Profile và Contact; khối vuông bo 8px viền 1.5px cho Icon box / Logo kênh.
 
 ---
 
-### 1.3. Hệ Thống Typography (Typography System)
+### 1.3. Hệ Thống Typography & Utility Classes (Typography System)
 
 Sự kết hợp giữa phông chữ hình học mạnh mẽ cho nhận diện và phông chữ công thái học cho nội dung văn bản dài:
 
-- **Font Tiêu Đề & Số Liệu:** Google Font **Space Grotesk** (`font-family: 'Space Grotesk', sans-serif; font-weight: 700 / 900`).
+- **Font Tiêu Đề & Số Liệu:** Google Font **Space Grotesk** (`font-family: 'Space Grotesk', sans-serif; font-weight: 700 / 800 / 900`).
   - Dùng cho: Logo thương hiệu, Tiêu đề trang (`h1`, `h2`), Chỉ số thống kê KPI, Nhãn các nút bấm chính, Tên tab.
+- **Tiêu Đề Trang Chuẩn CQA (`.neo-page-title`):**
+  - Định dạng: Chữ **IN HOA In Nghiêng Đậm (Bold Italic)**, từ khóa chính được highlight màu Xanh Zalo `#0068FF` (`.neo-title-accent`).
+  - Ví dụ: `KHÔNG GIAN LÀM VIỆC <span class="neo-title-accent">TỔNG QUAN</span>`.
 - **Font Văn Bản & Nội Dung Chat:** Google Font **Plus Jakarta Sans** hoặc **Inter** (`font-weight: 400 / 500 / 600`).
-  - Dùng cho: Nội dung tin nhắn hội thoại, danh sách khách hàng, bảng dữ liệu, nội dung báo cáo chi tiết. Đảm bảo nhân viên đọc hàng nghìn tin nhắn mỗi ngày mà không bị mỏi mắt.
+  - Dùng cho: Nội dung tin nhắn hội thoại, danh sách khách hàng, bảng dữ liệu, nội dung báo cáo chi tiết.
 - **Lớp Nhãn Kỹ Thuật (`.neo-subtitle`):**
   ```css
   .neo-subtitle {
@@ -73,7 +78,17 @@ Sự kết hợp giữa phông chữ hình học mạnh mẽ cho nhận diện v
     font-weight: 800;
     text-transform: uppercase;
     font-size: 0.75rem;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.05em;
+  }
+  ```
+- **Lớp Badge Viên Thuốc (`.neo-pill`):**
+  ```css
+  .neo-pill {
+    border-radius: 9999px !important;
+    border: 1.5px solid var(--border-color) !important;
+    text-transform: uppercase;
+    font-weight: 700;
+    font-size: 0.75rem;
   }
   ```
 
@@ -236,38 +251,40 @@ export const vuetify = createVuetify({
   defaults: {
     VBtn: {
       variant: 'flat',
-      rounded: 'sm', // 4px border-radius
+      rounded: 'lg', // 8px border-radius chuẩn CQA
       elevation: 0,
     },
     VCard: {
       variant: 'flat',
-      rounded: 'sm',
-      elevation: 0,
+      elevation: 0, // Bán kính 12px thừa hưởng qua var(--radius-card)
     },
     VTextField: {
       variant: 'outlined',
       density: 'compact',
-      rounded: 'sm',
+      rounded: 'lg', // 8px
     },
     VSelect: {
       variant: 'outlined',
       density: 'compact',
-      rounded: 'sm',
+      rounded: 'lg', // 8px
     },
     VAutocomplete: {
       variant: 'outlined',
       density: 'compact',
-      rounded: 'sm',
+      rounded: 'lg', // 8px
     },
     VTextarea: {
       variant: 'outlined',
       density: 'compact',
-      rounded: 'sm',
+      rounded: 'lg', // 8px
     },
     VChip: {
-      rounded: 'sm',
+      rounded: 'pill', // 9999px viên thuốc chuẩn CQA
       size: 'small',
       elevation: 0,
+    },
+    VAvatar: {
+      rounded: 'circle', // Tròn cho profile & contact, ngoại trừ icon box vuông
     },
     VDialog: {
       maxWidth: 600,
@@ -285,12 +302,12 @@ export const vuetify = createVuetify({
 ## 5. Tương Tác & Trạng Thái Phản Hồi (Interactions & Feedback)
 
 1. **Khung Giữ Chỗ Khi Tải Dữ Liệu (Skeleton Loaders):**
-   - Sử dụng `v-skeleton-loader` với góc bo `4px`, không hiệu ứng sóng lượn bóng nhờn, giữ ổn định layout khi tải danh sách cuộc trò chuyện.
+   - Sử dụng `v-skeleton-loader` với góc bo `8px`, không hiệu ứng sóng lượn bóng nhờn, giữ ổn định layout khi tải danh sách cuộc trò chuyện.
 2. **Thông Báo Toasts & Alerts:**
-   - Hiển thị góc trên bên phải, viền `1.5px solid #18181B`, nền phẳng chuẩn mã màu trạng thái, chữ đậm rõ ràng.
+   - Hiển thị góc trên bên phải, viền `1.5px solid #18181B`, bo góc `8px`, nền phẳng chuẩn mã màu trạng thái, chữ đậm rõ ràng.
 3. **Hộp Thoại Xác Nhận Thao Tác Nguy Hiểm (Confirm Dialogs):**
    - Xóa tài khoản Zalo, thu hồi tin nhắn, hủy đơn hàng bắt buộc phải mở Hộp thoại Xác nhận.
-   - Nút hành động mang màu đỏ (`color="error"`), viền đen `1.5px`, bấm có phản hồi cơ học.
+   - Nút hành động mang màu đỏ (`color="error"`), viền đen `1.5px`, bo góc `8px`, bấm có phản hồi cơ học.
 
 ---
 
@@ -299,7 +316,7 @@ export const vuetify = createVuetify({
 - ❌ **Cấm Bóng Mờ (No Box Shadows):** Tuyệt đối không dùng `box-shadow` hay `drop-shadow` làm mờ ranh giới phần tử.
 - ❌ **Cấm Hiệu Ứng Thủy Tinh (No Glassmorphism):** Loại bỏ toàn bộ `backdrop-filter: blur(...)` và nền trong suốt nhiều lớp gây giảm hiệu năng render GPU.
 - ❌ **Cấm Viền Phát Sáng & Gradient Nhòe (No Glow & Blurry Halos):** Không dùng viền phát sáng cyan/neon hay animation bồng bềnh (`ai-core-orb`, `liquid-morph`, `flow-bg`).
-- ❌ **Cấm Bo Tròn Dạng Viên Thuốc (No Over-rounded Pill Radii):** Không dùng `rounded="xl"`, `rounded="pill"` trên các nút bấm, ô input, cards và chat bubbles chính.
+- ❌ **Cấm Lạm Dụng Bo Tròn Viên Thuốc Sai Vị Trí (No Over-rounded Containers):** Không dùng `rounded="pill"` trên các khối Card, Container, Bảng dữ liệu hoặc Khung Chat (Cards luôn giữ `12px`, Chat bubble `12px`, Buttons/Inputs `8px`; chỉ dùng `rounded="pill"` cho Chips/Badges trạng thái).
 - ❌ **Cấm Màu Tím Lòe Loẹt Trên Nền Tối:** Duy trì bảng màu có độ tương phản đạt chuẩn WCAG AA/AAA cho các ca trực hỗ trợ khách hàng kéo dài.
 - ❌ **Cấm Lưu Token Bảo Mật Trong localStorage:** Tuân thủ quy chuẩn bảo mật Cookie `httpOnly` và sanitization dữ liệu DOMPurify.
 

@@ -10,7 +10,7 @@
         label="Tất cả Zalo"
         density="compact"
         variant="outlined"
-        rounded="sm"
+        rounded="lg"
         hide-details
         clearable
         class="mb-2"
@@ -22,7 +22,7 @@
         placeholder="Tìm kiếm..."
         prepend-inner-icon="mdi-magnify"
         variant="outlined"
-        rounded="sm"
+        rounded="lg"
         density="compact"
         hide-details
         clearable
@@ -42,7 +42,7 @@
         :class="{ 'conversation-active': conv.id === selectedId, 'unread-conversation': conv.unreadCount > 0 && conv.id !== selectedId }"
       >
         <template #prepend>
-          <v-avatar size="40" color="grey-lighten-2">
+          <v-avatar size="40" color="grey-lighten-2" rounded="circle">
             <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
             <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
             <v-icon v-else icon="mdi-account" />
@@ -53,7 +53,7 @@
           <span class="text-truncate" :class="{ 'font-weight-bold': conv.unreadCount > 0 }">
             {{ conv.threadType === 'group' ? (conv.contact?.fullName || 'Nhóm') : (conv.contact?.fullName || 'Unknown') }}
           </span>
-          <v-chip v-if="conv.threadType === 'group'" size="x-small" color="info" variant="tonal" class="ml-1">Nhóm</v-chip>
+          <v-chip v-if="conv.threadType === 'group'" size="x-small" color="info" variant="tonal" rounded="pill" class="ml-1 neo-pill">Nhóm</v-chip>
           <v-spacer />
           <span class="text-caption text-grey ml-1">{{ formatTime(conv.lastMessageAt) }}</span>
         </v-list-item-title>

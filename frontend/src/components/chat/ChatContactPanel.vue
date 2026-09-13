@@ -15,29 +15,29 @@
 
     <!-- Form -->
     <div class="pa-3">
-      <v-text-field v-model="form.fullName" label="Họ tên" density="compact" variant="outlined" class="mb-2" hide-details />
-      <v-text-field v-model="form.phone" label="Số điện thoại" density="compact" variant="outlined" class="mb-2" hide-details />
-      <v-text-field v-model="form.email" label="Email" type="email" density="compact" variant="outlined" class="mb-2" hide-details />
+      <v-text-field v-model="form.fullName" label="Họ tên" density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
+      <v-text-field v-model="form.phone" label="Số điện thoại" density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
+      <v-text-field v-model="form.email" label="Email" type="email" density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
 
       <v-select v-model="form.source" label="Nguồn" :items="SOURCE_OPTIONS" item-title="text" item-value="value"
-        density="compact" variant="outlined" clearable class="mb-2" hide-details />
+        density="compact" variant="outlined" rounded="lg" clearable class="mb-2" hide-details />
 
       <v-select v-model="form.status" label="Trạng thái" :items="STATUS_OPTIONS" item-title="text" item-value="value"
-        density="compact" variant="outlined" clearable class="mb-2" hide-details />
+        density="compact" variant="outlined" rounded="lg" clearable class="mb-2" hide-details />
 
       <v-text-field v-model="form.firstContactDate" label="Ngày tiếp nhận" type="date"
-        density="compact" variant="outlined" class="mb-2" hide-details />
+        density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
 
       <v-text-field v-model="form.nextAppointmentDate" label="Hẹn tái khám" type="date"
-        density="compact" variant="outlined" class="mb-2" hide-details />
+        density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
 
       <v-combobox v-model="form.tags" label="Tags" multiple chips closable-chips
-        density="compact" variant="outlined" class="mb-2" hide-details />
+        density="compact" variant="outlined" rounded="lg" class="mb-2" hide-details />
 
       <v-textarea v-model="form.notes" label="Ghi chú" rows="2" auto-grow
-        density="compact" variant="outlined" class="mb-3" hide-details />
+        density="compact" variant="outlined" rounded="lg" class="mb-3" hide-details />
 
-      <v-btn color="primary" block :loading="saving" @click="saveContact">Lưu thông tin</v-btn>
+      <v-btn color="primary" block rounded="lg" elevation="0" :loading="saving" @click="saveContact">Lưu thông tin</v-btn>
 
       <v-alert v-if="saveSuccess" type="success" density="compact" class="mt-2" closable @click:close="saveSuccess = false">
         Đã lưu thành công!

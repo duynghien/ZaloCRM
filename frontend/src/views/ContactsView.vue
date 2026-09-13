@@ -1,13 +1,18 @@
 <template>
   <div>
-    <!-- Toolbar -->
-    <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h4 font-weight-black mr-4" style="font-family: 'Space Grotesk', sans-serif;">
-        <v-icon class="mr-2" color="primary">mdi-account-group</v-icon>
-        Khách hàng
-      </h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">Thêm KH</v-btn>
+    <!-- Toolbar CQA Style -->
+    <div class="d-flex flex-wrap align-center justify-space-between mb-4" style="gap: 12px;">
+      <div>
+        <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
+          DANH SÁCH <span class="neo-title-accent">LIÊN HỆ</span>
+        </h1>
+        <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
+          QUẢN LÝ THÔNG TIN KHÁCH HÀNG VÀ HỒ SƠ TƯ VẤN.
+        </p>
+      </div>
+      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
+        THÊM KHÁCH HÀNG
+      </v-btn>
     </div>
 
     <!-- Filters -->
@@ -22,12 +27,13 @@
       :items-length="total"
       item-value="id"
       hover
+      class="chart-card"
       @click:row="onRowClick"
       @update:page="onPageChange"
     >
       <!-- Avatar -->
       <template #item.avatarUrl="{ item }">
-        <v-avatar size="32" color="grey-lighten-2">
+        <v-avatar size="34" color="grey-lighten-2" rounded="circle">
           <v-img v-if="item.avatarUrl" :src="item.avatarUrl" />
           <v-icon v-else size="18">mdi-account</v-icon>
         </v-avatar>
@@ -35,7 +41,7 @@
 
       <!-- Source chip -->
       <template #item.source="{ item }">
-        <v-chip v-if="item.source" size="small" variant="tonal">
+        <v-chip v-if="item.source" size="small" variant="tonal" rounded="pill" class="neo-pill" style="font-size: 0.7rem;">
           {{ sourceLabel(item.source) }}
         </v-chip>
         <span v-else class="text-grey">—</span>
@@ -54,9 +60,9 @@
           :color="statusColor(item.status)"
           size="small"
           variant="flat"
-          rounded="sm"
-          class="font-weight-bold"
-          style="border: 1px solid var(--border-color);"
+          rounded="pill"
+          class="font-weight-bold neo-pill"
+          style="border: 1.5px solid var(--border-color); font-size: 0.7rem;"
         >
           {{ statusLabel(item.status) }}
         </v-chip>
@@ -170,3 +176,11 @@ function onDeleted() {
 
 onMounted(() => fetchContacts());
 </script>
+
+<style scoped>
+.chart-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+</style>

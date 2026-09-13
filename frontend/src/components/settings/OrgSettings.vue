@@ -2,12 +2,13 @@
   <div style="max-width: 480px;">
     <div class="text-h6 mb-4 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Thông tin tổ chức</div>
 
-    <v-card variant="outlined" rounded="sm" elevation="0" class="pa-4">
+    <v-card variant="outlined" elevation="0" class="pa-4">
       <v-text-field
         v-model="orgName"
         label="Tên tổ chức"
         :disabled="!authStore.isOwner || saving"
         variant="outlined"
+        rounded="lg"
         class="mb-3"
       />
       <v-alert v-if="error" type="error" density="compact" class="mb-3">{{ error }}</v-alert>
@@ -15,7 +16,7 @@
       <v-btn
         v-if="authStore.isOwner"
         color="primary"
-        rounded="sm"
+        rounded="lg"
         elevation="0"
         :loading="saving"
         :disabled="!orgName.trim()"

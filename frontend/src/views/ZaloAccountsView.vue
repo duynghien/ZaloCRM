@@ -1,91 +1,132 @@
 <template>
   <div>
-    <div class="d-flex align-center mb-4">
-      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">
-        <v-icon class="mr-2" color="primary">mdi-cellphone-link</v-icon>
-        Tài khoản Zalo
-      </h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showAddDialog = true">Thêm Zalo</v-btn>
+    <!-- Page Header CQA Style -->
+    <div class="d-flex flex-wrap align-center justify-space-between mb-4" style="gap: 12px;">
+      <div>
+        <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
+          KÊNH <span class="neo-title-accent">ZALO CHAT</span>
+        </h1>
+        <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
+          QUẢN LÝ KẾT NỐI VÀ ĐỒNG BỘ CÁC TÀI KHOẢN ZALO CÁ NHÂN.
+        </p>
+      </div>
+
+      <v-btn
+        v-if="authStore.isAdmin"
+        color="primary"
+        rounded="lg"
+        prepend-icon="mdi-plus"
+        class="font-weight-bold text-white px-4"
+        style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;"
+        @click="showAddDialog = true"
+      >
+        KẾT NỐI TÀI KHOẢN
+      </v-btn>
     </div>
 
-    <v-card>
-      <v-data-table :headers="headers" :items="accounts" :loading="loading" no-data-text="Chưa có tài khoản Zalo nào">
-        <template #item.status="{ item }">
-          <v-chip :color="statusColor(item.liveStatus || item.status)" size="small" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
-            {{ statusText(item.liveStatus || item.status) }}
-          </v-chip>
-        </template>
-        <template #item.actions="{ item }">
-          <v-btn v-if="authStore.isAdmin" icon size="small" color="primary" title="Phân quyền truy cập" @click="openAccess(item)">
-            <v-icon>mdi-shield-account</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="success" @click="syncContacts(item.id)" title="Đồng bộ danh bạ Zalo" :loading="syncing === item.id">
-            <v-icon>mdi-account-sync</v-icon>
-          </v-btn>
-          <v-btn v-if="item.liveStatus !== 'connected'" icon size="small" color="primary" @click="loginAccount(item.id)" title="Đăng nhập QR">
-            <v-icon>mdi-qrcode</v-icon>
-          </v-btn>
-          <v-btn v-if="item.liveStatus === 'disconnected' && item.sessionData" icon size="small" color="info" @click="reconnectAccount(item.id)" title="Kết nối lại">
-            <v-icon>mdi-refresh</v-icon>
-          </v-btn>
-          <v-btn icon size="small" color="error" @click="confirmDelete(item)" title="Xóa">
-            <v-icon>mdi-delete</v-icon>
-          </v-btn>
-        </template>
-      </v-data-table>
-    </v-card>
+    <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-4" />
+
+    <!-- Empty State: Centered 12px card -->
+    <div v-if="!loading && accounts.length === 0" class="d-flex justify-center my-8">
+      <v-card class="text-center pa-8 empty-state-card" elevation="0" style="max-width: 520px; border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <div
+          class="mx-auto mb-4 d-flex align-center justify-center neo-icon-box"
+          style="width: 64px; height: 64px; background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 8px;"
+        >
+          <v-icon size="36" color="#FFFFFF">mdi-cellphone-link</v-icon>
+        </div>
+        <h2 class="neo-page-title mb-2" style="font-size: 1.25rem;">
+          CHƯA CÓ KÊNH ZALO NÀO
+        </h2>
+        <p class="text-body-2 text-muted mb-6">
+          Kết nối tài khoản Zalo cá nhân đầu tiên để kích hoạt đồng bộ tin nhắn, quản lý khách hàng và gửi báo cáo tự động.
+        </p>
+        <v-btn
+          v-if="authStore.isAdmin"
+          color="primary"
+          size="large"
+          rounded="lg"
+          class="font-weight-bold px-6"
+          style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif;"
+          @click="showAddDialog = true"
+        >
+          <v-icon start>mdi-plus</v-icon>
+          + KẾT NỐI TÀI KHOẢN ĐẦU TIÊN
+        </v-btn>
+      </v-card>
+    </div>
+
+    <!-- 2-Column Channel Cards Grid -->
+    <v-row v-else-if="accounts.length > 0">
+      <v-col
+        v-for="acc in accounts"
+        :key="acc.id"
+        cols="12"
+        md="6"
+      >
+        <ZaloAccountCard
+          :account="acc"
+          :syncing="syncing === acc.id"
+          :is-admin="authStore.isAdmin"
+          @sync="syncContacts"
+          @login="loginAccount"
+          @reconnect="reconnectAccount"
+          @access="openAccess"
+          @delete="confirmDelete"
+        />
+      </v-col>
+    </v-row>
 
     <!-- Add account dialog -->
-    <v-dialog v-model="showAddDialog" max-width="400">
-      <v-card>
-        <v-card-title>Thêm tài khoản Zalo</v-card-title>
+    <v-dialog v-model="showAddDialog" max-width="420">
+      <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">THÊM TÀI KHOẢN ZALO</v-card-title>
         <v-card-text>
-          <v-text-field v-model="newAccountName" label="Tên hiển thị (VD: Zalo Sale Hương)" />
+          <v-text-field v-model="newAccountName" label="Tên hiển thị (VD: Zalo Sale Hương)" rounded="lg" />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showAddDialog = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="adding" @click="handleAddAccount">Thêm</v-btn>
+          <v-btn rounded="lg" @click="showAddDialog = false">Hủy</v-btn>
+          <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="adding" @click="handleAddAccount">Thêm</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- QR Code dialog -->
-    <v-dialog v-model="showQRDialog" max-width="400" persistent>
-      <v-card class="text-center pa-4">
-        <v-card-title>Quét QR để đăng nhập Zalo</v-card-title>
+    <v-dialog v-model="showQRDialog" max-width="420" persistent>
+      <v-card class="text-center pa-4" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">QUÉT QR ĐĂNG NHẬP ZALO</v-card-title>
         <v-card-text>
           <div v-if="qrImage" class="mb-4">
-            <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px; border: 1.5px solid var(--border-color); border-radius: 4px;" />
+            <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px; border: 1.5px solid var(--border-color); border-radius: 8px;" />
           </div>
           <div v-else-if="qrScanned" class="mb-4">
             <v-icon icon="mdi-check-circle" size="64" color="success" />
-            <p class="text-h6 mt-2">Đã quét! Xác nhận trên điện thoại...</p>
+            <p class="text-h6 mt-2 font-weight-bold">Đã quét! Xác nhận trên điện thoại...</p>
             <p v-if="scannedName" class="text-body-2">{{ scannedName }}</p>
           </div>
           <div v-else class="mb-4">
             <v-progress-circular indeterminate color="primary" size="64" />
-            <p class="mt-2">Đang tạo QR code...</p>
+            <p class="mt-2 font-weight-bold">Đang tạo QR code...</p>
           </div>
           <v-alert v-if="qrError" type="error" density="compact" class="mt-2">{{ qrError }}</v-alert>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="cancelQR">Đóng</v-btn>
+          <v-btn rounded="lg" @click="cancelQR">Đóng</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- Delete confirm dialog -->
-    <v-dialog v-model="showDeleteDialog" max-width="400">
-      <v-card>
-        <v-card-title>Xác nhận xóa</v-card-title>
+    <v-dialog v-model="showDeleteDialog" max-width="420">
+      <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">XÁC NHẬN XÓA KÊNH</v-card-title>
         <v-card-text>Bạn có chắc muốn xóa tài khoản "{{ deleteTarget?.displayName || deleteTarget?.id }}"?</v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="showDeleteDialog = false">Hủy</v-btn>
-          <v-btn color="error" :loading="deleting" @click="handleDeleteAccount">Xóa</v-btn>
+          <v-btn rounded="lg" @click="showDeleteDialog = false">Hủy</v-btn>
+          <v-btn color="error" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="deleting" @click="handleDeleteAccount">Xóa</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -104,12 +145,12 @@ import { ref, onMounted } from 'vue';
 import { useZaloAccounts, type ZaloAccount } from '@/composables/use-zalo-accounts';
 import { useAuthStore } from '@/stores/auth';
 import ZaloAccessDialog from '@/components/settings/ZaloAccessDialog.vue';
+import ZaloAccountCard from '@/components/zalo/ZaloAccountCard.vue';
 import { api } from '@/api/index';
 
 const {
   accounts, loading, adding, deleting,
   showQRDialog, qrImage, qrScanned, scannedName, qrError,
-  statusColor, statusText,
   fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
   cancelQR, setupSocket,
 } = useZaloAccounts();
@@ -123,14 +164,6 @@ const showAccessDialog = ref(false);
 const newAccountName = ref('');
 const deleteTarget = ref<ZaloAccount | null>(null);
 const accessTarget = ref<ZaloAccount | null>(null);
-
-const headers = [
-  { title: 'Tên', key: 'displayName', sortable: true },
-  { title: 'Zalo UID', key: 'zaloUid' },
-  { title: 'SĐT', key: 'phone' },
-  { title: 'Trạng thái', key: 'status', sortable: true },
-  { title: 'Hành động', key: 'actions', sortable: false, align: 'end' as const },
-];
 
 async function syncContacts(accountId: string) {
   syncing.value = accountId;

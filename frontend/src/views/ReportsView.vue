@@ -1,7 +1,10 @@
 <template>
   <div>
     <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h4 font-weight-black" style="font-family: 'Space Grotesk', sans-serif;">Báo cáo</h1>
+      <div>
+        <h1 class="neo-page-title text-h4 mb-0">BÁO CÁO <span class="neo-title-accent">HỆ THỐNG</span></h1>
+        <p class="text-caption text-medium-emphasis mb-0">Thống kê lưu lượng tin nhắn, khách hàng và lịch hẹn</p>
+      </div>
       <v-spacer />
       <v-text-field
         v-model="dateFrom"
@@ -9,6 +12,7 @@
         type="date"
         density="compact"
         variant="outlined"
+        rounded="lg"
         style="max-width: 180px;"
         class="mr-2"
         hide-details
@@ -19,12 +23,13 @@
         type="date"
         density="compact"
         variant="outlined"
+        rounded="lg"
         style="max-width: 180px;"
         class="mr-2"
         hide-details
       />
-      <v-btn color="primary" rounded="sm" elevation="0" prepend-icon="mdi-refresh" :loading="loading" @click="fetchReport">Xem</v-btn>
-      <v-btn color="success" rounded="sm" elevation="0" prepend-icon="mdi-file-excel" class="ml-2" :loading="exporting" @click="exportExcel">Xuất Excel</v-btn>
+      <v-btn color="primary" rounded="lg" elevation="0" prepend-icon="mdi-refresh" :loading="loading" @click="fetchReport">Xem</v-btn>
+      <v-btn color="success" rounded="lg" elevation="0" prepend-icon="mdi-file-excel" class="ml-2" :loading="exporting" @click="exportExcel">Xuất Excel</v-btn>
     </div>
 
     <v-tabs v-model="tab" class="mb-4">
@@ -35,7 +40,7 @@
 
     <v-window v-model="tab">
       <v-window-item value="messages">
-        <v-card rounded="sm" elevation="0">
+        <v-card elevation="0">
           <v-data-table
             :headers="msgHeaders"
             :items="msgData"
@@ -45,7 +50,7 @@
         </v-card>
       </v-window-item>
       <v-window-item value="contacts">
-        <v-card rounded="sm" elevation="0">
+        <v-card elevation="0">
           <v-data-table
             :headers="contactHeaders"
             :items="contactData"
@@ -55,7 +60,7 @@
         </v-card>
       </v-window-item>
       <v-window-item value="appointments">
-        <v-card rounded="sm" elevation="0">
+        <v-card elevation="0">
           <v-data-table
             :headers="aptHeaders"
             :items="aptData"

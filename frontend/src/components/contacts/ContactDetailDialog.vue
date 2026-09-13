@@ -1,10 +1,10 @@
 <template>
   <v-dialog v-model="show" max-width="680" persistent scrollable>
-    <v-card rounded="sm" elevation="0">
-      <v-card-title class="d-flex align-center font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">
-        <span>{{ isNew ? 'Thêm khách hàng' : 'Chi tiết khách hàng' }}</span>
+    <v-card style="border: 1.5px solid var(--border-color); border-radius: 12px;" elevation="0">
+      <v-card-title class="d-flex align-center font-weight-bold neo-subtitle py-3 px-4" style="font-size: 0.95rem; border-bottom: 1px solid var(--border-color);">
+        <span>{{ isNew ? 'THÊM KHÁCH HÀNG' : 'CHI TIẾT KHÁCH HÀNG' }}</span>
         <v-spacer />
-        <v-btn icon="mdi-close" variant="text" @click="close" />
+        <v-btn icon="mdi-close" variant="text" size="small" @click="close" />
       </v-card-title>
 
       <v-divider />
@@ -106,8 +106,8 @@
           Xoá
         </v-btn>
         <v-spacer />
-        <v-btn variant="text" @click="close">Huỷ</v-btn>
-        <v-btn color="primary" rounded="sm" elevation="0" :loading="saving" @click="onSave">Lưu</v-btn>
+        <v-btn variant="text" rounded="lg" @click="close">Huỷ</v-btn>
+        <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" elevation="0" :loading="saving" @click="onSave">LƯU</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

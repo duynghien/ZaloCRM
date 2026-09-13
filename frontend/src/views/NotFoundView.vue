@@ -6,13 +6,13 @@
     >
       <v-icon icon="mdi-alert-circle-outline" size="48" color="primary" />
     </div>
-    <h1 class="text-h4 font-weight-black mb-2" style="font-family: 'Space Grotesk', sans-serif;">
-      404 — Không tìm thấy trang
+    <h1 class="neo-page-title text-h4 mb-2">
+      404 — <span class="neo-title-accent">KHÔNG TÌM THẤY TRANG</span>
     </h1>
     <p class="text-body-1 text-medium-emphasis mb-6">
       Trang bạn đang tìm kiếm không tồn tại hoặc đã được di chuyển.
     </p>
-    <v-btn to="/" color="primary" rounded="sm" elevation="0" prepend-icon="mdi-home">
+    <v-btn to="/" color="primary" rounded="lg" elevation="0" prepend-icon="mdi-home">
       Về trang chủ
     </v-btn>
   </div>

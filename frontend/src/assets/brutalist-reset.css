@@ -20,34 +20,41 @@
 }
 
 .v-field {
-  border-radius: 4px !important;
+  border-radius: var(--radius-input, 8px) !important;
 }
 
 /* Mechanical card & dialog borders */
 .v-card {
   border: 1.5px solid var(--border-color) !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-card, 12px) !important;
 }
 
 .v-dialog:not(.lightbox-dialog) > .v-card {
   border: 1.5px solid var(--border-color) !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-card, 12px) !important;
 }
 
 .v-table {
   border: 1.5px solid var(--border-color) !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-card, 12px) !important;
 }
 
 /* Scoped Avatar & Badge (exclude avatars in chips) */
-.v-avatar:not(.v-chip .v-avatar) {
-  border-radius: 4px !important;
+.v-avatar:not(.v-chip .v-avatar):not(.rounded-circle):not(.v-avatar--circle) {
+  border-radius: var(--radius-icon-box, 8px) !important;
+  border: 1.5px solid var(--border-color) !important;
+  overflow: hidden !important;
+}
+
+.v-avatar.rounded-circle,
+.v-avatar--circle {
+  border-radius: 50% !important;
   border: 1.5px solid var(--border-color) !important;
   overflow: hidden !important;
 }
 
 .v-badge__badge {
-  border-radius: 4px !important;
+  border-radius: var(--radius-btn, 8px) !important;
 }
 
 /* Typography: Space Grotesk for headings, buttons, tabs, labels */
@@ -60,12 +67,40 @@ h1, h2, h3, h4, h5, h6,
   font-family: 'Space Grotesk', sans-serif !important;
 }
 
+.neo-page-title {
+  font-family: 'Space Grotesk', sans-serif !important;
+  font-weight: 800 !important;
+  font-style: italic !important;
+  text-transform: uppercase !important;
+  letter-spacing: -0.01em !important;
+}
+
+.neo-title-accent {
+  color: #0068FF !important;
+}
+
 .neo-subtitle {
   font-family: 'Space Grotesk', sans-serif !important;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.neo-pill {
+  border-radius: 9999px !important;
+  border: 1.5px solid var(--border-color) !important;
+  text-transform: uppercase !important;
+  font-weight: 700 !important;
+  font-size: 0.75rem !important;
+}
+
+.neo-icon-box {
+  border-radius: var(--radius-icon-box, 8px) !important;
+  border: 1.5px solid var(--border-color) !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* Mechanical click feedback */

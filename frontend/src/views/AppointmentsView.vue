@@ -1,14 +1,17 @@
 <template>
   <div>
-    <!-- Toolbar -->
-    <div class="d-flex align-center mb-4 flex-wrap gap-2">
-      <h1 class="text-h4 font-weight-black mr-4" style="font-family: 'Space Grotesk', sans-serif;">
-        <v-icon class="mr-2" color="primary">mdi-calendar-clock</v-icon>
-        Lịch hẹn
-      </h1>
-      <v-spacer />
-      <v-btn color="primary" prepend-icon="mdi-plus" @click="showCreateDialog = true">
-        Tạo lịch hẹn
+    <!-- Toolbar CQA Style -->
+    <div class="d-flex flex-wrap align-center justify-space-between mb-4" style="gap: 12px;">
+      <div>
+        <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
+          LỊCH HẸN <span class="neo-title-accent">KHÁCH HÀNG</span>
+        </h1>
+        <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
+          THEO DÕI VÀ QUẢN LÝ TIẾN TRÌNH LỊCH HẸN, TÁI KHÁM.
+        </p>
+      </div>
+      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="showCreateDialog = true">
+        TẠO LỊCH HẸN
       </v-btn>
     </div>
 
@@ -27,6 +30,7 @@
         item-title="text"
         item-value="value"
         label="Trạng thái"
+        rounded="lg"
         clearable
         style="max-width: 220px"
         hide-details
@@ -41,6 +45,7 @@
       :loading="loading"
       item-value="id"
       hover
+      class="chart-card"
     >
       <!-- Date -->
       <template #item.appointmentDate="{ item }">
@@ -49,7 +54,7 @@
 
       <!-- Contact name -->
       <template #item.contact="{ item }">
-        <span>{{ item.contact?.fullName ?? '—' }}</span>
+        <span class="font-weight-medium">{{ item.contact?.fullName ?? '—' }}</span>
         <div class="text-caption text-grey">{{ item.contact?.phone ?? '' }}</div>
       </template>
 
@@ -60,7 +65,7 @@
 
       <!-- Status chip -->
       <template #item.status="{ item }">
-        <v-chip :color="statusChipColor(item.status)" size="small" variant="flat" rounded="sm" class="font-weight-bold" style="border: 1px solid var(--border-color);">
+        <v-chip :color="statusChipColor(item.status)" size="small" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.7rem;">
           {{ statusLabel(item.status) }}
         </v-chip>
       </template>
@@ -70,46 +75,58 @@
         <span class="text-body-2">{{ item.notes ?? '—' }}</span>
       </template>
 
-      <!-- Quick actions -->
+      <!-- Actions -->
       <template #item.actions="{ item }">
-        <div class="d-flex gap-1">
+        <div class="d-flex align-center justify-end" style="gap: 4px;">
+          <!-- Quick status update menu -->
+          <v-menu location="bottom end">
+            <template #activator="{ props: menuProps }">
+              <v-btn
+                v-bind="menuProps"
+                size="small"
+                variant="outlined"
+                rounded="lg"
+                class="channel-action-btn"
+                title="Đổi trạng thái"
+              >
+                <v-icon size="16">mdi-swap-horizontal</v-icon>
+              </v-btn>
+            </template>
+            <v-list density="compact" style="border: 1.5px solid var(--border-color); border-radius: 8px;">
+              <v-list-item
+                v-for="opt in APPOINTMENT_STATUS_OPTIONS"
+                :key="opt.value"
+                :disabled="item.status === opt.value"
+                @click="onStatusChange(item.id, opt.value)"
+              >
+                <v-list-item-title class="text-caption">{{ opt.text }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
+
+          <!-- Delete button -->
           <v-btn
-            v-if="item.status === 'scheduled'"
             size="small"
-            variant="text"
-            color="success"
-            icon="mdi-check"
-            title="Hoàn thành"
-            @click.stop="onMarkComplete(item.id)"
-          />
-          <v-btn
-            v-if="item.status === 'scheduled'"
-            size="small"
-            variant="text"
-            color="grey"
-            icon="mdi-cancel"
-            title="Huỷ"
-            @click.stop="onCancel(item.id)"
-          />
-          <v-btn
-            size="small"
-            variant="text"
+            variant="outlined"
+            rounded="lg"
             color="error"
-            icon="mdi-delete"
+            class="channel-action-btn"
             title="Xoá"
             @click.stop="onDelete(item.id)"
-          />
+          >
+            <v-icon size="16">mdi-delete</v-icon>
+          </v-btn>
         </div>
       </template>
     </v-data-table>
 
     <!-- Create appointment dialog -->
     <v-dialog v-model="showCreateDialog" max-width="520" persistent>
-      <v-card>
-        <v-card-title class="d-flex align-center">
-          Tạo lịch hẹn
+      <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
+        <v-card-title class="d-flex align-center font-weight-bold neo-subtitle" style="font-size: 0.9rem;">
+          TẠO LỊCH HẸN
           <v-spacer />
-          <v-btn icon="mdi-close" variant="text" @click="showCreateDialog = false" />
+          <v-btn icon="mdi-close" variant="text" size="small" @click="showCreateDialog = false" />
         </v-card-title>
         <v-divider />
         <v-card-text>
@@ -120,13 +137,14 @@
                 label="ID khách hàng"
                 hint="Nhập ID khách hàng"
                 persistent-hint
+                rounded="lg"
               />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model="createForm.appointmentDate" label="Ngày hẹn" type="date" />
+              <v-text-field v-model="createForm.appointmentDate" label="Ngày hẹn" type="date" rounded="lg" />
             </v-col>
             <v-col cols="12" sm="6">
-              <v-text-field v-model="createForm.appointmentTime" label="Giờ hẹn" type="time" />
+              <v-text-field v-model="createForm.appointmentTime" label="Giờ hẹn" type="time" rounded="lg" />
             </v-col>
             <v-col cols="12">
               <v-select
@@ -135,18 +153,19 @@
                 item-title="text"
                 item-value="value"
                 label="Loại"
+                rounded="lg"
               />
             </v-col>
             <v-col cols="12">
-              <v-textarea v-model="createForm.notes" label="Ghi chú" rows="2" auto-grow />
+              <v-textarea v-model="createForm.notes" label="Ghi chú" rows="2" auto-grow rounded="lg" />
             </v-col>
           </v-row>
         </v-card-text>
         <v-divider />
         <v-card-actions>
           <v-spacer />
-          <v-btn variant="text" @click="showCreateDialog = false">Huỷ</v-btn>
-          <v-btn color="primary" :loading="saving" @click="onCreateSave">Lưu</v-btn>
+          <v-btn rounded="lg" @click="showCreateDialog = false">Huỷ</v-btn>
+          <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="saving" @click="onCreateSave">Lưu</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -168,7 +187,7 @@ const {
   appointments, todayAppointments, upcomingAppointments,
   loading, saving, filters,
   fetchAppointments, fetchToday, fetchUpcoming,
-  createAppointment, deleteAppointment, markComplete, cancelAppointment,
+  createAppointment, deleteAppointment, updateAppointment,
 } = useAppointments();
 
 const activeTab = ref<'today' | 'upcoming' | 'all'>('today');
@@ -217,13 +236,8 @@ function typeLabel(type: string) {
   return APPOINTMENT_TYPE_OPTIONS.find(o => o.value === type)?.text ?? type;
 }
 
-async function onMarkComplete(id: string) {
-  await markComplete(id);
-  refreshActive();
-}
-
-async function onCancel(id: string) {
-  await cancelAppointment(id);
+async function onStatusChange(id: string, status: string) {
+  await updateAppointment(id, { status } as any);
   refreshActive();
 }
 
@@ -262,3 +276,17 @@ onMounted(() => {
   fetchUpcoming();
 });
 </script>
+
+<style scoped>
+.chart-card {
+  background: var(--surface-card);
+  border: 1.5px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.channel-action-btn {
+  width: 32px !important;
+  height: 32px !important;
+  border: 1.5px solid var(--border-color) !important;
+}
+</style>

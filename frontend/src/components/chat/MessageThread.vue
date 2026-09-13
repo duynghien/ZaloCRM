@@ -19,7 +19,7 @@
           class="mr-2"
           @click="$emit('back')"
         />
-        <v-avatar size="36" color="grey-lighten-2" class="mr-3">
+        <v-avatar size="36" color="grey-lighten-2" class="mr-3" rounded="circle">
           <v-icon v-if="conversation.threadType === 'group'" icon="mdi-account-group" />
           <v-img v-else-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
           <v-icon v-else icon="mdi-account" />
@@ -97,15 +97,15 @@
 
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
-        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="sm" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
-        <v-btn icon color="primary" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
+        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="lg" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
+        <v-btn icon color="primary" rounded="lg" style="border: 1.5px solid var(--border-color);" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
       </div>
     </template>
 
     <!-- Image preview dialog -->
     <v-dialog v-model="showImagePreview" max-width="900" content-class="elevation-0">
       <div class="text-center" @click="showImagePreview = false" style="cursor: pointer;">
-        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 4px; border: 2px solid var(--border-color);" />
+        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 8px; border: 2px solid var(--border-color);" />
         <div class="text-caption mt-2 neo-subtitle" style="color: var(--text-muted);">Nhấn để đóng</div>
       </div>
     </v-dialog>
@@ -252,7 +252,7 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 <style scoped>
 .message-bubble {
   box-shadow: none !important;
-  border-radius: 4px !important;
+  border-radius: var(--radius-bubble, 12px) !important;
   border-width: 1.5px !important;
   border-style: solid !important;
 }
@@ -267,7 +267,7 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
   padding: 8px 12px;
   border-left: 3px solid var(--primary-brand) !important;
   border: 1.5px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--surface-variant);
 }
 
@@ -275,7 +275,7 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
   display: flex;
   align-items: center;
   padding: 8px 12px;
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--surface-variant);
   border: 1.5px solid var(--border-color);
 }
@@ -283,7 +283,7 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 .chat-image {
   max-width: 100%;
   max-height: 300px;
-  border-radius: 4px;
+  border-radius: 8px;
   border: 1.5px solid var(--border-color);
   cursor: pointer;
   transition: transform 0.15s ease-in-out;

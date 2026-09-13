@@ -7,7 +7,7 @@
       variant="outlined"
       density="compact"
       hide-details
-      rounded="sm"
+      rounded="lg"
       clearable
       @update:model-value="debouncedSearch"
     />
