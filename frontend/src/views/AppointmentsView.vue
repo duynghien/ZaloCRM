@@ -10,7 +10,7 @@
           THEO DÕI VÀ QUẢN LÝ TIẾN TRÌNH LỊCH HẸN, TÁI KHÁM.
         </p>
       </div>
-      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="showCreateDialog = true">
+      <v-btn color="primary" rounded="lg" prepend-icon="plus-large.svg" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="showCreateDialog = true">
         TẠO LỊCH HẸN
       </v-btn>
     </div>
@@ -114,7 +114,7 @@
             title="Xoá"
             @click.stop="onDelete(item.id)"
           >
-            <v-icon size="16">mdi-delete</v-icon>
+            <v-icon size="16">trash-xmark-alt.svg</v-icon>
           </v-btn>
         </div>
       </template>

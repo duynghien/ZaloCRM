@@ -22,14 +22,14 @@
         <v-avatar size="36" color="grey-lighten-2" class="mr-3" rounded="circle">
           <v-icon v-if="conversation.threadType === 'group'" icon="mdi-account-group" />
           <v-img v-else-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
-          <v-icon v-else icon="mdi-account" />
+          <v-icon v-else icon="user-alt.svg" />
         </v-avatar>
         <div class="flex-grow-1">
           <div class="font-weight-medium">{{ conversation.contact?.fullName || 'Unknown' }}</div>
           <div class="text-caption text-grey">{{ conversation.zaloAccount?.displayName || 'Zalo' }}</div>
         </div>
         <v-btn
-          :icon="showContactPanel ? 'mdi-account-details' : 'mdi-account-details-outline'"
+          :icon="showContactPanel ? 'mdi-account-details' : 'water.svg'"
           size="small" variant="text"
           :color="showContactPanel ? 'primary' : undefined"
           @click="$emit('toggle-contact-panel')"
@@ -98,7 +98,7 @@
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
         <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="lg" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
-        <v-btn icon color="primary" rounded="lg" style="border: 1.5px solid var(--border-color);" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>mdi-send</v-icon></v-btn>
+        <v-btn icon color="primary" rounded="lg" style="border: 1.5px solid var(--border-color);" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>send.svg</v-icon></v-btn>
       </div>
     </template>
 

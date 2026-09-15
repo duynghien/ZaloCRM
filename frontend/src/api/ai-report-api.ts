@@ -35,7 +35,7 @@ export interface GeneratedReportItem {
   createdById: string | null;
   createdBy?: { id: string; fullName: string; email: string };
   title: string;
-  reportType: 'daily' | 'weekly' | 'on_demand';
+  reportType: 'daily' | 'weekly' | 'on_demand' | 'audit_rule';
   periodFrom: string;
   periodTo: string;
   groupThreadIds: string[];
@@ -46,8 +46,40 @@ export interface GeneratedReportItem {
   structuredData: any;
   sentZalo: boolean;
   sentEmail: boolean;
-  metadata: any;
+  metadata?: {
+    generatedAt?: string;
+    isFallback?: boolean;
+    primaryModel?: string;
+    actualModel?: string;
+    fallbackReason?: string;
+    [key: string]: any;
+  };
   createdAt: string;
+}
+
+export interface AiProviderDetail {
+  type: 'gemini' | 'openai' | 'deepseek' | 'custom';
+  model: string;
+  apiKey?: string;
+  apiKeySet?: boolean;
+  baseUrl?: string;
+  supportsVision?: boolean;
+}
+
+export interface AiProviderSettings {
+  isSystemDefault?: boolean;
+  primaryProvider: 'gemini' | 'deepseek' | 'openai' | 'custom';
+  providers: Record<string, AiProviderDetail>;
+  fallbackEnabled: boolean;
+  fallbackChain: string[];
+  allowSystemFallback: boolean;
+}
+
+export interface TestAiResult {
+  success: boolean;
+  latencyMs: number;
+  message: string;
+  modelName: string;
 }
 
 export interface AutomationSettings {
@@ -102,6 +134,49 @@ export interface AiReportJob {
   createdAt: string;
   finishedAt: string | null;
   cancellationRequestedAt: string | null;
+}
+
+export interface AiAuditRule {
+  id: string;
+  name: string;
+  isEnabled: boolean;
+  zaloAccountId: string;
+  groupThreadId: string;
+  groupName?: string;
+  runTime: string;
+  daysOfWeek: number[];
+  scanWindowType: 'since_start_of_day' | 'last_n_hours';
+  scanWindowHours?: number;
+  personnelType: 'explicit_list' | 'all_group_members';
+  personnelList?: string[];
+  templateType: 'schedule_submission' | 'work_progress' | 'image_verification' | 'custom';
+  customPrompt?: string;
+  destinationType: 'group' | 'self' | 'cloud' | 'uid' | 'email';
+  targetGroupId?: string;
+  targetGroupName?: string;
+  targetUid?: string;
+  emailRecipients?: string[];
+  sendOperationalReminder: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string | null;
+  lastRunStatus?: 'success' | 'failed' | 'dispatch_failed' | null;
+  lastRunReportId?: string | null;
+  lastError?: string | null;
+}
+
+export type AuditRuleInput = Omit<
+  AiAuditRule,
+  'id' | 'createdAt' | 'updatedAt' | 'lastRunAt' | 'lastRunStatus' | 'lastRunReportId' | 'lastError'
+>;
+
+export interface RunAuditRuleNowResult {
+  success: boolean;
+  reportId?: string;
+  supervisoryReportMarkdown: string;
+  operationalReminderMessage?: string;
+  lastRunStatus: 'success' | 'failed' | 'dispatch_failed';
+  error?: string;
 }
 
 export const aiReportApi = {
@@ -186,6 +261,7 @@ export const aiReportApi = {
   async getSettings(): Promise<{
     automation: AutomationSettings;
     smtp: SmtpSettings | null;
+    aiProviders?: AiProviderSettings;
   }> {
     const res = await api.get('/ai-reports/settings');
     return res.data;
@@ -194,8 +270,40 @@ export const aiReportApi = {
   async updateSettings(payload: {
     automation?: Partial<AutomationSettings>;
     smtp?: Partial<SmtpSettings>;
+    aiProviders?: Partial<AiProviderSettings>;
   }): Promise<{ success: boolean }> {
     const res = await api.put('/ai-reports/settings', payload);
+    return res.data;
+  },
+
+  async testAiConnection(config: Partial<AiProviderDetail>): Promise<TestAiResult> {
+    const res = await api.post('/ai-reports/settings/test-ai', config, { timeout: 65000 });
+    return res.data;
+  },
+
+  // Audit Rules
+  async getAuditRules(): Promise<{ rules: AiAuditRule[] }> {
+    const res = await api.get('/ai-reports/rules');
+    return res.data;
+  },
+
+  async createAuditRule(payload: AuditRuleInput): Promise<{ rule: AiAuditRule }> {
+    const res = await api.post('/ai-reports/rules', payload);
+    return res.data;
+  },
+
+  async updateAuditRule(id: string, payload: Partial<AuditRuleInput>): Promise<{ rule: AiAuditRule }> {
+    const res = await api.put(`/ai-reports/rules/${id}`, payload);
+    return res.data;
+  },
+
+  async deleteAuditRule(id: string): Promise<{ success: boolean }> {
+    const res = await api.delete(`/ai-reports/rules/${id}`);
+    return res.data;
+  },
+
+  async runAuditRuleNow(id: string): Promise<RunAuditRuleNowResult> {
+    const res = await api.post(`/ai-reports/rules/${id}/run-now`);
     return res.data;
   },
 };

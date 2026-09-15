@@ -2,7 +2,7 @@
   <v-dialog v-model="open" max-width="520">
     <v-card elevation="0">
       <v-card-title class="d-flex align-center font-weight-bold">
-        <v-icon class="mr-2" color="primary">mdi-shield-account</v-icon>
+        <v-icon class="mr-2" color="primary">shield-keyhole.svg</v-icon>
         Phân quyền truy cập — {{ accountName }}
       </v-card-title>
 
@@ -15,7 +15,7 @@
           <v-list density="compact" rounded="lg" variant="tonal">
             <v-list-item v-for="a in accessList" :key="a.id">
               <template #prepend>
-                <v-icon color="primary">mdi-account</v-icon>
+                <v-icon color="primary">user-alt.svg</v-icon>
               </template>
               <v-list-item-title>{{ a.fullName }}</v-list-item-title>
               <v-list-item-subtitle>{{ a.email }}</v-list-item-subtitle>
@@ -34,7 +34,7 @@
                   @update:model-value="handleUpdatePermission(a.id, $event)"
                 />
                 <v-btn icon size="x-small" color="error" variant="text" @click="handleRemoveAccess(a.id)">
-                  <v-icon>mdi-delete</v-icon>
+                  <v-icon>trash-xmark-alt.svg</v-icon>
                 </v-btn>
               </template>
             </v-list-item>

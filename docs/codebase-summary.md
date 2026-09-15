@@ -97,7 +97,7 @@ ZaloCRM/
 | **chat** | Quản lý hội thoại, gửi/nhận tin nhắn đa phương tiện, lọc tin nhắn chưa đọc/chưa trả lời, xử lý deduplication tin nhắn đến và thu hồi (undo) an toàn theo thread. | `chat-routes.ts`, `message-handler.ts` |
 | **contacts** | Danh bạ khách hàng, phân loại Pipeline 5 trạng thái (`new` → `lost`), lịch hẹn tư vấn và tiến trình tự động nhắc hẹn qua Socket/Zalo. | `contact-routes.ts`, `contact-sub-resource-routes.ts`, `appointment-routes.ts`, `appointment-reminder.ts` |
 | **orders** | Quản lý đơn hàng bán hàng gắn với contact/conversation, cấp mã đơn hàng tuần tự nguyên tử `ORD-YYYYMMDD-NNN` chống race condition bằng `order_code_counters`. | `order-routes.ts`, `order-code-service.ts` |
-| **ai-reports** | Động cơ AI Digest 2 tầng (Hierarchical Map-Reduce) dùng Gemini model (`GEMINI_MODEL`, mặc định `gemini-3.6-flash`), quản lý ngân sách token/tin nhắn dưới lease fence, snapshot nguồn `(org, account, thread, conversation)`, idempotency resend ledger. | `ai-report-routes.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `report-resend-service.ts`, `report-target-service.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts`, `report-admission.ts` |
+| **ai-reports** | Động cơ AI Digest 2 tầng (Hierarchical Map-Reduce) và Quy tắc giám sát nhóm tự động (Scheduled AI Group Audit Rules) dùng Gemini model (`GEMINI_MODEL`, mặc định `gemini-3.6-flash`), quản lý ngân sách token/tin nhắn dưới lease fence, snapshot nguồn `(org, account, thread, conversation)`, idempotency resend ledger, dual-channel dispatch và bộ lập lịch phút advisory lock. | `ai-report-routes.ts`, `ai-audit-rule-routes.ts`, `ai-audit-rule-service.ts`, `ai-audit-evaluator.ts`, `audit-rule-cron-runner.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `report-resend-service.ts`, `report-target-service.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts`, `report-admission.ts` |
 | **attachments** | Tải stream có giới hạn dung lượng byte, kiểm tra SSRF cho URL, trích xuất văn bản từ PDF, bảng tính Excel đa sheet. | `attachment-downloader.ts`, `attachment-parser.ts`, `attachment-parser-worker.ts` |
 | **dashboard** | Thống kê tin nhắn theo ngày, KPI nhân viên bán hàng, biểu đồ tăng trưởng đường ống và nguồn khách, xuất báo cáo tổng hợp ra file Excel. | `dashboard-routes.ts`, `report-routes.ts`, `excel-sheet-builders.ts` |
 | **api** | Cung cấp Public REST API xác thực bằng `X-API-Key` và hệ thống Webhook kích hoạt sự kiện bên ngoài với chữ ký HMAC SHA-256. | `public-api-routes.ts`, `public-api-schemas.ts`, `webhook-settings-routes.ts`, `webhook-service.ts` |
@@ -116,7 +116,7 @@ ZaloCRM/
   - `AppointmentsView.vue`: Quản lý danh sách & lịch hẹn hôm nay/sắp tới.
   - `OrdersView.vue`: Quản lý đơn hàng, bộ lọc trạng thái, tổng doanh thu và thống kê theo nhân viên.
   - `ReportsView.vue`: Báo cáo hiệu suất tin nhắn, khách hàng, lịch hẹn và xuất file Excel.
-  - `AiReportsView.vue`: Báo cáo điều hành AI Digest (Tạo tức thì, Lịch sử báo cáo, Chi tiết Markdown, Cấu hình nhóm theo dõi, Cấu hình Cron/Zalo/SMTP, Resend).
+  - `AiReportsView.vue`: Báo cáo điều hành AI Digest (Tạo tức thì, Lịch sử báo cáo, Chi tiết Markdown, Cấu hình nhóm theo dõi, Cấu hình Cron/Zalo/SMTP, Resend) & Quy tắc giám sát nhóm (`AiAuditRulesCard.vue`, `AiAuditRuleDialog.vue`).
   - `DashboardView.vue`: Bảng điều khiển KPI tổng quan, biểu đồ khối lượng tin nhắn, nguồn khách và đường ống.
   - `SettingsView.vue`: Cấu hình Tổ chức, Đội nhóm (Teams) và Phân quyền người dùng (Users).
   - `ApiSettingsView.vue`: Cấu hình Webhook & Quản lý API Key tích hợp bên ngoài.
@@ -245,7 +245,7 @@ POST   /api/v1/settings/api-key/generate      # Tạo mới/thu hồi và cấp 
 DELETE /api/v1/settings/api-key               # Xóa API Key (Owner/Admin)
 ```
 
-### 4.11. Báo Cáo Điều Hành AI Digest (AI Reports v2)
+### 4.11. Báo Cáo Điều Hành AI Digest (AI Reports v2) & Quy Tắc Giám Sát Nhóm
 ```
 GET    /api/v1/ai-reports/groups              # Danh sách nhóm Zalo và cấu hình theo dõi của user
 GET    /api/v1/ai-reports/configs             # Cấu hình chi tiết các nhóm Zalo
@@ -253,11 +253,16 @@ PUT    /api/v1/ai-reports/configs/:groupThreadId # Cập nhật cấu hình nhó
 POST   /api/v1/ai-reports/generate            # Khởi tạo tiến trình tạo báo cáo AI On-Demand (Job v2)
 GET    /api/v1/ai-reports/jobs/:id            # Theo dõi trạng thái tiến trình Job (queued/running/completed/failed)
 POST   /api/v1/ai-reports/jobs/:id/cancel     # Hủy yêu cầu tạo báo cáo đang xử lý
-GET    /api/v1/ai-reports                     # Danh sách lịch sử các báo cáo đã tạo
+GET    /api/v1/ai-reports                     # Danh sách lịch sử các báo cáo đã tạo (hỗ trợ report_type=audit_rule)
 GET    /api/v1/ai-reports/:id                 # Xem chi tiết nội dung báo cáo Markdown & JSON
 POST   /api/v1/ai-reports/:id/resend          # Gửi lại báo cáo qua Zalo hoặc Email (Idempotency-Key)
 GET    /api/v1/ai-reports/settings            # Xem cấu hình tự động Cron, Zalo nhận và SMTP (Owner/Admin)
 PUT    /api/v1/ai-reports/settings            # Cập nhật cấu hình tự động Cron, Zalo nhận và SMTP (Owner/Admin)
+GET    /api/v1/ai-reports/rules               # Danh sách các quy tắc giám sát nhóm Zalo
+POST   /api/v1/ai-reports/rules               # Tạo quy tắc giám sát mới (Owner/Admin)
+PUT    /api/v1/ai-reports/rules/:id           # Cập nhật quy tắc giám sát (Owner/Admin)
+DELETE /api/v1/ai-reports/rules/:id           # Xóa quy tắc giám sát (Owner/Admin)
+POST   /api/v1/ai-reports/rules/:id/run-now   # Kích hoạt đánh giá tức thì (Run Now, Owner/Admin)
 ```
 
 ### 4.12. Thông Báo & Tìm Kiếm Toàn Hệ Thống
@@ -281,14 +286,14 @@ POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách
 
 ---
 
-## 5. Quality Baseline & Verification Matrix (Cập Nhật 2026-09-13)
+## 5. Quality Baseline & Verification Matrix (Cập Nhật 2026-09-14)
 
 | Chỉ số | Trạng thái thực tế | Ghi chú kiểm chứng |
 |---|---|---|
-| **TypeScript typecheck** | **PASS (0 errors)** | Cả backend (`tsc --noEmit`) và frontend (`vue-tsc --noEmit`) đạt chuẩn. |
-| **Production build** | **PASS** | `npm run build` biên dịch thành công schema manifest, Fastify dist và Vite SPA bundle (605ms). |
+| **TypeScript typecheck** | **PASS (0 errors)** | Cả backend (`tsc --noEmit`) và frontend (`vue-tsc --noEmit`) đạt chuẩn 100%. |
+| **Production build** | **PASS** | `npm run build` biên dịch thành công schema manifest, Fastify dist và Vite SPA bundle. |
 | **Clean install workspace** | **PASS** | Root `package-lock.json` duy nhất điều phối toàn bộ dependencies monorepo. |
-| **Unit tests** | **PASS (98 tests)** | Backend: 5 files (77 tests: audit policy, outbound URL, report job, request bounds, secure codec); Frontend: 3 files (21 tests: QR subscription, chat recovery, AI report resend). |
+| **Unit & E2E tests** | **PASS (140+ tests)** | Backend: 10 files (114+ tests gồm audit policy, outbound URL, report job, request bounds, secure codec, ai-audit-rule-service, zalo-report-sender, ai-audit-evaluator, audit-rule-cron-runner, ai-group-audit-e2e); Frontend: 4 files (26 tests gồm QR subscription, chat recovery, AI report resend, ai-audit-rules). |
 | **Integration test suites** | **20 test suites** | Kiểm thử Disposable Postgres: tenant isolation, Socket.IO delivery, message replay/undo, order code counter, AI budget & lifecycle. |
 | **Browser E2E specs** | **10 specs** | Playwright: session lifecycle, QR intent, chat recovery, account permissions, target qualification. |
 | **Dependency audit policy** | **PASS** | `npm run audit:production` kiểm soát chặt chẽ: chỉ chấp nhận 2 waiver Prisma CLI (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`). |
@@ -303,6 +308,13 @@ POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách
   - Zalo delivery yêu cầu `zalo_account_id` sender tường minh; source và sender đều kiểm tra ACL. Resend cần `Idempotency-Key`, lưu attempt và dispatch ledger riêng; cùng key/payload trả kết quả cũ, đổi payload với cùng key trả `409`.
   - `GroupReportConfig` định danh theo org/account/thread, giữ cấu hình legacy `needs_resolution` khi không thể resolve. `GeneratedReport` giữ `sourceTargets`; bản cũ `legacy_unverified` chỉ Owner/Admin cùng org đọc, không resend.
   - `report-job-budget.ts` quản lý reservation dưới lease fence trước từng provider attempt; ngân sách gồm prompt/context mở rộng attachment và mọi lượt map/reduce/final/retry. SQL estimate chỉ preflight.
+
+- **Scheduled AI Group Audit Rules & Anti-Injection Dispatch:**
+  - `AiAuditRule` lưu cấu hình trong `AppSetting` (`ai_audit_rules`), tách biệt telemetry runtime sang `ai_audit_stat:${ruleId}` để chống ghi đè (lost updates) khi cron và API chạy đồng thời.
+  - Phân giải nhân sự kết hợp API `getGroupInfo` và cache thành viên; nghiêm cấm phân giải từ tin nhắn chat để tránh thiên kiến sống sót (survivorship bias).
+  - Tin nhắn nhắc nhở nhóm vận hành (`operationalReminderMessage`) được tạo tất định 100% bằng mã TypeScript từ cấu trúc telemetry; LLM không trực tiếp soạn thảo câu lệnh dispatch vào nhóm làm việc, triệt tiêu nguy cơ gián điệp và prompt injection.
+  - Direct Execution Lease trên `ai_report_jobs` với `scheduleKey = ${orgId}:audit_rule:${rule.id}:${timestamp}` thỏa mãn Token Budget và execution guard mà không phụ thuộc hàng đợi chung.
+  - Bộ lập lịch cron chạy theo phút với múi giờ `Asia/Ho_Chi_Minh` và khóa giao dịch `pg_advisory_xact_lock` ngăn chặn thực thi trùng lặp trên đa tiến trình / cluster.
 
 - **Dữ Liệu Đầu Vào & Độ Tin Cậy Giao Dịch:**
   - `request-schemas.ts`, `request-bounds.ts`, `report-http-validation.ts` kiểm tra kiểu/giới hạn trước side effect. Không coi input sai là omission hoặc âm thầm clamp về mặc định.

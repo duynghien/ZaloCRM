@@ -8,7 +8,7 @@
             class="channel-logo neo-icon-box mr-3 flex-shrink-0"
             style="width: 44px; height: 44px; background: #0068FF; color: #FFFFFF;"
           >
-            <v-icon size="24" color="#FFFFFF">mdi-message-processing</v-icon>
+            <v-icon size="24" color="#FFFFFF">zalo.svg</v-icon>
           </div>
           <div>
             <div class="text-subtitle-1 font-weight-bold" style="line-height: 1.2; font-family: 'Space Grotesk', sans-serif;">
@@ -111,7 +111,7 @@
         title="Phân quyền truy cập"
         @click="$emit('access', account)"
       >
-        <v-icon size="16">mdi-shield-account</v-icon>
+        <v-icon size="16">shield-keyhole.svg</v-icon>
       </v-btn>
 
       <!-- Delete Button (Admin only) -->
@@ -126,7 +126,7 @@
         title="Xóa"
         @click="$emit('delete', account)"
       >
-        <v-icon size="16">mdi-delete</v-icon>
+        <v-icon size="16">trash-xmark-alt.svg</v-icon>
       </v-btn>
     </div>
   </v-card>

@@ -15,7 +15,7 @@
       <!-- Tab 1: User management -->
       <v-window-item value="users">
         <div class="d-flex align-center mb-4">
-          <v-btn v-if="authStore.isAdmin" color="primary" rounded="lg" elevation="0" prepend-icon="mdi-plus" @click="openCreate">
+          <v-btn v-if="authStore.isAdmin" color="primary" rounded="lg" elevation="0" prepend-icon="plus-large.svg" @click="openCreate">
             Thêm nhân viên
           </v-btn>
         </div>
@@ -36,13 +36,13 @@
             </template>
             <template #item.actions="{ item }">
               <v-btn v-if="authStore.isAdmin" icon size="small" variant="text" title="Chỉnh sửa" @click="openEdit(item)">
-                <v-icon>mdi-pencil</v-icon>
+                <v-icon>pen.svg</v-icon>
               </v-btn>
               <v-btn v-if="authStore.isAdmin" icon size="small" variant="text" title="Đặt lại mật khẩu" @click="openPassword(item)">
-                <v-icon>mdi-lock-reset</v-icon>
+                <v-icon>fingerprint.svg</v-icon>
               </v-btn>
               <v-btn v-if="authStore.isOwner && item.id !== authStore.user?.id" icon size="small" variant="text" color="error" title="Vô hiệu hóa" @click="confirmDelete(item)">
-                <v-icon>mdi-delete</v-icon>
+                <v-icon>trash-xmark-alt.svg</v-icon>
               </v-btn>
             </template>
           </v-data-table>

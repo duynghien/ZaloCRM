@@ -1,19 +1,27 @@
 <template>
   <v-menu offset-y :close-on-content-click="false" max-width="380">
     <template #activator="{ props: menuProps }">
-      <v-btn icon variant="text" v-bind="menuProps" class="mr-1">
+      <v-btn
+        icon
+        size="small"
+        class="topbar-action-btn"
+        title="Thông báo"
+        v-bind="menuProps"
+      >
         <v-badge
           :content="notifications.length"
           :model-value="notifications.length > 0"
           color="error"
-          overlap
+          location="top end"
+          offset-x="-2"
+          offset-y="-2"
         >
-          <v-icon>mdi-bell-outline</v-icon>
+          <v-icon size="18">bell-alt-1.svg</v-icon>
         </v-badge>
       </v-btn>
     </template>
-    <v-card style="max-height: 400px; overflow-y: auto;">
-      <v-card-title class="text-body-1 font-weight-bold pa-3">Thông báo</v-card-title>
+    <v-card class="notification-card" style="max-height: 400px; overflow-y: auto;">
+      <v-card-title class="text-body-1 font-weight-bold pa-3 neo-subtitle">Thông báo</v-card-title>
       <v-divider />
       <v-list density="compact" v-if="notifications.length > 0">
         <v-list-item
@@ -30,7 +38,7 @@
               {{ n.type === 'error' ? 'mdi-alert-circle' : n.type === 'warning' ? 'mdi-alert' : 'mdi-information' }}
             </v-icon>
           </template>
-          <v-list-item-title class="text-body-2">{{ n.title }}</v-list-item-title>
+          <v-list-item-title class="text-body-2 font-weight-medium">{{ n.title }}</v-list-item-title>
           <v-list-item-subtitle class="text-caption">{{ n.detail }}</v-list-item-subtitle>
         </v-list-item>
       </v-list>
@@ -79,3 +87,21 @@ onMounted(() => {
 
 onUnmounted(() => clearInterval(interval));
 </script>
+
+<style scoped>
+.notification-card {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  background: var(--surface-card) !important;
+}
+
+:deep(.v-badge__badge) {
+  font-family: 'Space Grotesk', sans-serif !important;
+  font-size: 0.65rem !important;
+  font-weight: 700 !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  padding: 0 4px !important;
+  border: 1px solid var(--border-color) !important;
+}
+</style>

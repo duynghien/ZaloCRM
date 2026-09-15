@@ -20,7 +20,7 @@
         :model-value="search"
         @update:model-value="$emit('update:search', $event)"
         placeholder="Tìm kiếm..."
-        prepend-inner-icon="mdi-magnify"
+        prepend-inner-icon="search-alt-1.svg"
         variant="outlined"
         rounded="lg"
         density="compact"
@@ -45,7 +45,7 @@
           <v-avatar size="40" color="grey-lighten-2" rounded="circle">
             <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
             <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
-            <v-icon v-else icon="mdi-account" />
+            <v-icon v-else icon="user-alt.svg" />
           </v-avatar>
         </template>
 

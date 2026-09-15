@@ -1,27 +1,29 @@
 /**
- * ai-client.ts — Configured Gemini client with exponential backoff retry and multimodal support.
+ * ai-client.ts — Multi-provider AI dispatch with budget reservation, retry, and multimodal support.
  */
-import { GoogleGenAI, type ContentListUnion } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
+import { runReportExecutionGuard, type ReportJobBudget } from './report-job-budget.js';
+import type { ContentPart, FallbackTelemetry } from './providers/ai-provider-interface.js';
+import { AiProviderRouter } from './providers/ai-provider-router.js';
+import {
+  getOrgAiProviderCredentials,
+  getSystemDefaultAiSettings,
+} from './ai-provider-settings-service.js';
 
-import { ReportControlError, isReportControlError, runReportExecutionGuard, type ReportJobBudget } from './report-job-budget.js';
+export type { ContentPart } from './providers/ai-provider-interface.js';
 
 export interface GenerateContentOptions {
   budget: ReportJobBudget;
   executionGuard: () => Promise<void>;
+  orgId?: string;
+  signal?: AbortSignal;
   model?: string;
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
-}
-
-export interface ContentPart {
-  text?: string;
-  inlineData?: {
-    mimeType: string;
-    data: string; // base64
-  };
+  onFallback?: (telemetry: FallbackTelemetry) => void;
 }
 
 let genAIInstance: GoogleGenAI | null = null;
@@ -57,93 +59,27 @@ export async function validateConfiguredGeminiModel(requireApiKey = false): Prom
 }
 
 /**
- * Helper to pause execution
- */
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Generate AI content with automatic exponential backoff retry (1 retry after 3s).
+ * Generate AI content via the Multi-Provider AI Adapter & Router.
  */
 export async function generateContent(
   prompt: string | ContentPart[],
   options: GenerateContentOptions,
 ): Promise<string> {
-  const apiKey = config.geminiApiKey;
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is required to generate AI reports.');
-  }
+  await runReportExecutionGuard(options.executionGuard);
 
-  const model = options?.model || config.geminiModel;
-  const ai = getGenAI();
-  if (!ai) {
-    throw new Error('Google GenAI client could not be initialized.');
-  }
+  const orgSettings = options.orgId
+    ? await getOrgAiProviderCredentials(options.orgId)
+    : getSystemDefaultAiSettings();
 
-  let lastError: any = null;
+  const router = new AiProviderRouter(orgSettings);
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    try {
-      await runReportExecutionGuard(options.executionGuard);
-      let contents: ContentListUnion;
-      if (typeof prompt === 'string') {
-        contents = prompt;
-      } else {
-        contents = prompt.map((part) => {
-          if (part.inlineData) {
-            return {
-              inlineData: {
-                mimeType: part.inlineData.mimeType,
-                data: part.inlineData.data,
-              },
-            };
-          }
-          return { text: part.text || '' };
-        });
-      }
-
-      // Developer API countTokens cannot accept systemInstruction. Fold the same
-      // instruction into the actual content sent to BOTH endpoints, so no tokens escape accounting.
-      if (options.systemInstruction) {
-        const parts = typeof contents === 'string' ? [{ text: contents }] : contents as ContentPart[];
-        contents = [{ text: options.systemInstruction }, ...parts];
-      }
-      let inputTokens: number | undefined;
-      try {
-        inputTokens = (await ai.models.countTokens({ model, contents, config: {} })).totalTokens;
-      } catch (cause) {
-        throw new ReportControlError('Report token count unavailable', { cause });
-      }
-      if (!Number.isSafeInteger(inputTokens) || inputTokens! < 0) throw new ReportControlError('Report token count unavailable');
-      const reservation = await options.budget.reserve(inputTokens!, options.maxOutputTokens ?? 8192);
-      await runReportExecutionGuard(options.executionGuard);
-      const response = await ai.models.generateContent({
-        model,
-        contents,
-        config: {
-          temperature: options?.temperature ?? 0.2,
-          maxOutputTokens: reservation.maxOutputTokens,
-        },
-      });
-
-      await options.budget.complete(reservation.attemptKey, { inputTokens: response.usageMetadata?.promptTokenCount, outputTokens: response.usageMetadata?.candidatesTokenCount });
-      const text = response.text || '';
-      if (!text) {
-        throw new Error('Empty response received from Gemini API');
-      }
-
-      return text;
-    } catch (err: any) {
-      if (isReportControlError(err)) throw err;
-      lastError = err;
-      logger.warn(`[ai-client] Attempt ${attempt} failed for model ${model}:`, err?.message || err);
-
-      if (attempt === 1) {
-        // Exponential backoff: pause 3s before retry
-        await sleep(3000);
-      }
-    }
-  }
-
-  logger.error(`[ai-client] All attempts failed for model ${model}:`, lastError);
-  throw lastError || new Error('Gemini API call failed after retries.');
+  return router.generateContent(prompt, {
+    budget: options.budget,
+    executionGuard: options.executionGuard,
+    signal: options.signal,
+    systemInstruction: options.systemInstruction,
+    temperature: options.temperature,
+    maxOutputTokens: options.maxOutputTokens,
+    onFallback: options.onFallback,
+  });
 }

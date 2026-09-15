@@ -13,6 +13,7 @@
 9. [Câu hỏi thường gặp](#9-câu-hỏi-thường-gặp)
 10. [Quy tắc quan trọng](#10-quy-tắc-quan-trọng)
 11. [Báo cáo AI](#11-báo-cáo-ai)
+12. [Quy tắc giám sát nhóm AI (Audit Rules)](#12-quy-tắc-giám-sát-nhóm-ai-audit-rules)
 
 ---
 
@@ -294,3 +295,49 @@ Nguồn và tài khoản gửi được kiểm tra quyền lại trong quá trì
 **Dữ liệu cũ:** cấu hình chưa xác định được tài khoản nguồn cần Owner/Admin chọn lại nguồn rồi lưu trước khi bật lịch. Báo cáo cũ chưa xác minh nguồn chỉ Owner/Admin cùng tổ chức được xem, không gửi lại. Tác vụ cũ chưa kết thúc khi nâng cấp được đánh dấu thất bại; muốn chạy lại phải tạo yêu cầu mới có chủ đích.
 
 **Gửi lại:** khi kết quả không rõ hoặc đã gửi một phần, kiểm tra trực tiếp người nhận trước. Thử lại cùng lượt chỉ lấy lại kết quả đã ghi nhận. Sau khi đối soát, dùng **Đã đối soát — tạo lượt gửi mới** nếu thực sự cần gửi lại; lượt mới có thể gửi trùng phần người nhận đã nhận. Đóng/mở hộp thoại hoặc tải lại trang không tự tạo lượt mới cho kết quả chưa rõ.
+ 
+---
+
+## 12. Quy tắc giám sát nhóm AI (Audit Rules)
+
+Dành cho Owner/Admin quản lý và đánh giá tự động việc nộp kế hoạch, tiến độ công việc hoặc hình ảnh trong các nhóm Zalo làm việc.
+
+### 12.1. Truy cập
+1. Vào menu **Báo cáo AI** trên thanh điều hướng.
+2. Chọn tab **🎯 Quy Tắc Giám Sát**.
+
+### 12.2. Tạo quy tắc mới
+1. Nhấn nút **Thêm Quy Tắc Mới**.
+2. **Thông tin cơ bản:**
+   - **Tên quy tắc:** Nhập tên mô tả (VD: "Điểm danh lịch sáng - Đội Sale").
+   - **Tài khoản Zalo & Nhóm nguồn:** Chọn tài khoản Zalo kết nối và nhóm chat làm việc cần kiểm tra.
+   - **Kịch bản kiểm tra:**
+     - *Nộp lịch / Kế hoạch ngày* (`schedule_submission`): Đánh giá việc nộp lịch công tác, kế hoạch di chuyển buổi sáng.
+     - *Tiến độ công việc / KPI* (`work_progress`): Đánh giá việc hoàn thành mục tiêu, báo cáo số liệu trong ca làm việc.
+     - *Thẩm định hình ảnh / Biên bản* (`image_verification`): AI Multimodal Vision phân tích tối đa 15 ảnh mới nhất (chất lượng ảnh, tính hợp lệ biên bản, hiện trường).
+     - *Tùy chỉnh* (`custom`): Nhập hướng dẫn prompt riêng theo yêu cầu doanh nghiệp.
+3. **Lập lịch & Khung thời gian quét:**
+   - **Giờ chạy (HH:mm):** Cài đặt giờ chạy tự động theo múi giờ Việt Nam (Asia/Ho_Chi_Minh).
+   - **Ngày chạy trong tuần:** Chọn các ngày từ Thứ 2 đến Chủ Nhật.
+   - **Khung thời gian quét tin nhắn:** Chọn *Từ đầu ngày hôm nay (00:00)* hoặc *N giờ gần nhất*.
+4. **Nhân sự kiểm tra:**
+   - **Nhập danh sách cụ thể:** Nhập họ tên hoặc biệt danh từng nhân viên (mỗi tên một dòng).
+   - **Để trống:** Hệ thống tự động phân giải toàn bộ thành viên trong nhóm Zalo qua API và bộ đệm an toàn (không dựa vào tin nhắn chat để tránh bỏ sót nhân sự im lặng).
+5. **Điều phối đa kênh (Dual-Channel Dispatch):**
+   - **Nhóm Zalo Giám sát đích:** Chọn nhóm của ban quản lý/chỉ huy để nhận báo cáo thẩm định chuyên sâu (phân loại 3 tầng: Đã xong, Chưa ghi nhận/cần đối chiếu, Bất thường/nộp muộn).
+   - **Gửi tin nhắn nhắc nhở vào nhóm làm việc nguồn:** Bật/tắt tùy chọn phát sóng thông điệp điểm danh văn minh, lịch sự nhắc nhở nhân sự chưa nộp bổ sung. Khi 100% nhân sự hoàn thành, bot gửi thông điệp khích lệ, biểu dương nhóm.
+6. Nhấn **Lưu Quy Tắc**.
+
+### 12.3. Chạy thử ngay (Run Now)
+- Tại bảng danh sách quy tắc, nhấn nút **⚡ Chạy Thử Ngay** trên bất kỳ quy tắc nào đang bật (`Active`).
+- Hệ thống sẽ kích hoạt AI đánh giá tức thì (< 15 giây) và hiển thị kết quả trực tiếp trên modal gồm 2 tab:
+  - **Báo cáo Giám Sát:** Xem trước bản báo cáo Markdown phân loại chi tiết.
+  - **Tin Nhắn Nhắc Nhở:** Xem trước nội dung tin nhắn sẽ gửi vào nhóm làm việc.
+- Kết quả chạy thử được lưu tự động vào **Lịch Sử Báo Cáo** (kèm nhãn Chạy Thử) để tra cứu lại bất kỳ lúc nào mà không tốn thêm token AI.
+
+### 12.4. Trạng thái thực thi & Xử lý lỗi
+- Bảng quy tắc hiển thị huy hiệu trạng thái lần chạy gần nhất:
+  - 🟢 **Thành công:** Đã hoàn tất đánh giá và phát hành thông điệp thành công.
+  - 🟠 **Lỗi gửi tin (dispatch_failed):** Báo cáo AI đã thẩm định và lưu an toàn, nhưng Zalo gửi tin gặp sự cố (mất quyền, gửi quá nhanh). Bạn có thể vào tab **Lịch Sử Báo Cáo** để kiểm tra và nhấn **Gửi lại (Resend)** sau khi khắc phục Zalo.
+  - 🔴 **Thất bại:** Quá trình đánh giá AI gặp lỗi kỹ thuật.
+- Có thể tạm dừng hoặc bật lại quy tắc bất kỳ lúc nào bằng nút gạt Bật/Tắt trên bảng.

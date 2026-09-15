@@ -10,7 +10,7 @@
           THEO DÕI VÀ XỬ LÝ ĐƠN HÀNG, DOANH SỐ NHÂN VIÊN.
         </p>
       </div>
-      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
+      <v-btn color="primary" rounded="lg" prepend-icon="plus-large.svg" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
         TẠO ĐƠN HÀNG
       </v-btn>
     </div>
@@ -21,7 +21,7 @@
         <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
           <div class="d-flex align-start justify-space-between mb-2">
             <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">TỔNG ĐƠN</span>
-            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-cart</v-icon></div>
+            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">basket-shopping-alt.svg</v-icon></div>
           </div>
           <div>
             <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.totalOrders ?? '—' }}</div>
@@ -33,7 +33,7 @@
         <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
           <div class="d-flex align-start justify-space-between mb-2">
             <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">HOÀN THÀNH</span>
-            <div class="neo-icon-box pastel-green flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-check-circle</v-icon></div>
+            <div class="neo-icon-box pastel-green flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">check.svg</v-icon></div>
           </div>
           <div>
             <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif;">{{ stats?.completedOrders ?? '—' }}</div>
@@ -45,7 +45,7 @@
         <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
           <div class="d-flex align-start justify-space-between mb-2">
             <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">TỔNG DOANH THU</span>
-            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-currency-usd</v-icon></div>
+            <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">dong.svg</v-icon></div>
           </div>
           <div>
             <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif; font-size: 1.6rem;">{{ formatVND(stats?.totalRevenue ?? 0) }}</div>
@@ -57,7 +57,7 @@
         <v-card class="order-stat-card pa-4 fill-height d-flex flex-column justify-space-between" elevation="0">
           <div class="d-flex align-start justify-space-between mb-2">
             <span class="neo-subtitle text-truncate pr-1" style="color: var(--text-muted); font-size: 0.72rem;">HÔM NAY</span>
-            <div class="neo-icon-box pastel-yellow flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">mdi-calendar-today</v-icon></div>
+            <div class="neo-icon-box pastel-yellow flex-shrink-0" style="width: 34px; height: 34px;"><v-icon size="18">calendar-day.svg</v-icon></div>
           </div>
           <div>
             <div class="kpi-value font-weight-black my-1" style="font-family: 'Space Grotesk', sans-serif; font-size: 1.6rem;">{{ formatVND(stats?.todayRevenue ?? 0) }}</div>
@@ -71,7 +71,7 @@
     <v-row class="mb-3">
       <v-col cols="12" sm="6" md="4">
         <v-text-field v-model="search" label="Tìm kiếm mã đơn, khách hàng..." density="compact"
-          variant="outlined" rounded="lg" prepend-inner-icon="mdi-magnify" hide-details clearable @update:model-value="onSearch" />
+          variant="outlined" rounded="lg" prepend-inner-icon="search-alt-1.svg" hide-details clearable @update:model-value="onSearch" />
       </v-col>
       <v-col cols="12" sm="6" md="3">
         <v-select v-model="statusFilter" label="Trạng thái" :items="statusFilterItems"
@@ -112,10 +112,10 @@
             <td class="text-caption">{{ formatDate(o.createdAt) }}</td>
             <td>
               <v-btn icon size="x-small" variant="text" @click="openEdit(o)">
-                <v-icon size="16">mdi-pencil</v-icon>
+                <v-icon size="16">pen.svg</v-icon>
               </v-btn>
               <v-btn icon size="x-small" variant="text" color="error" @click="confirmDelete(o.id)">
-                <v-icon size="16">mdi-delete</v-icon>
+                <v-icon size="16">trash-xmark-alt.svg</v-icon>
               </v-btn>
             </td>
           </tr>

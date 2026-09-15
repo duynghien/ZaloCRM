@@ -50,15 +50,22 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn và dễ triển khai n
 - **Đóng băng nguồn bất biến:** Cố định mục tiêu `(orgId, zaloAccountId, groupThreadId, conversationId)` trong job schema v2, tránh thất lạc hoặc sai lệch tài khoản nguồn.
 - **Tự động hóa & Gửi lại (Resend):** Hỗ trợ lập lịch tự động gửi qua Zalo/Email SMTP theo Cron; hỗ trợ gửi lại với `Idempotency-Key` và ledger kiểm soát trạng thái gửi (`sent`, `failed`, `deliveryUncertain`).
 
-### 3.7. Phân hệ Quản trị & Phân quyền (RBAC & Team Management)
+### 3.7. Phân hệ Quy Tắc Giám Sát Nhóm AI & Điều Phối Kép (Scheduled AI Group Audit Rules & Multi-Channel Dispatch)
+- **Kiểm tra tuân thủ đa kịch bản:** Thiết lập các quy tắc đánh giá tự động theo từng nhóm Zalo với 4 kịch bản nghiệp vụ: *Nộp lịch/kế hoạch ngày* (`schedule_submission`), *Tiến độ công việc/KPI* (`work_progress`), *Thẩm định hình ảnh/biên bản* (`image_verification` qua Multimodal Vision tối đa 15 ảnh <= 12MB), và *Tùy chỉnh* (`custom`).
+- **Phân giải nhân sự Hybrid chống thiên kiến:** Phân giải thành viên nhóm tự động qua `getGroupInfo` và bộ đệm cache thành viên (không suy diễn từ tin nhắn chat để tránh hiện tượng thiên kiến sống sót). Hỗ trợ Fuzzy & Alias matching linh hoạt theo biệt danh, bỏ qua emoji/phòng ban.
+- **Điều phối kép (Dual-Channel Dispatch):** Tự động phát hành kết quả thẩm định phân loại 3 tầng (*Đã xong*, *Chưa ghi nhận/Cần đối chiếu*, *Bất thường/Nộp muộn*) sang Nhóm Zalo Giám sát (`threadType = 1`), đồng thời gửi thông điệp nhắc nhở tất định, lịch sự điểm danh vào Nhóm Zalo Vận hành nguồn trong `try/catch` độc lập.
+- **Kháng Prompt Injection 100%:** Tin nhắn nhắc nhở vận hành được tạo tất định qua mã TypeScript từ telemetry có cấu trúc, loại trừ rủi ro bị can thiệp bởi prompt injection từ tin nhắn độc hại trong nhóm chat.
+- **Kiểm thử tức thì (Run Now):** Cho phép Owner/Admin kích hoạt đánh giá đồng bộ trả kết quả ngay (< 15s) với Direct Execution Lease trên `ai_report_jobs`, liên kết Token Budget và lưu trữ chuẩn schema v2 vào `GeneratedReport`.
+
+### 3.8. Phân hệ Quản trị & Phân quyền (RBAC & Team Management)
 - **Tổ chức (Organization):** Mô hình Multi-Tenant, dữ liệu của mỗi tổ chức được cô lập hoàn toàn.
 - **Vai trò người dùng:**
   - `Owner`: Quyền cao nhất, quản lý tổ chức, phân quyền Admin/Member và toàn bộ hệ thống.
   - `Admin`: Quản lý nhân sự, danh mục, cấu hình Zalo và xem báo cáo.
   - `Member`: Xem toàn bộ contact trong organization; chỉ truy cập hội thoại và tài khoản Zalo được cấp qua `ZaloAccountAccess`.
-- **Phân quyền AI Reports:** Cả `owner`, `admin` và `member` đều được sử dụng. Owner/Admin có phạm vi toàn organization; Member chỉ đọc/generate/resend dữ liệu từ Zalo account nằm trong ACL của mình. Cấu hình cấp organization như SMTP và lịch tự động chỉ Owner/Admin được thay đổi.
+- **Phân quyền AI Reports:** Cả `owner`, `admin` và `member` đều được sử dụng. Owner/Admin có phạm vi toàn organization; Member chỉ đọc/generate/resend dữ liệu từ Zalo account nằm trong ACL của mình. Cấu hình cấp organization như SMTP, lịch tự động và quy tắc giám sát chỉ Owner/Admin được thay đổi.
 
-### 3.8. Phân hệ Tích hợp API & Webhook
+### 3.9. Phân hệ Tích hợp API & Webhook
 - **Public REST API:** Cung cấp các endpoint RESTful được xác thực bằng `X-API-Key` cho phép hệ thống bên ngoài tạo/lấy danh sách khách hàng, lịch hẹn, gửi tin nhắn.
 - **Webhook Subscriptions:** Đăng ký nhận sự kiện real-time: `message.received`, `message.sent`, `contact.created`, `zalo.connected`, `zalo.disconnected` với chữ ký bảo mật HMAC SHA-256.
 

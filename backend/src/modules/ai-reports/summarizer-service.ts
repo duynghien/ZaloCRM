@@ -1,6 +1,6 @@
 /**
  * summarizer-service.ts — Core AI engine implementing Hierarchical Map-Reduce
- * with message chunking, empty activity guard, and executive 5-part synthesis.
+ * with message chunking, empty activity guard, multimodal OCR integration, and executive 5-part synthesis.
  */
 import type { Prisma } from '@prisma/client';
 import { config } from '../../config/index.js';
@@ -10,6 +10,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { generateContent } from './ai-client.js';
 import { filterAndFormatMessages, formatTranscriptForPrompt, type CleanedMessage } from './noise-filter.js';
+import { extractImagePartsFromMessages } from './attachment-image-loader.js';
+import type { ContentPart, FallbackTelemetry } from './providers/ai-provider-interface.js';
 
 export interface GenerateReportParams {
   orgId: string;
@@ -21,6 +23,7 @@ export interface GenerateReportParams {
   title?: string;
   budget: ReportJobBudget;
   executionGuard: () => Promise<void>;
+  signal?: AbortSignal;
 }
 
 export interface GroupDigestItem extends ReportTarget {
@@ -33,6 +36,16 @@ export interface GroupDigestItem extends ReportTarget {
 
 const CHUNK_SIZE = 150;
 
+function escapeHtml(text: string): string {
+  return text.replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[m] || m));
+}
+
 /**
  * Summarize a chunk of messages for a single group (Tier 1 Map phase)
  */
@@ -41,11 +54,15 @@ async function summarizeGroupMessages(
   messages: CleanedMessage[],
   customPrompt: string | null | undefined,
   focusKeywords: string[] | undefined,
+  imageParts: ContentPart[],
   budget: ReportJobBudget,
   executionGuard: () => Promise<void>,
+  orgId?: string,
+  signal?: AbortSignal,
+  onFallback?: (telemetry: FallbackTelemetry) => void,
 ): Promise<string> {
   await runReportExecutionGuard(executionGuard);
-  if (messages.length === 0) {
+  if (messages.length === 0 && imageParts.length === 0) {
     return `Nhóm ${groupName}: Không có hoạt động hoặc tin nhắn mới trong khoảng thời gian này.`;
   }
 
@@ -58,7 +75,7 @@ async function summarizeGroupMessages(
         : '';
     const customHint = customPrompt ? `\nYêu cầu trọng tâm bổ sung: ${customPrompt}` : '';
 
-    const prompt = `Bạn là trợ lý AI chuyên nghiệp phân tích dữ liệu nhóm làm việc Zalo.
+    const promptText = `Bạn là trợ lý AI chuyên nghiệp phân tích dữ liệu nhóm làm việc Zalo.
 Hãy đọc nội dung trao đổi sau đây của nhóm "${groupName}" và trích xuất tóm tắt ngắn gọn, mạch lạc:
 
 NỘI DUNG TRAO ĐỔI:
@@ -72,9 +89,18 @@ YÊU CẦU:
 4. Các kế hoạch hoặc đầu việc tiếp theo.
 5. Viết bằng tiếng Việt súc tích, gạch đầu dòng rõ ràng.`;
 
+    const prompt: string | ContentPart[] = imageParts.length > 0
+      ? [{ text: promptText }, ...imageParts]
+      : promptText;
+
     try {
       await runReportExecutionGuard(executionGuard);
-      return await generateContent(prompt, { budget, executionGuard,
+      return await generateContent(prompt, {
+        budget,
+        executionGuard,
+        orgId,
+        signal,
+        onFallback,
         systemInstruction: 'Bạn là chuyên gia phân tích dữ liệu vận hành và điều hành doanh nghiệp.',
         temperature: 0.2,
       });
@@ -97,9 +123,22 @@ YÊU CẦU:
   for (const [idx, chunk] of chunks.entries()) {
     await runReportExecutionGuard(executionGuard);
     const transcript = formatTranscriptForPrompt(chunk);
-    const prompt = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}\n${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}`;
+    const promptText = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}\n${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}`;
+
+    // Attach image parts to the first chunk
+    const prompt: string | ContentPart[] = idx === 0 && imageParts.length > 0
+      ? [{ text: promptText }, ...imageParts]
+      : promptText;
+
     try {
-      chunkSummaries.push(await generateContent(prompt, { budget, executionGuard, temperature: 0.2 }));
+      chunkSummaries.push(await generateContent(prompt, {
+        budget,
+        executionGuard,
+        orgId,
+        signal,
+        onFallback,
+        temperature: 0.2,
+      }));
     } catch (err: any) {
       if (isReportControlError(err)) throw err;
       chunkSummaries.push(`Phần ${idx + 1}: ${chunk.length} tin nhắn trao đổi.`);
@@ -113,7 +152,14 @@ ${chunkSummaries.join('\n\n')}
 Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ thông tin trùng lặp, nêu bật công việc hoàn thành, sự cố và số liệu chính.`;
 
   try {
-    return await generateContent(reducePrompt, { budget, executionGuard, temperature: 0.2 });
+    return await generateContent(reducePrompt, {
+      budget,
+      executionGuard,
+      orgId,
+      signal,
+      onFallback,
+      temperature: 0.2,
+    });
   } catch (err: any) {
     if (isReportControlError(err)) throw err;
     return chunkSummaries.join('\n\n');
@@ -130,6 +176,9 @@ async function synthesizeExecutiveReport(
   periodTo: Date,
   budget: ReportJobBudget,
   executionGuard: () => Promise<void>,
+  orgId?: string,
+  signal?: AbortSignal,
+  onFallback?: (telemetry: FallbackTelemetry) => void,
 ): Promise<string> {
   await runReportExecutionGuard(executionGuard);
   const fromStr = periodFrom.toLocaleString('vi-VN', {
@@ -194,7 +243,12 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
 
   try {
     await runReportExecutionGuard(executionGuard);
-    return await generateContent(prompt, { budget, executionGuard,
+    return await generateContent(prompt, {
+      budget,
+      executionGuard,
+      orgId,
+      signal,
+      onFallback,
       systemInstruction: 'Bạn là chuyên gia quản trị và điều hành doanh nghiệp, viết báo cáo sắc sảo, trung thực, chính xác.',
       temperature: 0.2,
       maxOutputTokens: 8192,
@@ -202,7 +256,6 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
   } catch (err: any) {
     if (isReportControlError(err)) throw err;
     logger.error('[summarizer-service] Tier 2 synthesis failed:', err?.message || err);
-    // Fallback: concatenate group summaries
     return `# Báo Cáo Tổng Hợp (${fromStr} - ${toStr})\n\n${digestContext}`;
   }
 }
@@ -211,9 +264,15 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
  * Main entry point to run full AI digest pipeline
  */
 export async function generateDigestReport(params: GenerateReportParams) {
-  const { orgId, userId, reportType = 'on_demand', periodFrom, periodTo, title, budget, executionGuard } = params;
+  const { orgId, userId, reportType = 'on_demand', periodFrom, periodTo, title, budget, executionGuard, signal } = params;
   const targets = decodeReportTargets(params.targets);
   await runReportExecutionGuard(executionGuard);
+
+  const fallbackState: { telemetry: FallbackTelemetry | null } = { telemetry: null };
+  const onFallback = (telemetry: FallbackTelemetry) => {
+    fallbackState.telemetry = telemetry;
+  };
+
   // Materialize all exact sources before spending tokens; cap+1 detects overflow without truncation.
   const materialized = [];
   let messageCount = 0;
@@ -232,16 +291,48 @@ export async function generateDigestReport(params: GenerateReportParams) {
     if (messageCount > config.aiReportMaxMessages) throw new ReportControlError('Report exceeds the configured message budget');
     materialized.push({ target, configData, rawMessages, groupName: configData?.groupName || conversation.contact?.fullName || `Nhóm ${target.groupThreadId}` });
   }
+
   const groupDigests: GroupDigestItem[] = [];
   for (const { target, configData, rawMessages, groupName } of materialized) {
     await runReportExecutionGuard(executionGuard);
     const cleaned = filterAndFormatMessages(rawMessages);
-    const summary = await summarizeGroupMessages(groupName, cleaned, configData?.customPrompt,
-      Array.isArray(configData?.focusKeywords) ? configData.focusKeywords as string[] : undefined, budget, executionGuard);
+    const imageParts = await extractImagePartsFromMessages(rawMessages);
+
+    const summary = await summarizeGroupMessages(
+      groupName,
+      cleaned,
+      configData?.customPrompt,
+      Array.isArray(configData?.focusKeywords) ? configData.focusKeywords as string[] : undefined,
+      imageParts,
+      budget,
+      executionGuard,
+      orgId,
+      signal,
+      onFallback,
+    );
     groupDigests.push({ ...target, groupName, messageCount: rawMessages.length, filteredCount: cleaned.length, summary });
   }
-  const summaryContent = await synthesizeExecutiveReport(groupDigests, reportType, periodFrom, periodTo, budget, executionGuard);
+
+  let summaryContent = await synthesizeExecutiveReport(
+    groupDigests,
+    reportType,
+    periodFrom,
+    periodTo,
+    budget,
+    executionGuard,
+    orgId,
+    signal,
+    onFallback,
+  );
   await runReportExecutionGuard(executionGuard);
+
+  // If a fallback model was used, append a sanitized footnote to the master report
+  const telemetry = fallbackState.telemetry;
+  if (telemetry?.isFallback) {
+    const safeModelName = escapeHtml(telemetry.actualModel || 'dự phòng');
+    summaryContent += `\n\n---\n*Ghi chú: Báo cáo được tổng hợp bởi model dự phòng ${safeModelName} do sự cố tạm thời từ nhà cung cấp chính.*`;
+  }
+
   const reportData: Prisma.GeneratedReportUncheckedCreateInput = {
     orgId, createdById: userId || null,
     title: title || `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN')})`,
@@ -249,7 +340,14 @@ export async function generateDigestReport(params: GenerateReportParams) {
     groupThreadIds: targets.map(target => target.groupThreadId),
     sourceTargets: targets.map(target => ({ ...target })), targetSchemaVersion: 2, targetResolutionStatus: 'verified',
     structuredData: { totalGroups: targets.length, activeGroups: groupDigests.filter(g => g.filteredCount > 0).length, groupDigests: groupDigests.map(g => ({ ...g })) },
-    sentZalo: false, sentEmail: false, metadata: { generatedAt: new Date().toISOString() },
+    sentZalo: false, sentEmail: false,
+    metadata: {
+      generatedAt: new Date().toISOString(),
+      isFallback: Boolean(telemetry?.isFallback),
+      primaryModel: telemetry?.primaryModel,
+      actualModel: telemetry?.actualModel,
+      fallbackReason: telemetry?.errorReason,
+    },
   };
   return { reportData, groupDigests };
 }

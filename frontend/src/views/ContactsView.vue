@@ -10,7 +10,7 @@
           QUẢN LÝ THÔNG TIN KHÁCH HÀNG VÀ HỒ SƠ TƯ VẤN.
         </p>
       </div>
-      <v-btn color="primary" rounded="lg" prepend-icon="mdi-plus" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
+      <v-btn color="primary" rounded="lg" prepend-icon="plus-large.svg" class="font-weight-bold text-white px-4" style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;" @click="openCreate">
         THÊM KHÁCH HÀNG
       </v-btn>
     </div>
@@ -35,7 +35,7 @@
       <template #item.avatarUrl="{ item }">
         <v-avatar size="34" color="grey-lighten-2" rounded="circle">
           <v-img v-if="item.avatarUrl" :src="item.avatarUrl" />
-          <v-icon v-else size="18">mdi-account</v-icon>
+          <v-icon v-else size="18">user-alt.svg</v-icon>
         </v-avatar>
       </template>
 

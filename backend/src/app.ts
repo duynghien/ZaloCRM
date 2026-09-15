@@ -52,7 +52,11 @@ async function bootstrap() {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   try {
-    await validateConfiguredGeminiModel();
+    if (config.aiPrimaryProvider === 'gemini') {
+      await validateConfiguredGeminiModel();
+    } else {
+      logger.info(`[lifecycle] AI Primary Provider configured as: ${config.aiPrimaryProvider}`);
+    }
     await app.listen({ port: config.port, host: config.host });
     logger.info(`Zalo CRM running on http://${config.host}:${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);

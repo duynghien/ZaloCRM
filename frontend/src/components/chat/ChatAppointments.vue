@@ -6,7 +6,7 @@
       <span class="text-caption font-weight-bold">Lịch hẹn ({{ appointments.length }})</span>
       <v-spacer />
       <v-btn size="x-small" variant="text" color="primary" @click="showForm = !showForm">
-        <v-icon size="14">mdi-plus</v-icon>
+        <v-icon size="14">plus-large.svg</v-icon>
       </v-btn>
     </div>
 
@@ -83,7 +83,7 @@
           {{ statusLabel(apt.status) }}
         </v-chip>
         <v-btn icon size="x-small" variant="text" color="primary" @click="startEdit(apt)">
-          <v-icon size="12">mdi-pencil</v-icon>
+          <v-icon size="12">pen.svg</v-icon>
         </v-btn>
       </div>
 

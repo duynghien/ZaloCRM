@@ -15,7 +15,7 @@
         v-if="authStore.isAdmin"
         color="primary"
         rounded="lg"
-        prepend-icon="mdi-plus"
+        prepend-icon="plus-large.svg"
         class="font-weight-bold text-white px-4"
         style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif; height: 38px;"
         @click="showAddDialog = true"
@@ -33,7 +33,7 @@
           class="mx-auto mb-4 d-flex align-center justify-center neo-icon-box"
           style="width: 64px; height: 64px; background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 8px;"
         >
-          <v-icon size="36" color="#FFFFFF">mdi-cellphone-link</v-icon>
+          <v-icon size="36" color="#FFFFFF">zalo.svg</v-icon>
         </div>
         <h2 class="neo-page-title mb-2" style="font-size: 1.25rem;">
           CHƯA CÓ KÊNH ZALO NÀO
@@ -50,7 +50,7 @@
           style="border: 1.5px solid var(--border-color); font-family: 'Space Grotesk', sans-serif;"
           @click="showAddDialog = true"
         >
-          <v-icon start>mdi-plus</v-icon>
+          <v-icon start>plus-large.svg</v-icon>
           + KẾT NỐI TÀI KHOẢN ĐẦU TIÊN
         </v-btn>
       </v-card>
@@ -101,7 +101,7 @@
             <img :src="'data:image/png;base64,' + qrImage" alt="QR Code" style="max-width: 280px; border: 1.5px solid var(--border-color); border-radius: 8px;" />
           </div>
           <div v-else-if="qrScanned" class="mb-4">
-            <v-icon icon="mdi-check-circle" size="64" color="success" />
+            <v-icon icon="check.svg" size="64" color="success" />
             <p class="text-h6 mt-2 font-weight-bold">Đã quét! Xác nhận trên điện thoại...</p>
             <p v-if="scannedName" class="text-body-2">{{ scannedName }}</p>
           </div>

@@ -1,7 +1,7 @@
 <template>
   <v-card class="chart-card fill-height" elevation="0">
     <v-card-title class="d-flex align-center py-3 px-4 font-weight-bold neo-subtitle" style="font-size: 0.85rem; border-bottom: 1px solid var(--border-color);">
-      <v-icon size="18" color="primary" class="mr-2">mdi-chart-bar</v-icon>
+      <v-icon size="18" color="primary" class="mr-2">message-circle-chart-lines.svg</v-icon>
       TỔNG LƯỢNG TIN NHẮN
     </v-card-title>
     <v-card-text class="pt-4">

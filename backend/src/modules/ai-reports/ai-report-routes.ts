@@ -17,13 +17,23 @@ import { resolveReportTargets, authorizeReportTargets, authorizeReportAccount, d
 import { assertReportAdmission, trackReportProducer } from './report-admission.js';
 import { resendReport } from './report-resend-service.js';
 import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
+import {
+  getOrgAiProviderSettingsDto,
+  saveOrgAiProviderSettings,
+  getOrgAiProviderCredentials,
+} from './ai-provider-settings-service.js';
+import { GeminiProvider } from './providers/gemini-provider.js';
+import { OpenAiCompatibleProvider } from './providers/openai-compatible-provider.js';
+import { validateAiGatewayUrl } from './ai-gateway-validator.js';
+import { aiAuditRuleRoutes } from './ai-audit-rule-routes.js';
+import './ai-audit-evaluator.js';
 
 interface GenerateBody {
   from_date: string;
   to_date: string;
   group_thread_ids?: string[];
   title?: string;
-  report_type?: 'daily' | 'weekly' | 'on_demand';
+  report_type?: 'daily' | 'weekly' | 'on_demand' | 'audit_rule';
   send_zalo?: boolean;
   send_email?: boolean;
   zalo_destination_type?: 'self' | 'cloud' | 'uid';
@@ -50,6 +60,7 @@ interface UpsertConfigBody {
 interface UpdateSettingsBody {
   automation?: Partial<AutomationSettings>;
   smtp?: Partial<SmtpConfig>;
+  aiProviders?: any;
 }
 
 type CurrentUser = NonNullable<FastifyRequest['user']>;
@@ -75,6 +86,8 @@ async function canAccessReport(user: CurrentUser, report: { orgId: string; sourc
 export async function aiReportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
   app.addHook('preHandler', async request => validateReportHttpRequest(request));
+
+  await app.register(aiAuditRuleRoutes);
 
   // ── 1. List all Zalo groups with their monitoring config status ──────────────
   app.get('/api/v1/ai-reports/groups', async (request: FastifyRequest) => {
@@ -304,6 +317,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
 
     const automation = await getOrgAutomationSettings(user.orgId);
     const smtp = await getOrgSmtpConfig(user.orgId);
+    const aiProviders = await getOrgAiProviderSettingsDto(user.orgId);
 
     // Mask SMTP password for security
     const maskedSmtp = smtp
@@ -320,6 +334,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
     return {
       automation,
       smtp: maskedSmtp,
+      aiProviders,
     };
   });
 
@@ -401,6 +416,67 @@ export async function aiReportRoutes(app: FastifyInstance) {
       });
     }
 
+    // Update AI Providers Settings
+    if (body.aiProviders) {
+      await saveOrgAiProviderSettings(user.orgId, body.aiProviders);
+    }
+
     return { success: true };
+  });
+
+  // ── 10. Test AI Provider Connection ───────────────────────────────────────
+  app.post('/api/v1/ai-reports/settings/test-ai', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const body = (request.body || {}) as {
+      type: 'gemini' | 'openai' | 'deepseek' | 'custom';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+      supportsVision?: boolean;
+    };
+
+    if (!body.type || !['gemini', 'openai', 'deepseek', 'custom'].includes(body.type)) {
+      return reply.status(400).send({ error: 'Loại AI provider không hợp lệ' });
+    }
+
+    const orgCreds = await getOrgAiProviderCredentials(user.orgId);
+    const existingProviderCfg = orgCreds.providers[body.type];
+
+    let apiKey = body.apiKey?.trim();
+    if (!apiKey || apiKey.includes('••••')) {
+      apiKey = existingProviderCfg?.apiKey;
+    }
+
+    // SSRF Check on baseUrl
+    const baseUrl = body.baseUrl?.trim() || existingProviderCfg?.baseUrl;
+    if (baseUrl) {
+      if ((!body.apiKey || body.apiKey.includes('••••')) && body.baseUrl && body.baseUrl !== existingProviderCfg?.baseUrl) {
+        return reply.status(400).send({ error: 'Không thể thay đổi Base URL khi đang sử dụng API Key đã lưu' });
+      }
+      try {
+        await validateAiGatewayUrl(baseUrl);
+      } catch (err: any) {
+        return reply.status(400).send({ error: err.message || 'Base URL không an toàn' });
+      }
+    }
+
+    if (!apiKey) {
+      return reply.status(400).send({ error: `Chưa có API key cho nhà cung cấp ${body.type}` });
+    }
+
+    const providerConfig = {
+      type: body.type,
+      apiKey,
+      model: body.model || existingProviderCfg?.model || (body.type === 'gemini' ? 'gemini-2.5-flash' : body.type === 'deepseek' ? 'deepseek-chat' : 'gpt-4o-mini'),
+      baseUrl,
+      supportsVision: body.supportsVision ?? existingProviderCfg?.supportsVision,
+    };
+
+    const provider = body.type === 'gemini'
+      ? new GeminiProvider(providerConfig)
+      : new OpenAiCompatibleProvider(providerConfig);
+
+    const testResult = await provider.testConnection();
+    return testResult;
   });
 }

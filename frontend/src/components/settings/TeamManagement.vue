@@ -3,7 +3,7 @@
     <div class="d-flex align-center mb-4">
       <span class="text-h6 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">Danh sách đội nhóm</span>
       <v-spacer />
-      <v-btn v-if="authStore.isAdmin" color="primary" rounded="lg" elevation="0" prepend-icon="mdi-plus" @click="openCreate">
+      <v-btn v-if="authStore.isAdmin" color="primary" rounded="lg" elevation="0" prepend-icon="plus-large.svg" @click="openCreate">
         Thêm đội nhóm
       </v-btn>
     </div>
@@ -30,10 +30,10 @@
             <v-spacer />
             <template v-if="authStore.isAdmin">
               <v-btn icon size="x-small" variant="text" class="mr-1" @click.stop="openEdit(team)" title="Sửa">
-                <v-icon>mdi-pencil</v-icon>
+                <v-icon>pen.svg</v-icon>
               </v-btn>
               <v-btn icon size="x-small" variant="text" color="error" @click.stop="openDelete(team)" title="Xóa">
-                <v-icon>mdi-delete</v-icon>
+                <v-icon>trash-xmark-alt.svg</v-icon>
               </v-btn>
             </template>
           </div>
@@ -50,7 +50,7 @@
               @click:close="authStore.isAdmin && handleRemoveMember(team.id, m.userId)"
             >
               <v-avatar start>
-                <v-icon>mdi-account</v-icon>
+                <v-icon>user-alt.svg</v-icon>
               </v-avatar>
               {{ m.fullName }}
             </v-chip>

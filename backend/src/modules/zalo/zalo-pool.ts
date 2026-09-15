@@ -33,6 +33,7 @@ interface ZaloInstance {
   status: 'connected' | 'disconnected' | 'qr_pending' | 'connecting';
   displayName?: string;
   zaloUid?: string;
+  send2meId?: string;
   orgId?: string;
   lastActivity: Date;
   drainListener?: () => Promise<void>;
@@ -121,6 +122,8 @@ class ZaloAccountPool {
         instance.api = api;
         instance.status = 'connected';
         instance.lastActivity = new Date();
+        const send2meId = api.getContext?.()?.loginInfo?.send2me_id;
+        if (send2meId) instance.send2meId = send2meId;
 
         const ownId = await api.getOwnId();
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
@@ -189,6 +192,8 @@ class ZaloAccountPool {
         instance.api = api;
         instance.status = 'connected';
         instance.lastActivity = new Date();
+        const send2meId = api.getContext?.()?.loginInfo?.send2me_id;
+        if (send2meId) instance.send2meId = send2meId;
 
         const ownId = await api.getOwnId();
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
@@ -363,6 +368,11 @@ class ZaloAccountPool {
   getApi(accountId: string): any | null {
     const inst = this.instances.get(accountId);
     return inst?.status === 'connected' ? inst.api : null;
+  }
+
+  getSend2MeId(accountId: string): string | undefined {
+    const inst = this.instances.get(accountId);
+    return inst?.send2meId || inst?.api?.getContext?.()?.loginInfo?.send2me_id;
   }
 
   getInstance(accountId: string): ZaloInstance | undefined {

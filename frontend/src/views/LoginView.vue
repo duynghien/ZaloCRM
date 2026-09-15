@@ -1,15 +1,12 @@
 <template>
   <v-card class="pa-8" elevation="0">
     <div class="text-center mb-8">
-      <div
-        class="mx-auto mb-4 d-flex align-center justify-center neo-icon-box"
-        style="width: 56px; height: 56px; background: #0068FF; color: #FFFFFF; border: 1.5px solid var(--border-color); border-radius: 8px;"
-      >
-        <v-icon size="32" color="#FFFFFF">mdi-message-processing</v-icon>
-      </div>
-      <h1 class="neo-page-title mb-1" style="font-size: 1.75rem;">
-        <span>ZALO</span><span class="neo-title-accent ml-1">CRM</span>
-      </h1>
+      <img
+        src="/zalocrm.png"
+        alt="ZaloCRM"
+        class="brand-logo-login mb-4 mx-auto d-block"
+        style="height: 56px; width: auto; object-fit: contain;"
+      />
       <p class="text-caption neo-subtitle" style="color: var(--text-muted);">
         HỆ THỐNG QUẢN LÝ ĐA TÀI KHOẢN ZALO
       </p>
@@ -20,7 +17,7 @@
         v-model="email"
         label="Email"
         type="email"
-        prepend-inner-icon="mdi-email-outline"
+        prepend-inner-icon="mailbox.svg"
         required
         class="mb-3"
       />
@@ -28,12 +25,12 @@
         v-model="password"
         label="Mật khẩu"
         type="password"
-        prepend-inner-icon="mdi-lock-outline"
+        prepend-inner-icon="fingerprint.svg"
         required
         class="mb-5"
       />
       <v-btn type="submit" color="primary" block size="large" :loading="loading" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);">
-        <v-icon start>mdi-login</v-icon>
+        <v-icon start>arrow-narrow-circle-broken-down.svg</v-icon>
         ĐĂNG NHẬP
       </v-btn>
     </v-form>

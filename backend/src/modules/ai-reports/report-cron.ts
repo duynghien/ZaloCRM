@@ -7,6 +7,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { submitScheduledReportJob, normalizeReportJobRequest } from './report-job-service.js';
 
 import { assertReportAdmission, trackReportProducer, drainReportProducers } from './report-admission.js';
+import { startAuditRuleCron, stopAuditRuleCron } from './audit-rule-cron-runner.js';
 
 let reportCronTasks: ReturnType<typeof cron.schedule>[] = [];
 
@@ -149,11 +150,13 @@ export function startReportCronJobs(): void {
     { timezone: 'Asia/Ho_Chi_Minh' },
   ));
 
+  startAuditRuleCron();
   logger.info('[report-cron] AI Report cron jobs initialized (Daily 18:00, Weekly Sat 17:00 in Asia/Ho_Chi_Minh)');
 }
 
 export async function stopReportCronJobs(): Promise<void> {
   for (const task of reportCronTasks) task.stop();
   reportCronTasks = [];
+  stopAuditRuleCron();
   await drainReportProducers();
 }

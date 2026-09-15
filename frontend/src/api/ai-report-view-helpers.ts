@@ -1,4 +1,45 @@
-import type { GeneratedReportItem, GroupItem, ResendReportPayload } from './ai-report-api';
+import type { AiProviderDetail, AiProviderSettings, GeneratedReportItem, GroupItem, ResendReportPayload } from './ai-report-api';
+
+export const ALL_AI_PROVIDERS: Array<'gemini' | 'deepseek' | 'openai' | 'custom'> = [
+  'gemini',
+  'deepseek',
+  'openai',
+  'custom',
+];
+
+export const DEFAULT_AI_PROVIDERS: Record<'gemini' | 'deepseek' | 'openai' | 'custom', AiProviderDetail> = {
+  gemini: { type: 'gemini', model: 'gemini-2.5-flash', apiKey: '', baseUrl: '' },
+  deepseek: { type: 'deepseek', model: 'deepseek-chat', apiKey: '', baseUrl: '' },
+  openai: { type: 'openai', model: 'gpt-4o-mini', apiKey: '', baseUrl: '' },
+  custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', baseUrl: '' },
+};
+
+export const MODEL_SUGGESTIONS: Record<string, string[]> = {
+  gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+  custom: ['mistral-small', 'llama-3.3-70b'],
+};
+
+export function createDefaultAiProviderSettings(): AiProviderSettings {
+  return {
+    isSystemDefault: true,
+    primaryProvider: 'gemini',
+    fallbackEnabled: true,
+    fallbackChain: ['deepseek', 'openai'],
+    allowSystemFallback: true,
+    providers: {
+      gemini: { ...DEFAULT_AI_PROVIDERS.gemini },
+      deepseek: { ...DEFAULT_AI_PROVIDERS.deepseek },
+      openai: { ...DEFAULT_AI_PROVIDERS.openai },
+      custom: { ...DEFAULT_AI_PROVIDERS.custom },
+    },
+  };
+}
+
+export function computeFallbackChain(primary: 'gemini' | 'deepseek' | 'openai' | 'custom'): string[] {
+  return ALL_AI_PROVIDERS.filter((p) => p !== primary);
+}
 
 export function groupPairKey(group: GroupItem): string {
   return JSON.stringify([group.zaloAccount?.id || '', group.threadId]);

@@ -21,10 +21,10 @@
         </div>
 
         <div class="d-flex align-center gap-2">
-          <v-chip color="primary" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.72rem;" prepend-icon="mdi-flash">
-            GEMINI AI
+          <v-chip color="primary" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.72rem;" prepend-icon="bolt.svg">
+            {{ activeProviderLabel }} AI
           </v-chip>
-          <v-chip color="success" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.72rem;" prepend-icon="mdi-check-decagram">
+          <v-chip color="success" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.72rem;" prepend-icon="check.svg">
             MULTI-CHANNEL (ZALO + WEB + EMAIL)
           </v-chip>
         </div>
@@ -33,16 +33,20 @@
       <!-- Navigation Tabs -->
       <v-tabs v-model="activeTab" bg-color="surface" color="primary" grow density="comfortable">
         <v-tab value="generate">
-          <v-icon start>mdi-lightning-bolt-outline</v-icon>
+          <v-icon start>bolt.svg</v-icon>
           ⚡ Tạo Báo Cáo Ngay
         </v-tab>
         <v-tab value="archive">
-          <v-icon start>mdi-history</v-icon>
+          <v-icon start>keyboard-alt.svg</v-icon>
           📜 Lịch Sử Báo Cáo
         </v-tab>
         <v-tab value="settings">
-          <v-icon start>mdi-cog-outline</v-icon>
+          <v-icon start>auto.svg</v-icon>
           ⚙️ Cấu Hình Tự Động Hóa
+        </v-tab>
+        <v-tab value="audit_rules">
+          <v-icon start>mdi-target</v-icon>
+          🎯 Quy Tắc Giám Sát
         </v-tab>
       </v-tabs>
     </v-card>
@@ -54,7 +58,7 @@
         <v-col cols="12" md="4">
           <v-card class="pa-5 mb-4" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-              <v-icon color="primary" class="mr-2">mdi-filter-variant</v-icon>
+              <v-icon color="primary" class="mr-2">lines-leaning.svg</v-icon>
               Tùy Chọn Tổng Hợp
             </h2>
 
@@ -139,16 +143,17 @@
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
               <v-radio-group v-model="generatorForm.zaloDestinationType" density="compact" hide-details>
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
-                <v-radio label="Nhập Zalo UID / SĐT cụ thể" value="uid" />
+                <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
               </v-radio-group>
               <v-text-field
                 v-if="generatorForm.zaloDestinationType === 'uid'"
                 v-model="generatorForm.zaloTargetUid"
-                placeholder="Nhập Zalo UID người nhận"
+                placeholder="Nhập Zalo UID hoặc Số điện thoại người nhận"
                 density="compact"
                 variant="outlined"
                 class="mt-2"
-                hide-details
+                hint="Nhập số định danh Zalo UID (ví dụ: 1624669733262510385) hoặc Số điện thoại người nhận (hệ thống sẽ tự động tra cứu danh bạ CRM hoặc tìm kiếm qua Zalo API)."
+                persistent-hint
               />
             </div>
 
@@ -224,6 +229,9 @@
                     <span>🕒 Tạo lúc: {{ formatDateTime(currentReport.createdAt) }}</span>
                     <span>•</span>
                     <v-chip size="x-small" color="primary" variant="flat">{{ currentReport.reportType }}</v-chip>
+                    <v-chip v-if="currentReport.metadata?.isFallback" size="x-small" color="warning" variant="flat" class="font-weight-bold" prepend-icon="mdi-alert">
+                      ⚠️ Dự phòng: {{ currentReport.metadata.actualModel }}
+                    </v-chip>
                     <v-chip v-if="currentReport.sentZalo" size="x-small" color="success" prepend-icon="mdi-check">Đã gửi Zalo</v-chip>
                     <v-chip v-if="currentReport.sentEmail" size="x-small" color="info" prepend-icon="mdi-check">Đã gửi Email</v-chip>
                   </div>
@@ -246,6 +254,29 @@
                 Báo cáo cũ chưa xác minh tài khoản nguồn. Chỉ quản trị viên được xem; không thể gửi lại.
                 Hãy chọn rõ nhóm và tài khoản nguồn để tạo báo cáo mới.
               </v-alert>
+
+              <v-alert
+                v-if="deliveryError"
+                type="warning"
+                variant="tonal"
+                class="mb-4"
+                closable
+                @click:close="deliveryError = ''"
+              >
+                <div class="d-flex align-center justify-space-between flex-wrap gap-2">
+                  <span>⚠️ Báo cáo đã tạo thành công nhưng gặp sự cố khi gửi: {{ deliveryError }}</span>
+                  <v-btn
+                    color="warning"
+                    variant="flat"
+                    size="small"
+                    class="ml-3"
+                    @click="openResendDialog(currentReport)"
+                  >
+                    Gửi lại ngay
+                  </v-btn>
+                </div>
+              </v-alert>
+
               <!-- Rendered Markdown Body -->
               <div class="markdown-body-rendered pa-2" v-html="renderedMarkdown"></div>
             </div>
@@ -289,7 +320,13 @@
           <tbody>
             <tr v-for="rep in reports" :key="rep.id">
               <td class="text-caption">{{ formatDateTime(rep.createdAt) }}</td>
-              <td class="font-weight-medium">{{ rep.title }}<v-chip v-if="!reportCanResend(rep)" size="small" color="warning" class="ml-2">Nguồn chưa xác minh</v-chip></td>
+              <td class="font-weight-medium">
+                {{ rep.title }}
+                <v-chip v-if="!reportCanResend(rep)" size="small" color="warning" class="ml-2">Nguồn chưa xác minh</v-chip>
+                <v-chip v-if="rep.metadata?.isFallback" size="x-small" color="warning" variant="flat" class="ml-2 font-weight-bold">
+                  ⚠️ Dự phòng: {{ rep.metadata.actualModel || 'Fallback' }}
+                </v-chip>
+              </td>
               <td>
                 <v-chip size="small" :color="getReportTypeColor(rep.reportType)">
                   {{ rep.reportType }}
@@ -324,8 +361,17 @@
     </div>
 
     <!-- ── TAB 3: AUTOMATION & SETTINGS ────────────────────────────────────── -->
-    <div v-show="activeTab === 'settings'">
+    <div v-if="activeTab === 'settings'">
       <v-row>
+        <!-- AI Provider & Fallback Configuration -->
+        <v-col cols="12">
+          <AiProviderSettingsCard
+            v-model="aiProviderSettings"
+            :is-saving="isSavingAi"
+            @save="handleSaveAiSettings"
+          />
+        </v-col>
+
         <!-- Cron Schedule & Channels -->
         <v-col cols="12" md="6">
           <v-card class="pa-5 mb-4" elevation="0">
@@ -372,15 +418,17 @@
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
               <v-radio-group v-model="automationSettings.zaloDestinationType" density="compact">
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
-                <v-radio label="Zalo UID / SĐT người nhận cụ thể" value="uid" />
+                <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
               </v-radio-group>
               <v-text-field
                 v-if="automationSettings.zaloDestinationType === 'uid'"
                 v-model="automationSettings.zaloTargetUid"
-                label="Zalo UID đích"
-                placeholder="Nhập Zalo UID"
+                label="Zalo UID / Số điện thoại đích"
+                placeholder="Nhập Zalo UID hoặc Số điện thoại người nhận"
                 density="compact"
                 variant="outlined"
+                hint="Nhập số định danh Zalo UID hoặc Số điện thoại người nhận"
+                persistent-hint
               />
             </div>
           </v-card>
@@ -390,7 +438,7 @@
         <v-col cols="12" md="6">
           <v-card class="pa-5 mb-4" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-              <v-icon color="primary" class="mr-2">mdi-email-outline</v-icon>
+              <v-icon color="primary" class="mr-2">mailbox.svg</v-icon>
               Cấu Hình Email SMTP
             </h2>
 
@@ -483,7 +531,7 @@
         <v-col cols="12">
           <v-card class="pa-5 chart-card" elevation="0">
             <h2 class="text-subtitle-1 font-weight-bold mb-4 d-flex align-center">
-              <v-icon color="primary" class="mr-2">mdi-account-group-outline</v-icon>
+              <v-icon color="primary" class="mr-2">users.svg</v-icon>
               Cấu Hình Trọng Tâm Từng Nhóm Zalo ({{ groups.length }} nhóm)
             </h2>
 
@@ -540,6 +588,15 @@
           </v-card>
         </v-col>
       </v-row>
+    </div>
+
+    <!-- ── TAB 4: AUDIT RULES MANAGER ────────────────────────────────────── -->
+    <div v-if="activeTab === 'audit_rules'">
+      <AiAuditRulesCard
+        :groups="groups"
+        :accounts="senderAccounts"
+        @navigate-archive="activeTab = 'archive'"
+      />
     </div>
 
     <!-- ── DIALOG: EDIT GROUP CONFIG ──────────────────────────────────────── -->
@@ -607,15 +664,17 @@
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
               <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details>
             <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
-            <v-radio label="Nhập Zalo UID cụ thể" value="uid" />
+            <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
           </v-radio-group>
           <v-text-field
             v-if="resendForm.zaloDestinationType === 'uid'"
             v-model="resendForm.zaloTargetUid"
-            placeholder="Zalo UID"
+            placeholder="Nhập Zalo UID hoặc Số điện thoại người nhận"
             density="compact"
             variant="outlined"
             class="mt-2"
+            hint="Nhập số định danh Zalo UID hoặc Số điện thoại người nhận"
+            persistent-hint
           />
         </div>
 
@@ -662,7 +721,9 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { groupPairKey, groupAccountLabel, reportCanResend, resendAttemptKey, completeResendAttempt, resendNeedsReconciliation, markResendAttemptUncertain, reconcileResendAttempt } from '@/api/ai-report-view-helpers';
+import AiProviderSettingsCard from '@/components/ai-reports/AiProviderSettingsCard.vue';
+import AiAuditRulesCard from '@/components/ai-reports/AiAuditRulesCard.vue';
+import { groupPairKey, groupAccountLabel, reportCanResend, resendAttemptKey, completeResendAttempt, resendNeedsReconciliation, markResendAttemptUncertain, reconcileResendAttempt, createDefaultAiProviderSettings, DEFAULT_AI_PROVIDERS } from '@/api/ai-report-view-helpers';
 import {
   aiReportApi,
   type GroupItem,
@@ -670,6 +731,7 @@ import {
   type AutomationSettings,
   type SmtpSettings,
   type ResendReportPayload,
+  type AiProviderSettings,
 } from '@/api/ai-report-api';
 
 const activeTab = ref('generate');
@@ -678,6 +740,15 @@ const senderAccounts = ref<Awaited<ReturnType<typeof aiReportApi.getSenderAccoun
 const senderOptions = computed(() => senderAccounts.value.map(account => ({ id: account.id,
   label: `${account.displayName || 'Tài khoản Zalo'} (${account.zaloUid || account.id}) — ${account.status === 'connected' ? 'Đã kết nối' : 'Chưa kết nối'}`,
 })));
+
+// AI Provider settings state
+const aiProviderSettings = ref<AiProviderSettings>(createDefaultAiProviderSettings());
+const isSavingAi = ref(false);
+
+const activeProviderLabel = computed(() => {
+  const p = aiProviderSettings.value.primaryProvider || 'gemini';
+  return p.toUpperCase();
+});
 
 // Generator state
 const groups = ref<GroupItem[]>([]);
@@ -947,6 +1018,7 @@ async function handleGenerateReport() {
   }
 
   isGenerating.value = true;
+  deliveryError.value = '';
   generatingTimer.value = 0;
   timerInterval = setInterval(() => {
     generatingTimer.value++;
@@ -991,8 +1063,18 @@ async function waitForReportJob(jobId: string) {
     }
     if (job.status === 'failed' || job.status === 'cancelled') {
       sessionStorage.removeItem(pendingJobStorageKey);
+      if (job.resultReportId) {
+        try {
+          const { report } = await aiReportApi.getReport(job.resultReportId);
+          currentReport.value = report;
+          activeTab.value = 'generate';
+          loadReports();
+        } catch (getReportErr) {
+          loggerError('Get generated report after delivery failure', getReportErr);
+        }
+      }
       deliveryError.value = job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo. Phần đã gửi trước khi hủy không thể thu hồi.' : 'Tạo báo cáo thất bại');
-      showSnackbar(deliveryError.value, 'error');
+      showSnackbar(job.resultReportId ? 'Báo cáo đã tổng hợp thành công nhưng chưa thể gửi qua kênh phát hành. Bạn có thể xem nội dung và bấm Gửi lại.' : deliveryError.value, job.resultReportId ? 'warning' : 'error');
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -1081,8 +1163,32 @@ async function loadSettings() {
     const res = await aiReportApi.getSettings();
     if (res.automation) automationSettings.value = res.automation;
     if (res.smtp) smtpSettings.value = res.smtp;
+    if (res.aiProviders) {
+      aiProviderSettings.value = {
+        ...res.aiProviders,
+        providers: {
+          ...DEFAULT_AI_PROVIDERS,
+          ...(res.aiProviders.providers || {}),
+        },
+      };
+    }
   } catch (err) {
     loggerError('Load settings error', err);
+  }
+}
+
+async function handleSaveAiSettings() {
+  isSavingAi.value = true;
+  try {
+    await aiReportApi.updateSettings({
+      aiProviders: aiProviderSettings.value,
+    });
+    showSnackbar('Đã lưu cấu hình AI Provider thành công!', 'success');
+    await loadSettings();
+  } catch (err: any) {
+    showSnackbar(err?.response?.data?.error || 'Không thể lưu cấu hình AI Provider', 'error');
+  } finally {
+    isSavingAi.value = false;
   }
 }
 
@@ -1093,6 +1199,7 @@ async function saveAllSettings() {
   isSavingSettings.value = true;
   try {
     await aiReportApi.updateSettings({
+      aiProviders: aiProviderSettings.value,
       automation: { ...automationSettings.value,
         senderAccountId: automationSettings.value.senderAccountId || undefined,
         zaloTargetUid: automationSettings.value.sendZalo && automationSettings.value.zaloDestinationType === 'uid'
@@ -1106,7 +1213,7 @@ async function saveAllSettings() {
         from: smtpSettings.value.from,
       },
     });
-    showSnackbar('Đã lưu cấu hình tự động hóa & SMTP thành công!', 'success');
+    showSnackbar('Đã lưu cấu hình tự động hóa, AI Provider & SMTP thành công!', 'success');
   } catch (err: any) {
     showSnackbar(err?.response?.data?.error || 'Lỗi khi lưu cấu hình', 'error');
   } finally {

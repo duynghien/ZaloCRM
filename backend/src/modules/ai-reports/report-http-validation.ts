@@ -9,14 +9,14 @@ export function validateReportHttpRequest(request: FastifyRequest): void {
   const route = request.routeOptions.url ?? '';
   if (request.method === 'GET') {
     const query = request.query as Record<string, unknown>;
-    if (query.report_type !== undefined) enumInput(query.report_type, ['daily', 'weekly', 'on_demand']);
+    if (query.report_type !== undefined) enumInput(query.report_type, ['daily', 'weekly', 'on_demand', 'audit_rule']);
     return;
   }
   if (!['POST', 'PUT'].includes(request.method)) return;
   const body = objectInput(request.body === undefined && route.endsWith('/cancel') ? {} : request.body);
   if (route.endsWith('/cancel')) { if (Object.keys(body).length) throw new RequestValidationError('Cancellation body must be empty'); return; }
   if (!route.endsWith('/settings')) return;
-  if (Object.keys(body).some(key => !['automation', 'smtp'].includes(key))) throw new RequestValidationError('Unknown settings field');
+  if (Object.keys(body).some(key => !['automation', 'smtp', 'aiProviders'].includes(key))) throw new RequestValidationError('Unknown settings field');
   if (body.automation !== undefined) {
     const automation = objectInput(body.automation);
     const allowed = ['dailyEnabled', 'weeklyEnabled', 'sendZalo', 'sendEmail', 'senderAccountId', 'zaloDestinationType', 'zaloTargetUid', 'emailRecipients'];
@@ -41,6 +41,37 @@ export function validateReportHttpRequest(request: FastifyRequest): void {
       const auth = objectInput(smtp.auth);
       if (Object.keys(auth).some(key => !['user', 'pass'].includes(key))) throw new RequestValidationError('Invalid SMTP auth field');
       for (const key of ['user', 'pass']) if (auth[key] !== undefined) stringInput(auth[key], key === 'pass' ? 4096 : 320);
+    }
+  }
+  if (body.aiProviders !== undefined) {
+    const aiProviders = objectInput(body.aiProviders);
+    const allowed = ['primaryProvider', 'providers', 'fallbackEnabled', 'fallbackChain', 'allowSystemFallback'];
+    if (Object.keys(aiProviders).some(key => !allowed.includes(key))) throw new RequestValidationError('Invalid aiProviders field');
+    if (aiProviders.primaryProvider !== undefined) enumInput(aiProviders.primaryProvider, ['gemini', 'deepseek', 'openai', 'custom']);
+    if (aiProviders.fallbackEnabled !== undefined) bool(aiProviders.fallbackEnabled);
+    if (aiProviders.allowSystemFallback !== undefined) bool(aiProviders.allowSystemFallback);
+    if (aiProviders.fallbackChain !== undefined) {
+      strings(aiProviders.fallbackChain, 10, 50);
+      for (const item of aiProviders.fallbackChain as string[]) {
+        enumInput(item, ['gemini', 'deepseek', 'openai', 'custom']);
+      }
+    }
+    if (aiProviders.providers !== undefined) {
+      const providers = objectInput(aiProviders.providers);
+      for (const [providerKey, providerCfg] of Object.entries(providers)) {
+        enumInput(providerKey, ['gemini', 'deepseek', 'openai', 'custom']);
+        const cfg = objectInput(providerCfg);
+        const cfgAllowed = ['type', 'apiKey', 'model', 'baseUrl', 'supportsVision', 'maxTokens'];
+        if (Object.keys(cfg).some(key => !cfgAllowed.includes(key))) throw new RequestValidationError('Invalid provider config field');
+        if (cfg.type !== undefined) enumInput(cfg.type, ['gemini', 'deepseek', 'openai', 'custom']);
+        if (cfg.model !== undefined) {
+          stringInput(cfg.model, 100);
+          if (!/^[a-zA-Z0-9.:_-]+$/.test(cfg.model as string)) throw new RequestValidationError('Invalid model identifier format');
+        }
+        if (cfg.apiKey !== undefined) stringInput(cfg.apiKey, 1024);
+        if (cfg.baseUrl !== undefined) stringInput(cfg.baseUrl, 500);
+        if (cfg.supportsVision !== undefined) bool(cfg.supportsVision);
+      }
     }
   }
 }

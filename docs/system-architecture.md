@@ -137,6 +137,14 @@ sequenceDiagram
 - Mã đơn hàng được tạo nguyên tử trong cùng transaction tạo bản ghi `Order`. Lệnh `INSERT INTO order_code_counters ... ON CONFLICT DO UPDATE` khóa dòng theo cặp `(org_id, date_key)` (ngày tính theo chuẩn UTC `YYYYMMDD`), bảo đảm không có race condition hay trùng mã khi nhiều nhân viên tạo đơn cùng lúc.
 - Khóa Unique `(org_id, order_code)` ở mức database đóng vai trò chốt chặn cuối cùng bảo vệ toàn vẹn dữ liệu.
 
+### 3.1.5. Động cơ AI Đa Nhà Cung Cấp (Multi-Provider Engine), SSRF & Hybrid Vision
+
+- **Bộ điều phối thích ứng (AiProviderRouter):** Trừu tượng hóa các adapter AI độc lập (`GeminiProvider`, `OpenAiCompatibleProvider` cho OpenAI, DeepSeek và Custom AI Gateway). Hỗ trợ cấu hình động theo từng tổ chức hoặc kế thừa cấu hình mặc định an toàn từ hệ thống.
+- **Duy nhất một lần đặt trước ngân sách (Single-Layer Budget Reservation):** Khi tiến hành failover sang provider tiếp theo trong chuỗi dự phòng (`fallbackChain`), router tái sử dụng cùng một `attemptKey` đã đặt trước với `ReportJobBudget`. Ngân sách token chỉ được hoàn tất (`complete`) một lần khi một provider thành công, loại bỏ hoàn toàn nguy cơ nhân đôi chi phí (double-reserve) hoặc làm cạn kiệt ngân sách của tổ chức.
+- **Cơ chế phòng chống SSRF trên AI Gateway:** Mọi Base URL tùy chỉnh của bên thứ ba khi lưu hoặc kiểm tra kết nối đều phải vượt qua `validateAiGatewayUrl`. Hệ thống mặc định bắt buộc giao thức HTTPS và phân giải DNS nhằm chặn mọi dải IP loopback, private (RFC1918) và link-local. Việc kết nối tới AI Gateway mạng cục bộ (Ollama, vLLM, LocalAI) chỉ được chấp thuận khi cờ môi trường `ALLOW_PRIVATE_AI_GATEWAYS=true` được cấu hình tường minh.
+- **Cầu nối thị giác lai thông minh (Smart Hybrid Vision Bridge):** Với các mô hình thuần văn bản (như DeepSeek-V3), `preprocessMultimodalPrompt` tự động điều phối ảnh tới provider thị giác khả dụng để OCR trích xuất số liệu/chứng từ, hoặc tự động suy thoái nhẹ nhàng (graceful degradation) chèn ghi chú placeholder thay vì làm gián đoạn toàn bộ tiến trình tổng hợp báo cáo.
+- **Cô lập & mã hóa cấu hình đa người dùng:** Dữ liệu cấu hình và API key của từng tổ chức được mã hóa `AES-256-GCM` trong bảng `AppSetting` (`settingKey: 'ai_provider_config'`). API DTO luôn che giấu (`maskKey`) các secret và tuyệt đối không làm lộ khóa cấu hình cấp hệ thống của máy chủ cho client.
+
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
 2. Hệ thống gọi `encryptData(sessionData, ENCRYPTION_KEY)` mã hóa chuỗi JSON thành binary bằng thuật toán `AES-256-GCM` với IV ngẫu nhiên và Auth Tag.

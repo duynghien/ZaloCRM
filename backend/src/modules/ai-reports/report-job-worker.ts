@@ -12,6 +12,7 @@ const leaseMs = 5 * 60_000;
 let timer: NodeJS.Timeout | undefined;
 let running: Promise<void> | undefined;
 let stopping = false;
+const activeJobControllers = new Map<string, AbortController>();
 type Job = NonNullable<Awaited<ReturnType<typeof prisma.aiReportJob.findUnique>>>;
 const fence = (job: Job) => ({ id: job.id, status: 'running', leaseOwner: job.leaseOwner, leaseExpiresAt: { gt: new Date() } });
 
@@ -35,6 +36,8 @@ async function actor(job: Job, request: FrozenReportJobRequest) {
   return user;
 }
 export async function runReportJob(job: Job): Promise<void> {
+  const controller = new AbortController();
+  activeJobControllers.set(job.id, controller);
   let request: FrozenReportJobRequest;
   const renewals = new Set<Promise<unknown>>();
   const renew = setInterval(() => {
@@ -46,7 +49,10 @@ export async function runReportJob(job: Job): Promise<void> {
     const guard = async () => {
       const current = await prisma.aiReportJob.findFirst({ where: fence(job) });
       if (!current) throw new Error('Report lease lost');
-      if (current.cancellationRequestedAt) throw new Error('Job cancelled');
+      if (current.cancellationRequestedAt) {
+        controller.abort();
+        throw new Error('Job cancelled');
+      }
       await actor(job, request);
       // Authorization itself awaits DB work; check ownership again before effects.
       if (!await prisma.aiReportJob.count({ where: { ...fence(job), cancellationRequestedAt: null } })) throw new Error('Report cancelled or lease lost');
@@ -61,7 +67,7 @@ export async function runReportJob(job: Job): Promise<void> {
     let report = job.resultReportId ? await prisma.generatedReport.findFirst({ where: { id: job.resultReportId, orgId: job.orgId } }) : null;
     if (report && (report.targetResolutionStatus !== 'verified' || JSON.stringify(decodeReportTargets(report.sourceTargets)) !== JSON.stringify(request.targets))) throw new Error('Report source snapshot mismatch');
     if (!report) {
-      const { reportData } = await generateDigestReport({ orgId: job.orgId, userId: job.createdById ?? undefined, reportType: request.reportType, periodFrom: new Date(request.fromDate), periodTo: new Date(request.toDate), targets: request.targets, title: request.title, budget: createReportJobBudget(job.id, job.leaseOwner!, guard), executionGuard: guard });
+      const { reportData } = await generateDigestReport({ orgId: job.orgId, userId: job.createdById ?? undefined, reportType: request.reportType, periodFrom: new Date(request.fromDate), periodTo: new Date(request.toDate), targets: request.targets, title: request.title, budget: createReportJobBudget(job.id, job.leaseOwner!, guard), executionGuard: guard, signal: controller.signal });
       await guard();
       report = await prisma.$transaction(async tx => {
         await tx.$queryRaw`SELECT id FROM ai_report_jobs WHERE id = ${job.id} FOR UPDATE`;
@@ -122,7 +128,11 @@ export async function runReportJob(job: Job): Promise<void> {
       await prisma.aiReportJob.updateMany({ where: fence(job), data: { status: current.cancellationRequestedAt ? 'cancelled' : 'failed', errorMessage: message.slice(0, 500), leaseOwner: null, leaseExpiresAt: null, finishedAt: new Date() } });
     }
     logger.warn(`[report-worker] ${message}`);
-  } finally { clearInterval(renew); await Promise.all(renewals); }
+  } finally {
+    activeJobControllers.delete(job.id);
+    clearInterval(renew);
+    await Promise.all(renewals);
+  }
 }
 export function processOneReportJob(): Promise<void> {
   if (running) return running;
@@ -135,7 +145,12 @@ export function startReportJobWorker(): void {
   timer = setInterval(poll, 2000); poll();
 }
 export async function stopReportJobWorker(timeoutMs = 30_000): Promise<void> {
-  stopping = true; if (timer) clearInterval(timer); timer = undefined;
+  stopping = true;
+  if (timer) clearInterval(timer);
+  timer = undefined;
+  for (const ctrl of activeJobControllers.values()) {
+    ctrl.abort();
+  }
   let timeout: NodeJS.Timeout | undefined;
   try { await Promise.race([running, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('Report worker drain timed out; abort cutover')), timeoutMs); })]); }
   finally { if (timeout) clearTimeout(timeout); }

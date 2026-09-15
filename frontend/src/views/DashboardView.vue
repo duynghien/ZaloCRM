@@ -27,7 +27,7 @@
               ĐƠN HÀNG MỚI
             </span>
             <div class="neo-icon-box pastel-blue flex-shrink-0" style="width: 34px; height: 34px;">
-              <v-icon size="18">mdi-cart-outline</v-icon>
+              <v-icon size="18">basket-shopping-alt.svg</v-icon>
             </div>
           </div>
           <div>
@@ -47,7 +47,7 @@
               DOANH THU HÔM NAY
             </span>
             <div class="neo-icon-box pastel-green flex-shrink-0" style="width: 34px; height: 34px;">
-              <v-icon size="18">mdi-cash-multiple</v-icon>
+              <v-icon size="18">dong.svg</v-icon>
             </div>
           </div>
           <div>

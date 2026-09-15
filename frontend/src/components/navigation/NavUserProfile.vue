@@ -1,24 +1,7 @@
 <template>
   <div v-if="authStore.user" class="nav-user-profile-wrapper">
-    <!-- Rail mode collapsed: Centered Circular Avatar with Tooltip -->
-    <div v-if="rail" class="py-2 text-center">
-      <v-tooltip :text="`${authStore.user.fullName} (${roleLabel})`" location="end">
-        <template #activator="{ props }">
-          <v-avatar
-            v-bind="props"
-            size="38"
-            color="primary"
-            class="text-white font-weight-bold mx-auto cursor-pointer"
-            rounded="circle"
-          >
-            {{ initials }}
-          </v-avatar>
-        </template>
-      </v-tooltip>
-    </div>
-
-    <!-- Expanded mode: Floating profile card matching CQA spec -->
-    <div v-else class="nav-profile-card">
+    <!-- User profile card matching CQA spec -->
+    <div class="nav-profile-card">
       <!-- Top environment & version badge -->
       <div class="d-flex align-center justify-space-between mb-2">
         <span class="neo-pill env-badge px-2 py-0">
@@ -32,7 +15,7 @@
       <!-- User row: circular avatar + name & email -->
       <div class="d-flex align-center mb-2">
         <v-avatar
-          size="38"
+          size="36"
           color="primary"
           class="text-white font-weight-bold mr-2 flex-shrink-0"
           rounded="circle"
@@ -49,11 +32,20 @@
         </div>
       </div>
 
-      <!-- Role pill chip -->
-      <div class="d-flex align-center justify-space-between">
-        <span class="neo-pill role-pill px-2 py-0" :class="roleClass">
+      <!-- Role pill chip + Logout button (Synchronized pill shape & height) -->
+      <div class="d-flex align-center justify-space-between mt-2">
+        <span class="neo-pill role-pill" :class="roleClass">
           {{ roleLabel }}
         </span>
+        <v-btn
+          variant="flat"
+          class="user-logout-btn"
+          title="Đăng xuất"
+          @click="logout"
+        >
+          <v-icon size="13" class="mr-1">mdi-logout</v-icon>
+          <span>ĐĂNG XUẤT</span>
+        </v-btn>
       </div>
     </div>
   </div>
@@ -61,13 +53,16 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
-const props = defineProps<{
-  rail?: boolean;
-}>();
-
 const authStore = useAuthStore();
+const router = useRouter();
+
+function logout() {
+  authStore.logout();
+  router.push('/login');
+}
 
 const envBadge = computed(() => {
   return import.meta.env.MODE === 'production' ? '• v1.0.0 PROD' : '• v1.0.0 DEV';
@@ -99,7 +94,7 @@ const roleClass = computed(() => {
 
 <style scoped>
 .nav-user-profile-wrapper {
-  padding: 8px 12px;
+  padding: 8px 10px;
 }
 
 .nav-profile-card {
@@ -118,8 +113,18 @@ const roleClass = computed(() => {
 }
 
 .role-pill {
+  height: 24px !important;
+  min-height: 24px !important;
+  border-radius: 9999px !important;
+  border: 1.5px solid var(--border-color) !important;
+  font-family: 'Space Grotesk', sans-serif !important;
   font-size: 0.65rem !important;
-  letter-spacing: 0.03em;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em !important;
+  padding: 0 10px !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
 }
 
 .role-owner {
