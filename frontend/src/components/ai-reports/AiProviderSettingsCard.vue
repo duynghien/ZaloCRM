@@ -44,12 +44,32 @@
       <v-col cols="12" md="6">
         <v-combobox
           v-model="currentProvider.model"
-          :items="MODEL_SUGGESTIONS[selectedTab] || []"
+          :items="availableModelSuggestions"
           label="Mô hình (Model)"
           density="compact"
           variant="outlined"
           placeholder="Nhập hoặc chọn tên model"
-        />
+          :loading="isFetchingModels"
+          :hint="modelHint"
+          persistent-hint
+        >
+          <template #append-inner>
+            <v-tooltip location="top" text="Tải danh sách model từ API">
+              <template #activator="{ props: tooltipProps }">
+                <v-btn
+                  v-bind="tooltipProps"
+                  icon="mdi-refresh"
+                  variant="text"
+                  size="small"
+                  density="compact"
+                  :loading="isFetchingModels"
+                  :disabled="!hasApiKeyConfigured"
+                  @click.stop="fetchModels"
+                />
+              </template>
+            </v-tooltip>
+          </template>
+        </v-combobox>
       </v-col>
       <v-col cols="12" md="6">
         <v-text-field
@@ -257,6 +277,60 @@ async function runTestConnection() {
     isTesting.value = false;
   }
 }
+
+const dynamicModels = ref<Record<string, string[]>>({});
+const isFetchingModels = ref(false);
+const fetchModelError = ref<string | null>(null);
+
+const hasApiKeyConfigured = computed(() => {
+  return Boolean(currentProvider.value?.apiKey || currentProvider.value?.apiKeySet);
+});
+
+const availableModelSuggestions = computed<string[]>(() => {
+  const defaults = MODEL_SUGGESTIONS[selectedTab.value] || [];
+  const dynamic = dynamicModels.value[selectedTab.value] || [];
+  return Array.from(new Set([...defaults, ...dynamic]));
+});
+
+const modelHint = computed(() => {
+  if (fetchModelError.value) {
+    return `⚠️ ${fetchModelError.value}`;
+  }
+  if (selectedTab.value === 'deepseek') {
+    return 'Official DeepSeek: deepseek-chat (V3) & deepseek-reasoner (R1). Nhấn 🔄 để tải từ API.';
+  }
+  if (selectedTab.value === 'custom') {
+    return 'Hỗ trợ bất kỳ OpenAI-compatible gateway nào. Nhấn 🔄 để tải model từ Base URL.';
+  }
+  return 'Nhấn biểu tượng 🔄 để cập nhật danh sách model trực tiếp từ nhà cung cấp.';
+});
+
+async function fetchModels() {
+  if (!hasApiKeyConfigured.value) return;
+  isFetchingModels.value = true;
+  fetchModelError.value = null;
+  try {
+    const res = await aiReportApi.fetchProviderModels({
+      type: selectedTab.value,
+      apiKey: currentProvider.value.apiKey,
+      baseUrl: currentProvider.value.baseUrl,
+    });
+    if (res.models && res.models.length > 0) {
+      dynamicModels.value[selectedTab.value] = res.models;
+      if (!currentProvider.value.model) {
+        currentProvider.value.model = res.models[0];
+      }
+    }
+  } catch (err: any) {
+    fetchModelError.value = err?.response?.data?.error || err?.message || 'Không thể tải danh sách model';
+  } finally {
+    isFetchingModels.value = false;
+  }
+}
+
+watch(selectedTab, () => {
+  fetchModelError.value = null;
+});
 </script>
 
 <style scoped>

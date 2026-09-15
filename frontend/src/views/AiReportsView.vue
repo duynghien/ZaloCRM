@@ -1177,11 +1177,31 @@ async function loadSettings() {
   }
 }
 
+function sanitizeAiProvidersPayload(settings: AiProviderSettings): Partial<AiProviderSettings> {
+  const cleanProviders: Record<string, any> = {};
+  for (const [key, p] of Object.entries(settings.providers || {})) {
+    cleanProviders[key] = {
+      type: p.type,
+      model: p.model?.trim(),
+      apiKey: p.apiKey?.trim() || undefined,
+      baseUrl: p.baseUrl?.trim() || undefined,
+      supportsVision: p.supportsVision,
+    };
+  }
+  return {
+    primaryProvider: settings.primaryProvider,
+    fallbackEnabled: settings.fallbackEnabled,
+    fallbackChain: settings.fallbackChain,
+    allowSystemFallback: settings.allowSystemFallback,
+    providers: cleanProviders,
+  };
+}
+
 async function handleSaveAiSettings() {
   isSavingAi.value = true;
   try {
     await aiReportApi.updateSettings({
-      aiProviders: aiProviderSettings.value,
+      aiProviders: sanitizeAiProvidersPayload(aiProviderSettings.value),
     });
     showSnackbar('Đã lưu cấu hình AI Provider thành công!', 'success');
     await loadSettings();
@@ -1199,7 +1219,7 @@ async function saveAllSettings() {
   isSavingSettings.value = true;
   try {
     await aiReportApi.updateSettings({
-      aiProviders: aiProviderSettings.value,
+      aiProviders: sanitizeAiProvidersPayload(aiProviderSettings.value),
       automation: { ...automationSettings.value,
         senderAccountId: automationSettings.value.senderAccountId || undefined,
         zaloTargetUid: automationSettings.value.sendZalo && automationSettings.value.zaloDestinationType === 'uid'

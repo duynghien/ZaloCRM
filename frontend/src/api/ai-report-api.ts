@@ -281,6 +281,15 @@ export const aiReportApi = {
     return res.data;
   },
 
+  async fetchProviderModels(payload: {
+    type: 'gemini' | 'openai' | 'deepseek' | 'custom';
+    apiKey?: string;
+    baseUrl?: string;
+  }): Promise<{ models: string[] }> {
+    const res = await api.post('/ai-reports/settings/models', payload, { timeout: 20000 });
+    return res.data;
+  },
+
   // Audit Rules
   async getAuditRules(): Promise<{ rules: AiAuditRule[] }> {
     const res = await api.get('/ai-reports/rules');

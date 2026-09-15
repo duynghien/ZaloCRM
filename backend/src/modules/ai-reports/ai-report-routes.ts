@@ -25,6 +25,7 @@ import {
 import { GeminiProvider } from './providers/gemini-provider.js';
 import { OpenAiCompatibleProvider } from './providers/openai-compatible-provider.js';
 import { validateAiGatewayUrl } from './ai-gateway-validator.js';
+import { fetchProviderModelList } from './ai-model-catalog-service.js';
 import { aiAuditRuleRoutes } from './ai-audit-rule-routes.js';
 import './ai-audit-evaluator.js';
 
@@ -478,5 +479,56 @@ export async function aiReportRoutes(app: FastifyInstance) {
 
     const testResult = await provider.testConnection();
     return testResult;
+  });
+
+  // ── 11. Fetch Available Models from AI Provider ───────────────────────────
+  app.post('/api/v1/ai-reports/settings/models', { preHandler: requireRole('owner', 'admin') }, async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const body = (request.body || {}) as {
+      type: 'gemini' | 'openai' | 'deepseek' | 'custom';
+      apiKey?: string;
+      baseUrl?: string;
+    };
+
+    if (!body.type || !['gemini', 'openai', 'deepseek', 'custom'].includes(body.type)) {
+      return reply.status(400).send({ error: 'Loại AI provider không hợp lệ' });
+    }
+
+    const orgCreds = await getOrgAiProviderCredentials(user.orgId);
+    const existingProviderCfg = orgCreds.providers[body.type];
+
+    let apiKey = body.apiKey?.trim();
+    if (!apiKey || apiKey.includes('••••')) {
+      apiKey = existingProviderCfg?.apiKey;
+    }
+
+    // SSRF Check on baseUrl
+    const baseUrl = body.baseUrl?.trim() || existingProviderCfg?.baseUrl;
+    if (baseUrl) {
+      if ((!body.apiKey || body.apiKey.includes('••••')) && body.baseUrl && body.baseUrl !== existingProviderCfg?.baseUrl) {
+        return reply.status(400).send({ error: 'Không thể thay đổi Base URL khi đang sử dụng API Key đã lưu' });
+      }
+      try {
+        await validateAiGatewayUrl(baseUrl);
+      } catch (err: any) {
+        return reply.status(400).send({ error: err.message || 'Base URL không an toàn' });
+      }
+    }
+
+    if (!apiKey) {
+      return reply.status(400).send({ error: `Chưa có API key cho nhà cung cấp ${body.type}` });
+    }
+
+    try {
+      const models = await fetchProviderModelList({
+        type: body.type,
+        apiKey,
+        baseUrl,
+        timeoutMs: 15_000,
+      });
+      return { models };
+    } catch (err: any) {
+      return reply.status(400).send({ error: err?.message || 'Không thể lấy danh sách model' });
+    }
   });
 }
