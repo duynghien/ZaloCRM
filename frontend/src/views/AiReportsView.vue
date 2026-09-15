@@ -1182,7 +1182,7 @@ function sanitizeAiProvidersPayload(settings: AiProviderSettings): Partial<AiPro
   for (const [key, p] of Object.entries(settings.providers || {})) {
     cleanProviders[key] = {
       type: p.type,
-      model: p.model?.trim(),
+      model: p.model?.trim() || undefined,
       apiKey: p.apiKey?.trim() || undefined,
       baseUrl: p.baseUrl?.trim() || undefined,
       supportsVision: p.supportsVision,

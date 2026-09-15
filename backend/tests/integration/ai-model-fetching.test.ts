@@ -87,6 +87,33 @@ it('accepts valid AI Provider settings with isSystemDefault, apiKeySet, maxToken
   expect(data.aiProviders.providers.deepseek.apiKeySet).toBe(true);
 });
 
+it('accepts AI Provider settings when an unconfigured provider has empty model string or omitted model', async () => {
+  const payload = {
+    aiProviders: {
+      primaryProvider: 'deepseek',
+      fallbackEnabled: false,
+      fallbackChain: [],
+      allowSystemFallback: true,
+      providers: {
+        gemini: { type: 'gemini', model: 'gemini-3.6-flash' },
+        deepseek: { type: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-deepseek-valid-key' },
+        openai: { type: 'openai', model: 'gpt-4o-mini' },
+        custom: { type: 'custom', model: '' }, // empty model string should be allowed!
+      },
+    },
+  };
+
+  const response = await fixture.app.inject({
+    method: 'PUT',
+    url: '/api/v1/ai-reports/settings',
+    headers: { ...ownerHeaders, 'content-type': 'application/json' },
+    payload: JSON.stringify(payload),
+  });
+
+  expect(response.statusCode).toBe(200);
+  expect(response.json()).toEqual({ success: true });
+});
+
 it('rejects AI Provider settings with invalid model identifier containing forbidden characters', async () => {
   const payload = {
     aiProviders: {

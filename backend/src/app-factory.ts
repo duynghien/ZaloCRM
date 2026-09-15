@@ -127,8 +127,8 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
 
   // ── Error handler ─────────────────────────────────────────────────────────
 
-  app.setErrorHandler((error: Error & { statusCode?: number }, _request, reply) => {
-    logger.error('Request error:', error.message);
+  app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
+    logger.error(`[http] Request error on ${request.method} ${request.url}: ${error.message}`);
     reply.status(error.statusCode ?? 500).send({
       error: error.message || 'Internal Server Error',
     });

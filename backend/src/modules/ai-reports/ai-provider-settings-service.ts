@@ -119,7 +119,7 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
       gemini: { type: 'gemini', model: config.geminiModel, apiKey: '', apiKeySet: Boolean(config.geminiApiKey) },
       openai: { type: 'openai', model: config.openaiModel, apiKey: '', apiKeySet: Boolean(config.openaiApiKey) },
       deepseek: { type: 'deepseek', model: config.deepseekModel, apiKey: '', apiKeySet: Boolean(config.deepseekApiKey) },
-      custom: { type: 'custom', model: '', apiKey: '', apiKeySet: false, baseUrl: '' },
+      custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', apiKeySet: false, baseUrl: '' },
     };
 
     return {
@@ -145,7 +145,7 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
       const cfg = saved.providers?.[type] || {};
       providersDto[type] = {
         type,
-        model: cfg.model || (type === 'gemini' ? config.geminiModel : type === 'deepseek' ? config.deepseekModel : type === 'openai' ? config.openaiModel : ''),
+        model: cfg.model || (type === 'gemini' ? config.geminiModel : type === 'deepseek' ? config.deepseekModel : type === 'openai' ? config.openaiModel : (type === 'custom' ? 'llama-3.3-70b' : '')),
         apiKey: maskKey(cfg.apiKey),
         apiKeySet: Boolean(cfg.apiKey),
         baseUrl: cfg.baseUrl || '',

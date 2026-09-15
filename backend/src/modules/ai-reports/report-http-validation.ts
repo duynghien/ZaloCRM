@@ -27,13 +27,13 @@ export function validateReportHttpRequest(request: FastifyRequest): void {
     const allowed = ['type', 'apiKey', 'model', 'baseUrl', 'supportsVision'];
     if (Object.keys(body).some(key => !allowed.includes(key))) throw new RequestValidationError('Invalid test-ai request field');
     if (body.type !== undefined) enumInput(body.type, ['gemini', 'deepseek', 'openai', 'custom']);
-    if (body.apiKey !== undefined) stringInput(body.apiKey, 1024);
-    if (body.model !== undefined) {
+    if (body.apiKey !== undefined && body.apiKey !== null) stringInput(body.apiKey, 1024);
+    if (body.model !== undefined && body.model !== '' && body.model !== null) {
       stringInput(body.model, 100);
       if (!/^[a-zA-Z0-9.:_\/-]+$/.test(body.model as string)) throw new RequestValidationError('Invalid model identifier format');
     }
-    if (body.baseUrl !== undefined) stringInput(body.baseUrl, 500);
-    if (body.supportsVision !== undefined) bool(body.supportsVision);
+    if (body.baseUrl !== undefined && body.baseUrl !== null) stringInput(body.baseUrl, 500);
+    if (body.supportsVision !== undefined && body.supportsVision !== null) bool(body.supportsVision);
     return;
   }
   if (!route.endsWith('/settings')) return;
@@ -86,15 +86,15 @@ export function validateReportHttpRequest(request: FastifyRequest): void {
         const cfgAllowed = ['type', 'apiKey', 'model', 'baseUrl', 'supportsVision', 'maxTokens', 'apiKeySet'];
         if (Object.keys(cfg).some(key => !cfgAllowed.includes(key))) throw new RequestValidationError('Invalid provider config field');
         if (cfg.type !== undefined) enumInput(cfg.type, ['gemini', 'deepseek', 'openai', 'custom']);
-        if (cfg.model !== undefined) {
+        if (cfg.model !== undefined && cfg.model !== '' && cfg.model !== null) {
           stringInput(cfg.model, 100);
           if (!/^[a-zA-Z0-9.:_\/-]+$/.test(cfg.model as string)) throw new RequestValidationError('Invalid model identifier format');
         }
-        if (cfg.apiKey !== undefined) stringInput(cfg.apiKey, 1024);
-        if (cfg.baseUrl !== undefined) stringInput(cfg.baseUrl, 500);
-        if (cfg.supportsVision !== undefined) bool(cfg.supportsVision);
-        if (cfg.apiKeySet !== undefined) bool(cfg.apiKeySet);
-        if (cfg.maxTokens !== undefined && (typeof cfg.maxTokens !== 'number' || !Number.isInteger(cfg.maxTokens) || cfg.maxTokens < 1 || cfg.maxTokens > 128000)) {
+        if (cfg.apiKey !== undefined && cfg.apiKey !== null) stringInput(cfg.apiKey, 1024);
+        if (cfg.baseUrl !== undefined && cfg.baseUrl !== null) stringInput(cfg.baseUrl, 500);
+        if (cfg.supportsVision !== undefined && cfg.supportsVision !== null) bool(cfg.supportsVision);
+        if (cfg.apiKeySet !== undefined && cfg.apiKeySet !== null) bool(cfg.apiKeySet);
+        if (cfg.maxTokens !== undefined && cfg.maxTokens !== null && (typeof cfg.maxTokens !== 'number' || !Number.isInteger(cfg.maxTokens) || cfg.maxTokens < 1 || cfg.maxTokens > 128000)) {
           throw new RequestValidationError('Invalid maxTokens');
         }
       }
