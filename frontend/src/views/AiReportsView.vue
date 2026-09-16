@@ -34,19 +34,19 @@
       <v-tabs v-model="activeTab" bg-color="surface" color="primary" grow density="comfortable">
         <v-tab value="generate">
           <v-icon start>bolt.svg</v-icon>
-          ⚡ Tạo Báo Cáo Ngay
+          Tạo báo cáo ngay
         </v-tab>
         <v-tab value="archive">
           <v-icon start>keyboard-alt.svg</v-icon>
-          📜 Lịch Sử Báo Cáo
+          Lịch sử báo cáo
         </v-tab>
         <v-tab value="settings">
           <v-icon start>auto.svg</v-icon>
-          ⚙️ Cấu Hình Tự Động Hóa
+          Cấu hình tự động hóa
         </v-tab>
         <v-tab value="audit_rules">
           <v-icon start>mdi-target</v-icon>
-          🎯 Quy Tắc Giám Sát
+          Quy tắc giám sát
         </v-tab>
       </v-tabs>
     </v-card>

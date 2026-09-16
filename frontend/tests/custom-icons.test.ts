@@ -23,6 +23,14 @@ describe('Custom SVG Icons Mapping & Registry', () => {
     expect(svgByName).not.toBeNull();
     expect(svgByName).toBe(svgByBase);
     expect(svgByName).toBe(svgByMdi);
+
+    // AI Provider icons
+    expect(getSvgContent('gemini.svg')).not.toBeNull();
+    expect(getSvgContent('gemini')).not.toBeNull();
+    expect(getSvgContent('deepseek.svg')).not.toBeNull();
+    expect(getSvgContent('deepseek')).not.toBeNull();
+    expect(getSvgContent('openai.svg')).not.toBeNull();
+    expect(getSvgContent('openai')).not.toBeNull();
   });
 
   it('should return null for unmapped icons so they fallback to MDI font', () => {

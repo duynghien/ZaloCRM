@@ -6,16 +6,29 @@
         Cấu Hình AI Provider & Dự Phòng (Failover)
       </h2>
       <v-chip v-if="settings.isSystemDefault" size="x-small" color="info" variant="flat" class="font-weight-bold">
-        ⚙️ Đang dùng cấu hình mặc định (.env)
+        <v-icon start size="14">auto.svg</v-icon>
+        Đang dùng cấu hình mặc định (.env)
       </v-chip>
     </div>
 
     <!-- Provider Selection Tabs -->
     <v-tabs v-model="selectedTab" density="compact" color="primary" class="mb-4 neo-tabs" grow>
-      <v-tab value="gemini">🔵 Gemini</v-tab>
-      <v-tab value="deepseek">🐋 DeepSeek</v-tab>
-      <v-tab value="openai">🟢 OpenAI</v-tab>
-      <v-tab value="custom">⚙️ Custom</v-tab>
+      <v-tab value="gemini">
+        <v-icon start>gemini.svg</v-icon>
+        Gemini
+      </v-tab>
+      <v-tab value="deepseek">
+        <v-icon start>deepseek.svg</v-icon>
+        DeepSeek
+      </v-tab>
+      <v-tab value="openai">
+        <v-icon start>openai.svg</v-icon>
+        OpenAI
+      </v-tab>
+      <v-tab value="custom">
+        <v-icon start>auto.svg</v-icon>
+        Custom
+      </v-tab>
     </v-tabs>
 
     <div class="d-flex align-center gap-2 mb-3 flex-wrap">
