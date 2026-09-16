@@ -72,25 +72,19 @@
           @login="loginAccount"
           @reconnect="reconnectAccount"
           @access="openAccess"
+          @edit="openEdit"
           @delete="confirmDelete"
         />
       </v-col>
     </v-row>
 
     <!-- Add account dialog -->
-    <v-dialog v-model="showAddDialog" max-width="420">
-      <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
-        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">THÊM TÀI KHOẢN ZALO</v-card-title>
-        <v-card-text>
-          <v-text-field v-model="newAccountName" label="Tên hiển thị (VD: Zalo Sale Hương)" rounded="lg" />
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn rounded="lg" @click="showAddDialog = false">Hủy</v-btn>
-          <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="adding" @click="handleAddAccount">Thêm</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <ZaloAccountAddDialog
+      v-if="authStore.isAdmin"
+      v-model="showAddDialog"
+      :loading="adding"
+      @add="handleAddAccount"
+    />
 
     <!-- QR Code dialog -->
     <v-dialog v-model="showQRDialog" max-width="420" persistent>
@@ -137,6 +131,14 @@
       :account-id="accessTarget?.id ?? ''"
       :account-name="accessTarget?.displayName ?? accessTarget?.id ?? ''"
     />
+
+    <!-- Edit Brand & Color dialog (Admin only) -->
+    <ZaloAccountEditDialog
+      v-if="authStore.isAdmin"
+      v-model="showEditDialog"
+      :account="editTarget"
+      @save="handleSaveEdit"
+    />
   </div>
 </template>
 
@@ -146,24 +148,27 @@ import { useZaloAccounts, type ZaloAccount } from '@/composables/use-zalo-accoun
 import { useAuthStore } from '@/stores/auth';
 import ZaloAccessDialog from '@/components/settings/ZaloAccessDialog.vue';
 import ZaloAccountCard from '@/components/zalo/ZaloAccountCard.vue';
+import ZaloAccountAddDialog from '@/components/zalo/zalo-account-add-dialog.vue';
+import ZaloAccountEditDialog from '@/components/zalo/ZaloAccountEditDialog.vue';
 import { api } from '@/api/index';
 
 const {
   accounts, loading, adding, deleting,
   showQRDialog, qrImage, qrScanned, scannedName, qrError,
-  fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
+  fetchAccounts, addAccount, updateAccount, loginAccount, reconnectAccount, deleteAccount,
   cancelQR, setupSocket,
 } = useZaloAccounts();
 
 const authStore = useAuthStore();
 
 const showAddDialog = ref(false);
+const showEditDialog = ref(false);
 const syncing = ref<string | null>(null);
 const showDeleteDialog = ref(false);
 const showAccessDialog = ref(false);
-const newAccountName = ref('');
 const deleteTarget = ref<ZaloAccount | null>(null);
 const accessTarget = ref<ZaloAccount | null>(null);
+const editTarget = ref<ZaloAccount | null>(null);
 
 async function syncContacts(accountId: string) {
   syncing.value = accountId;
@@ -177,11 +182,32 @@ async function syncContacts(accountId: string) {
   }
 }
 
-async function handleAddAccount() {
-  const ok = await addAccount(newAccountName.value);
+async function handleAddAccount(payload: { name: string; branch: string; color: string }) {
+  const ok = await addAccount(
+    payload.name || undefined,
+    payload.branch || undefined,
+    payload.color || undefined,
+  );
   if (ok) {
     showAddDialog.value = false;
-    newAccountName.value = '';
+  }
+}
+
+function openEdit(account: ZaloAccount) {
+  if (!authStore.isAdmin) return;
+  editTarget.value = account;
+  showEditDialog.value = true;
+}
+
+async function handleSaveEdit(payload: { id: string; displayName?: string | null; branchTag?: string | null; colorTag?: string | null }) {
+  const ok = await updateAccount(payload.id, {
+    displayName: payload.displayName,
+    branchTag: payload.branchTag,
+    colorTag: payload.colorTag,
+  });
+  if (ok) {
+    showEditDialog.value = false;
+    editTarget.value = null;
   }
 }
 

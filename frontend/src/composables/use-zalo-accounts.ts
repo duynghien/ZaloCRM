@@ -12,8 +12,12 @@ export interface ZaloAccount {
   id: string;
   displayName: string | null;
   zaloUid: string | null;
+  avatarUrl?: string | null;
   status: string;
   liveStatus?: string;
+  branchTag?: string | null;
+  colorTag?: string | null;
+  unreadCount?: number;
   phone: string | null;
   sessionData: any;
   ownerUserId: string;
@@ -70,10 +74,14 @@ export function useZaloAccounts() {
     }
   }
 
-  async function addAccount(displayName: string) {
+  async function addAccount(displayName?: string, branchTag?: string, colorTag?: string) {
     adding.value = true;
     try {
-      await api.post('/zalo-accounts', { displayName: displayName || undefined });
+      await api.post('/zalo-accounts', {
+        displayName: displayName || undefined,
+        branchTag: branchTag || undefined,
+        colorTag: colorTag || undefined,
+      });
       await fetchAccounts();
       return true;
     } catch (err: any) {
@@ -81,6 +89,17 @@ export function useZaloAccounts() {
       return false;
     } finally {
       adding.value = false;
+    }
+  }
+
+  async function updateAccount(id: string, data: { displayName?: string | null; branchTag?: string | null; colorTag?: string | null }) {
+    try {
+      await api.patch(`/zalo-accounts/${id}`, data);
+      await fetchAccounts();
+      return true;
+    } catch (err: any) {
+      console.error('Failed to update account:', err);
+      return false;
     }
   }
 
@@ -257,6 +276,13 @@ export function useZaloAccounts() {
     });
 
     socket.on('zalo:reconnect-failed', (_data: { accountId: string }) => { fetchAccounts(); });
+    socket.on('zalo:status-changed', (data: { accountId: string; status: string }) => {
+      const target = accounts.value.find((a) => a.id === data.accountId);
+      if (target) {
+        target.status = data.status;
+        target.liveStatus = data.status;
+      }
+    });
   }
 
   onUnmounted(() => {
@@ -275,7 +301,7 @@ export function useZaloAccounts() {
     accounts, loading, adding, deleting,
     showQRDialog, qrImage, qrScanned, scannedName, qrError,
     statusColor, statusText,
-    fetchAccounts, addAccount, loginAccount, reconnectAccount, deleteAccount,
+    fetchAccounts, addAccount, updateAccount, loginAccount, reconnectAccount, deleteAccount,
     cancelQR, setupSocket,
   };
 }

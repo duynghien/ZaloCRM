@@ -145,6 +145,7 @@ class ZaloAccountPool {
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
         this.attachListener(accountId, api, orgId, instance.displayName || accountRec.displayName || undefined);
         await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'connected' });
         await this.updateAccountDB(accountId, 'connected', ownId);
 
         if (orgId) {
@@ -154,6 +155,7 @@ class ZaloAccountPool {
         const instance = this.instances.get(accountId);
         if (instance !== pending) return;
         instance.status = 'disconnected';
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
         await this.emitForAccount(accountId, 'zalo:error', { accountId, error: String(err) });
         throw err;
       }
@@ -216,6 +218,7 @@ class ZaloAccountPool {
         this.attachListener(accountId, api, orgId, instance.displayName || accountRec.displayName || undefined);
         await this.updateAccountDB(accountId, 'connected', ownId);
         await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'connected' });
 
         if (orgId) {
           emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
@@ -224,6 +227,7 @@ class ZaloAccountPool {
         const instance = this.instances.get(accountId);
         if (instance !== pending) return;
         instance.status = 'disconnected';
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
         await this.updateAccountDB(accountId, 'qr_pending', null);
         await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: String(err) });
       }
@@ -245,6 +249,7 @@ class ZaloAccountPool {
         const inst = this.instances.get(id);
         if (!inst || inst.api !== api) return;
         inst.status = 'disconnected';
+        void this.emitForAccount(id, 'zalo:status-changed', { accountId: id, status: 'disconnected' });
         this.updateAccountDB(id, 'disconnected', null);
 
         if (orgId) {
@@ -344,6 +349,7 @@ class ZaloAccountPool {
       }
     }
     this.instances.delete(accountId);
+    void this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
   }
 
   disconnectAll(): void {

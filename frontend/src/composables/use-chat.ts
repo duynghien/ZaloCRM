@@ -4,9 +4,13 @@ import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken 
 import { io, Socket } from 'socket.io-client';
 import type { Contact } from '@/composables/use-contacts';
 
-interface ZaloAccount {
+export interface ZaloAccount {
   id: string;
   displayName: string | null;
+  zaloUid?: string | null;
+  status?: string;
+  branchTag?: string | null;
+  colorTag?: string | null;
 }
 
 interface ConversationMessage {
@@ -48,6 +52,7 @@ export function useChat() {
   const sendingMsg = ref(false);
   const searchQuery = ref('');
   const accountFilter = ref<string | null>(null);
+  const accountUnreadMap = ref<Record<string, number>>({});
   let socket: Socket | null = null;
   let socketRefreshAttempted = false;
   let lastSocketRefresh = 0;
@@ -62,6 +67,20 @@ export function useChat() {
   const fetchConversations = recovery.request;
   watch(selectedConvId, () => { messages.value = []; recovery.invalidate(); }, { flush: 'sync' });
 
+  async function fetchAccountUnreads() {
+    try {
+      const res = await api.get('/zalo-accounts');
+      const accountsList = Array.isArray(res.data) ? res.data : [];
+      const map: Record<string, number> = {};
+      for (const acc of accountsList) {
+        map[acc.id] = acc.unreadCount || 0;
+      }
+      accountUnreadMap.value = map;
+    } catch (err) {
+      console.error('Failed to fetch account unreads:', err);
+    }
+  }
+
   async function selectConversation(convId: string) {
     selectedConvId.value = convId;
     await recovery.request();
@@ -69,7 +88,13 @@ export function useChat() {
     try {
       await api.post(`/conversations/${convId}/mark-read`);
       const conv = conversations.value.find(c => c.id === convId);
-      if (conv) conv.unreadCount = 0;
+      if (conv) {
+        if (conv.unreadCount > 0 && conv.zaloAccount?.id) {
+          const current = accountUnreadMap.value[conv.zaloAccount.id] || 0;
+          accountUnreadMap.value[conv.zaloAccount.id] = Math.max(0, current - conv.unreadCount);
+        }
+        conv.unreadCount = 0;
+      }
     } catch {
       // Recovery owns authorization failures and clears unavailable data.
     }
@@ -162,7 +187,12 @@ export function useChat() {
     socket.on('connect', () => { void recovery.request(); });
     socket.on('realtime:resync-required', () => { void recovery.request(); });
 
-    socket.on('chat:message', (data: { message: Message; conversationId: string }) => {
+    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string }) => {
+      const accId = data.accountId;
+      if (accId && data.message.senderType !== 'self' && data.conversationId !== selectedConvId.value) {
+        accountUnreadMap.value[accId] = (accountUnreadMap.value[accId] || 0) + 1;
+      }
+
       // Add to messages if viewing this conversation
       if (data.conversationId === selectedConvId.value) {
         // Avoid duplicates
@@ -211,6 +241,8 @@ export function useChat() {
     sendingMsg,
     searchQuery,
     accountFilter,
+    accountUnreadMap,
+    fetchAccountUnreads,
     fetchConversations,
     selectConversation,
     sendMessage,

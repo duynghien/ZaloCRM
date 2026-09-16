@@ -6,7 +6,7 @@
         <div class="d-flex align-center">
           <div
             class="channel-logo neo-icon-box mr-3 flex-shrink-0"
-            style="width: 44px; height: 44px; background: #0068FF; color: #FFFFFF;"
+            :style="{ width: '44px', height: '44px', backgroundColor: accountColor, color: '#FFFFFF' }"
           >
             <v-icon size="24" color="#FFFFFF">zalo.svg</v-icon>
           </div>
@@ -20,9 +20,23 @@
           </div>
         </div>
 
-        <span class="neo-pill channel-type-pill px-2 py-0">
-          ZALO CÁ NHÂN
-        </span>
+        <div class="d-flex align-center flex-wrap justify-end" style="gap: 4px;">
+          <span
+            v-if="account.branchTag"
+            class="neo-pill px-2 py-0 font-weight-bold"
+            :style="{
+              backgroundColor: accountColor,
+              color: '#FFFFFF',
+              border: '1.5px solid var(--border-color) !important',
+              fontSize: '0.68rem !important'
+            }"
+          >
+            {{ account.branchTag }}
+          </span>
+          <span class="neo-pill channel-type-pill px-2 py-0">
+            ZALO CÁ NHÂN
+          </span>
+        </div>
       </div>
 
       <v-divider class="my-3" style="opacity: 0.15;" />
@@ -100,6 +114,20 @@
 
       <v-spacer />
 
+      <!-- Edit / Configure Brand & Color Button (Admin only) -->
+      <v-btn
+        v-if="isAdmin"
+        variant="outlined"
+        size="small"
+        icon
+        rounded="lg"
+        class="channel-action-btn"
+        title="Chỉnh sửa thương hiệu & mã màu"
+        @click="$emit('edit', account)"
+      >
+        <v-icon size="16">mdi-pencil-outline</v-icon>
+      </v-btn>
+
       <!-- ACL Access Control Button (Admin only) -->
       <v-btn
         v-if="isAdmin"
@@ -135,6 +163,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { ZaloAccount } from '@/composables/use-zalo-accounts';
+import { getDeterministicAccountColor } from '@/utils/account-colors';
 
 const props = defineProps<{
   account: ZaloAccount;
@@ -147,11 +176,16 @@ defineEmits<{
   (e: 'login', accountId: string): void;
   (e: 'reconnect', accountId: string): void;
   (e: 'access', account: ZaloAccount): void;
+  (e: 'edit', account: ZaloAccount): void;
   (e: 'delete', account: ZaloAccount): void;
 }>();
 
+const accountColor = computed(() => {
+  return getDeterministicAccountColor(props.account.id, props.account.colorTag);
+});
+
 const isConnected = computed(() => {
-  return props.account.liveStatus === 'connected' || props.account.status === 'active';
+  return props.account.liveStatus === 'connected' || props.account.status === 'connected' || props.account.status === 'active';
 });
 
 function formatDate(dateStr: string): string {

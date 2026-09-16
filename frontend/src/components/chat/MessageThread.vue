@@ -24,9 +24,41 @@
           <v-img v-else-if="conversation.contact?.avatarUrl" :src="conversation.contact.avatarUrl" />
           <v-icon v-else icon="user-alt.svg" />
         </v-avatar>
-        <div class="flex-grow-1">
-          <div class="font-weight-medium">{{ conversation.contact?.fullName || 'Unknown' }}</div>
-          <div class="text-caption text-grey">{{ conversation.zaloAccount?.displayName || 'Zalo' }}</div>
+        <div class="flex-grow-1 text-truncate">
+          <div class="d-flex align-center">
+            <span class="font-weight-medium text-truncate">
+              {{ conversation.threadType === 'group' ? (conversation.contact?.fullName || 'Nhóm') : (conversation.contact?.fullName || 'Khách hàng') }}
+            </span>
+            <v-chip
+              v-if="conversation.threadType === 'group'"
+              size="x-small"
+              color="info"
+              variant="tonal"
+              rounded="pill"
+              class="ml-1 neo-pill"
+            >
+              Nhóm
+            </v-chip>
+            <v-chip
+              v-if="conversation.zaloAccount?.branchTag"
+              size="x-small"
+              class="ml-2 font-weight-bold neo-pill"
+              :style="{
+                backgroundColor: accountColor,
+                color: '#FFFFFF',
+                border: '1px solid var(--border-color)',
+                fontSize: '0.65rem !important'
+              }"
+            >
+              {{ conversation.zaloAccount.branchTag }}
+            </v-chip>
+          </div>
+          <div class="text-caption text-grey d-flex align-center">
+            <span class="mr-1">Tiếp nhận qua:</span>
+            <span class="font-weight-medium" :style="{ color: accountColor }">
+              {{ conversation.zaloAccount?.displayName || 'Zalo' }}
+            </span>
+          </div>
         </div>
         <v-btn
           :icon="showContactPanel ? 'mdi-account-details' : 'water.svg'"
@@ -95,6 +127,44 @@
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
+      <!-- Safety Compose Bar (Chốt chặn an toàn) -->
+      <div
+        v-if="conversation?.zaloAccount"
+        class="safety-compose-bar px-3 py-1 d-flex align-center justify-space-between"
+        :style="{
+          borderLeft: `4px solid ${accountColor}`,
+          borderTop: '1.5px solid var(--border-color)',
+          backgroundColor: 'var(--bg-main, #f8f9fa)',
+        }"
+      >
+        <div class="d-flex align-center text-caption font-weight-medium text-truncate mr-2">
+          <span class="mr-1 text-grey-darken-1 font-mono" style="font-size: 0.7rem;">ĐANG TRẢ LỜI BẰNG:</span>
+          <span class="font-weight-bold mr-2 text-truncate" :style="{ color: accountColor, fontSize: '0.78rem' }">
+            {{ conversation.zaloAccount.displayName || 'Zalo' }}
+          </span>
+          <span
+            v-if="conversation.zaloAccount.branchTag"
+            class="neo-pill px-1 py-0 font-weight-bold"
+            :style="{
+              backgroundColor: accountColor,
+              color: '#FFFFFF',
+              border: '1px solid var(--border-color)',
+              fontSize: '0.65rem !important',
+            }"
+          >
+            {{ conversation.zaloAccount.branchTag }}
+          </span>
+        </div>
+
+        <div class="d-flex align-center text-caption text-grey-darken-1 flex-shrink-0" style="font-size: 0.72rem;">
+          <span
+            class="status-dot mr-1"
+            :class="isAccountOnline ? 'status-online' : 'status-offline'"
+          />
+          <span>{{ isAccountOnline ? 'Online' : 'Mất kết nối' }}</span>
+        </div>
+      </div>
+
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
         <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="lg" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
@@ -120,6 +190,7 @@ import { ref, watch, nextTick, computed } from 'vue';
 import { useDisplay } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
+import { getDeterministicAccountColor } from '@/utils/account-colors';
 
 const { mobile } = useDisplay();
 
@@ -136,6 +207,18 @@ const emit = defineEmits<{
   'toggle-contact-panel': [];
   back: [];
 }>();
+
+const accountColor = computed(() => {
+  const acc = props.conversation?.zaloAccount;
+  if (!acc) return '#0068FF';
+  return getDeterministicAccountColor(acc.id, acc.colorTag);
+});
+
+const isAccountOnline = computed(() => {
+  const acc = props.conversation?.zaloAccount;
+  if (!acc) return false;
+  return acc.status === 'connected' || acc.status === 'active';
+});
 
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
@@ -291,5 +374,24 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 
 .chat-image:hover {
   transform: scale(1.01);
+}
+
+.safety-compose-bar {
+  user-select: none;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-online {
+  background-color: #10B981;
+}
+
+.status-offline {
+  background-color: #9CA3AF;
 }
 </style>

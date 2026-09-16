@@ -45,7 +45,12 @@ export async function chatRoutes(app: FastifyInstance) {
         where: { userId: user.id },
         select: { zaloAccountId: true },
       });
-      where.zaloAccountId = { in: accessibleAccounts.map((a) => a.zaloAccountId) };
+      const accessibleIds = accessibleAccounts.map((a) => a.zaloAccountId);
+      if (safeAccountId) {
+        where.zaloAccountId = accessibleIds.includes(safeAccountId) ? safeAccountId : '__none__';
+      } else {
+        where.zaloAccountId = { in: accessibleIds };
+      }
     }
 
     const [conversations, total] = await Promise.all([
@@ -53,7 +58,7 @@ export async function chatRoutes(app: FastifyInstance) {
         where,
         include: {
           contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true, zaloUid: true } },
-          zaloAccount: { select: { id: true, displayName: true, zaloUid: true } },
+          zaloAccount: { select: { id: true, displayName: true, zaloUid: true, branchTag: true, colorTag: true } },
           messages: {
             take: 1,
             orderBy: { sentAt: 'desc' },
@@ -79,7 +84,7 @@ export async function chatRoutes(app: FastifyInstance) {
       where: { id, orgId: user.orgId },
       include: {
         contact: true,
-        zaloAccount: { select: { id: true, displayName: true, zaloUid: true, status: true } },
+        zaloAccount: { select: { id: true, displayName: true, zaloUid: true, status: true, branchTag: true, colorTag: true } },
       },
     });
     if (!conversation) return reply.status(404).send({ error: 'Not found' });

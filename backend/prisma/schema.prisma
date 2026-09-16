@@ -108,6 +108,8 @@ model ZaloAccount {
   avatarUrl       String?   @map("avatar_url")
   phone           String?
   status          String    @default("disconnected") // connected, disconnected, qr_pending
+  branchTag       String?   @map("branch_tag")
+  colorTag        String?   @map("color_tag")
   sessionData     Json?     @map("session_data")
   lastConnectedAt DateTime? @map("last_connected_at")
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -186,6 +188,7 @@ model Conversation {
   orders      Order[]
 
   @@unique([zaloAccountId, externalThreadId])
+  @@index([orgId, zaloAccountId])
   @@map("conversations")
 }
 

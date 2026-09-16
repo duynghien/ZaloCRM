@@ -26,5 +26,9 @@
   {
     "name": "20260910000000_unique_order_codes",
     "checksum": "8e0b7e8cea40ccdf6f295086b5ac21e812b5d7aba822920d992a3786ccc20940"
+  },
+  {
+    "name": "20260916000000_zalo_account_branch_and_color",
+    "checksum": "672d5bdbcf2d9d04e42d31141ae37c42b42de960685f69666336f0e32ceef4bf"
   }
 ]

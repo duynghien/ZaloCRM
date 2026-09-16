@@ -1,25 +1,49 @@
 <template>
   <div class="conversation-list d-flex flex-column" style="width: 100%; border-right: 1.5px solid var(--border-color); height: 100%;">
-    <!-- Account filter + Search -->
-    <div class="pa-2">
-      <v-select
-        v-model="selectedAccountId"
-        :items="accountOptions"
-        item-title="text"
-        item-value="value"
-        label="Tất cả Zalo"
-        density="compact"
-        variant="outlined"
-        rounded="lg"
-        hide-details
-        clearable
-        class="mb-2"
-        @update:model-value="$emit('filter-account', $event)"
+    <!-- Active Account Filter Banner -->
+    <div
+      v-if="selectedAccount"
+      class="account-filter-banner px-3 py-2 d-flex align-center justify-space-between"
+      :style="{
+        backgroundColor: activeAccountBg,
+        borderBottom: '1.5px solid var(--border-color)',
+      }"
+    >
+      <div class="d-flex align-center text-truncate mr-2">
+        <span class="text-caption mr-1 font-weight-medium">Đang xem:</span>
+        <span
+          class="font-weight-bold text-caption text-truncate"
+          :style="{ color: activeAccountColor }"
+        >
+          {{ selectedAccount.displayName || selectedAccount.phone || 'Zalo' }}
+        </span>
+        <span
+          v-if="selectedAccount.branchTag"
+          class="neo-pill ml-1 px-1 py-0 text-caption font-weight-bold"
+          :style="{
+            backgroundColor: activeAccountColor,
+            color: '#FFFFFF',
+            fontSize: '0.65rem !important'
+          }"
+        >
+          {{ selectedAccount.branchTag }}
+        </span>
+      </div>
+      <v-btn
+        size="x-small"
+        variant="text"
+        icon="mdi-close"
+        title="Xem tất cả tài khoản"
+        @click="$emit('clear-account-filter')"
       />
+    </div>
+
+    <!-- Search text field -->
+    <div class="pa-2">
       <v-text-field
         :model-value="search"
         @update:model-value="$emit('update:search', $event)"
-        placeholder="Tìm kiếm..."
+        placeholder="Tìm kiếm hội thoại..."
         prepend-inner-icon="search-alt-1.svg"
         variant="outlined"
         rounded="lg"
@@ -29,7 +53,7 @@
       />
     </div>
 
-    <!-- List -->
+    <!-- Conversations List -->
     <v-list class="flex-grow-1 overflow-y-auto pa-0" density="compact">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
 
@@ -38,44 +62,86 @@
         :key="conv.id"
         :active="conv.id === selectedId"
         @click="$emit('select', conv.id)"
-        class="py-2"
+        class="py-2 conversation-item"
         :class="{ 'conversation-active': conv.id === selectedId, 'unread-conversation': conv.unreadCount > 0 && conv.id !== selectedId }"
       >
         <template #prepend>
-          <v-avatar size="40" color="grey-lighten-2" rounded="circle">
-            <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
-            <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
-            <v-icon v-else icon="user-alt.svg" />
-          </v-avatar>
+          <div class="position-relative mr-3">
+            <v-avatar size="42" color="grey-lighten-2" rounded="circle" style="border: 1.5px solid var(--border-color);">
+              <v-icon v-if="conv.threadType === 'group'" icon="mdi-account-group" />
+              <v-img v-else-if="conv.contact?.avatarUrl" :src="conv.contact.avatarUrl" />
+              <v-icon v-else icon="user-alt.svg" />
+            </v-avatar>
+            <!-- Sub-badge for Zalo account color -->
+            <span
+              v-if="conv.zaloAccount"
+              class="account-sub-badge"
+              :style="{
+                backgroundColor: getConvAccountColor(conv),
+              }"
+              :title="conv.zaloAccount.displayName || 'Zalo'"
+            />
+          </div>
         </template>
 
         <v-list-item-title class="d-flex align-center">
           <span class="text-truncate" :class="{ 'font-weight-bold': conv.unreadCount > 0 }">
-            {{ conv.threadType === 'group' ? (conv.contact?.fullName || 'Nhóm') : (conv.contact?.fullName || 'Unknown') }}
+            {{ conv.threadType === 'group' ? (conv.contact?.fullName || 'Nhóm') : (conv.contact?.fullName || 'Khách hàng') }}
           </span>
-          <v-chip v-if="conv.threadType === 'group'" size="x-small" color="info" variant="tonal" rounded="pill" class="ml-1 neo-pill">Nhóm</v-chip>
+          <v-chip
+            v-if="conv.threadType === 'group'"
+            size="x-small"
+            color="info"
+            variant="tonal"
+            rounded="pill"
+            class="ml-1 neo-pill"
+          >
+            Nhóm
+          </v-chip>
           <v-spacer />
           <span class="text-caption text-grey ml-1">{{ formatTime(conv.lastMessageAt) }}</span>
         </v-list-item-title>
 
-        <v-list-item-subtitle class="d-flex align-center">
-          <span class="text-truncate" style="max-width: 200px;" :class="{ 'font-weight-medium': conv.unreadCount > 0 }">
+        <v-list-item-subtitle class="d-flex align-center mt-1">
+          <span class="text-truncate flex-grow-1 mr-2" :class="{ 'font-weight-medium': conv.unreadCount > 0 }">
             {{ lastMessagePreview(conv) }}
           </span>
-          <v-spacer />
           <v-badge
             v-if="conv.unreadCount > 0"
-            :content="conv.unreadCount"
+            :content="conv.unreadCount > 99 ? '99+' : conv.unreadCount"
             color="error"
             inline
           />
         </v-list-item-subtitle>
 
-        <!-- Zalo account indicator -->
+        <!-- Brand / Account Pill indicator -->
         <template #append>
-          <span v-if="conv.zaloAccount?.displayName" class="text-caption text-grey-darken-1 ml-1" style="font-size: 0.65rem; max-width: 60px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-            {{ conv.zaloAccount.displayName }}
-          </span>
+          <div v-if="conv.zaloAccount" class="d-flex flex-column align-end">
+            <span
+              v-if="conv.zaloAccount.branchTag"
+              class="neo-pill px-1 py-0 font-weight-bold"
+              :style="{
+                backgroundColor: getConvAccountColor(conv),
+                color: '#FFFFFF',
+                fontSize: '0.62rem !important',
+                maxWidth: '75px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap'
+              }"
+              :title="conv.zaloAccount.branchTag"
+            >
+              {{ conv.zaloAccount.branchTag }}
+            </span>
+            <span
+              v-else-if="conv.zaloAccount.displayName"
+              class="text-caption text-grey-darken-1 mt-0"
+              style="font-size: 0.65rem; max-width: 65px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+              :title="conv.zaloAccount.displayName"
+            >
+              {{ conv.zaloAccount.displayName }}
+            </span>
+          </div>
         </template>
       </v-list-item>
 
@@ -87,38 +153,44 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed } from 'vue';
 import type { Conversation } from '@/composables/use-chat';
-import { api } from '@/api/index';
+import type { ZaloAccount } from '@/composables/use-zalo-accounts';
+import { getDeterministicAccountColor } from '@/utils/account-colors';
 
-defineProps<{
+const props = defineProps<{
   conversations: Conversation[];
   selectedId: string | null;
   loading: boolean;
   search: string;
+  selectedAccountId?: string | null;
+  accounts?: ZaloAccount[];
 }>();
 
 defineEmits<{
   select: [id: string];
   'update:search': [value: string];
-  'filter-account': [accountId: string | null];
+  'clear-account-filter': [];
 }>();
 
-const accountOptions = ref<{ text: string; value: string }[]>([]);
-const selectedAccountId = ref<string | null>(null);
-
-onMounted(async () => {
-  try {
-    const res = await api.get('/zalo-accounts');
-    const accounts = Array.isArray(res.data) ? res.data : res.data.accounts || [];
-    accountOptions.value = accounts.map((a: any) => ({
-      text: a.displayName || a.zaloUid || a.id,
-      value: a.id,
-    }));
-  } catch {
-    // Non-critical — filter just won't show accounts
-  }
+const selectedAccount = computed(() => {
+  if (!props.selectedAccountId || !props.accounts) return null;
+  return props.accounts.find(a => a.id === props.selectedAccountId) || null;
 });
+
+const activeAccountColor = computed(() => {
+  if (!selectedAccount.value) return '#0068FF';
+  return getDeterministicAccountColor(selectedAccount.value.id, selectedAccount.value.colorTag);
+});
+
+const activeAccountBg = computed(() => {
+  return 'var(--bg-main, #f8f9fa)';
+});
+
+function getConvAccountColor(conv: Conversation): string {
+  if (!conv.zaloAccount) return '#0068FF';
+  return getDeterministicAccountColor(conv.zaloAccount.id, conv.zaloAccount.colorTag);
+}
 
 function lastMessagePreview(conv: Conversation): string {
   const msg = conv.messages?.[0];
@@ -172,6 +244,21 @@ function formatTime(dateStr: string | null): string {
 </script>
 
 <style scoped>
+.account-filter-banner {
+  border-left: 4px solid v-bind(activeAccountColor);
+}
+
+.account-sub-badge {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-card, #ffffff);
+  box-shadow: 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
 .unread-conversation {
   background-color: var(--secondary-brand) !important;
   opacity: 0.9;
