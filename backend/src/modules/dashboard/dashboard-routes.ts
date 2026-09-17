@@ -5,7 +5,9 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireRole } from '../auth/role-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { handleGetAiKpi } from './dashboard-ai-kpi-handler.js';
 
 type QueryParams = Record<string, string>;
 
@@ -32,6 +34,9 @@ function weekAgoDate(from: Date) {
 
 export async function dashboardRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
+
+  // GET /api/v1/dashboard/ai-kpi
+  app.get('/api/v1/dashboard/ai-kpi', { preHandler: requireRole('owner', 'admin') }, handleGetAiKpi);
 
   // GET /api/v1/dashboard/kpi
   app.get('/api/v1/dashboard/kpi', async (request: FastifyRequest, reply: FastifyReply) => {

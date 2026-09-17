@@ -7,12 +7,15 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import ExcelJS from 'exceljs';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { requireRole } from '../auth/role-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
 import {
   buildMessagesSheet,
   buildContactsSheet,
   buildAppointmentsSheet,
 } from './excel-sheet-builders.js';
+import { buildAiUsageSheet } from './ai-report-sheet-builder.js';
+import { handleGetAiUsageReport } from './report-ai-usage-handler.js';
 
 type QueryParams = Record<string, string>;
 
@@ -24,6 +27,9 @@ function defaultDateRange() {
 
 export async function reportRoutes(app: FastifyInstance): Promise<void> {
   app.addHook('preHandler', authMiddleware);
+
+  // GET /api/v1/reports/ai-usage?from=&to=
+  app.get('/api/v1/reports/ai-usage', { preHandler: requireRole('owner', 'admin') }, handleGetAiUsageReport);
 
   // GET /api/v1/reports/messages?from=&to=
   app.get('/api/v1/reports/messages', async (request: FastifyRequest, reply: FastifyReply) => {
@@ -162,8 +168,13 @@ export async function reportRoutes(app: FastifyInstance): Promise<void> {
         await buildContactsSheet(workbook, orgId, from, to);
       } else if (type === 'appointments') {
         await buildAppointmentsSheet(workbook, orgId, from, to);
+      } else if (type === 'ai-usage') {
+        if (request.user?.role !== 'owner' && request.user?.role !== 'admin') {
+          return reply.status(403).send({ error: 'Access denied: Requires admin or owner role' });
+        }
+        await buildAiUsageSheet(workbook, orgId, from, to);
       } else {
-        return reply.status(400).send({ error: 'Invalid export type. Use: messages, contacts, appointments' });
+        return reply.status(400).send({ error: 'Invalid export type. Use: messages, contacts, appointments, ai-usage' });
       }
 
       const buffer = await workbook.xlsx.writeBuffer();
