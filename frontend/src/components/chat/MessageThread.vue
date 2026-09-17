@@ -132,6 +132,8 @@
           </div>
         </div>
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
+      </div>
+
       <!-- Copilot Draft Card (1-on-1 chats only) -->
       <div v-if="conversation && conversation.threadType === 'user'" class="px-2 pt-1">
         <ChatAiDraftCard

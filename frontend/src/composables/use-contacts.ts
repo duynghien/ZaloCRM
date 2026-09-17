@@ -22,6 +22,7 @@ export interface Contact {
   assignedUser?: { fullName: string } | null;
   createdAt?: string;
   firstContactDate?: string | null;
+  metadata?: Record<string, any> | null;
 }
 
 export interface ContactFilters {
