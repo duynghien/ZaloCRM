@@ -1,6 +1,9 @@
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/zalocrm_test';
+import { describe, expect, it, vi } from 'vitest';
 
-import { describe, expect, it } from 'vitest';
+vi.mock('../src/shared/database/prisma-client.js', () => ({
+  prisma: {},
+}));
+
 import { parseActionItemsFromMarkdown } from '../src/modules/ai-reports/report-action-item-parser.js';
 import { formatTasksForZaloMessage } from '../src/modules/ai-reports/zalo-report-sender.js';
 
