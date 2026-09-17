@@ -1,6 +1,6 @@
 # ZaloCRM — Quản lý nhiều tài khoản Zalo cá nhân
 
-Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân trên 1 giao diện web. Chat real-time, quản lý khách hàng, lịch hẹn, báo cáo, API & Webhook.
+Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân/doanh nghiệp trên 1 giao diện web chuẩn Neo-Brutalism CQA. Chat real-time với thanh chọn tài khoản trực quan (`AccountRail`), đồng bộ tin nhắn 2 chiều từ thiết bị ngoài (`selfListen`), gắn nhãn chi nhánh & màu sắc, đường ống CRM, đặt lịch hẹn, kiểm toán nhóm định kỳ & báo cáo AI đa nhà cung cấp (Gemini, OpenAI, DeepSeek, Local Gateway), phát tin việc cần làm Zalo, REST API & Webhook.
 
 ---
 
@@ -10,10 +10,10 @@ Mã nguồn dự án được chuẩn hóa hệ thống tài liệu tại thư m
 
 - **[Project Overview & PRD](./docs/project-overview-pdr.md)** — Tổng quan dự án, phạm vi tính năng & yêu cầu sản phẩm.
 - **[System Architecture](./docs/system-architecture.md)** — Sơ đồ kiến trúc tổng thể, luồng dữ liệu & real-time Socket.IO.
-- **[Deployment & Operations Guide](./docs/deployment-guide.md)** — Hướng dẫn triển khai Production Docker, Nginx SSL, Cloudflare & Backup.
-- **[Coding Standards & Guidelines](./docs/code-standards.md)** — Quy chuẩn lập trình TypeScript, Fastify, Vue 3 & Bảo mật.
+- **[Deployment & Operations Guide](./docs/deployment-guide.md)** — Hướng dẫn triển khai Production Docker, Nginx SSL, Cloudflare, AI Isolation & Backup.
+- **[Coding Standards & Guidelines](./docs/code-standards.md)** — Quy chuẩn lập trình TypeScript, Fastify, Vue 3, AI SSRF Defense & Kiểm thử tự động.
 - **[Codebase Summary](./docs/codebase-summary.md)** — Tổng hợp cấu trúc thư mục, danh sách API Endpoints & DB Schema.
-- **[Design Guidelines](./docs/design-guidelines.md)** — Quy chuẩn thiết kế UI/UX (Neo-Brutalism Design System, Vuetify 4).
+- **[Design Guidelines](./docs/design-guidelines.md)** — Quy chuẩn thiết kế UI/UX (Neo-Brutalism Design System CQA, Vuetify 4, 12 Account Color Palettes).
 - **[Product Roadmap](./docs/project-roadmap.md)** — Lộ trình phát triển tính năng, kiểm thử tự động & tích hợp AI Assistant.
 
 > 📖 **Hướng dẫn dành cho người dùng:** [HUONG-DAN-CAI-DAT.md](HUONG-DAN-CAI-DAT.md) | [HUONG-DAN-SU-DUNG.md](HUONG-DAN-SU-DUNG.md)
@@ -47,6 +47,7 @@ Dùng `npm run docker:up` cho cả lần đầu và cập nhật. Lệnh xác nh
 APP_URL=http://localhost:5173 npm run dev # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
 npm run build       # Build biên dịch mã nguồn Backend & Frontend
 npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
+npm test            # Chạy toàn bộ unit test (Frontend 56 tests + Backend 162 tests = 218 tests)
 npm run docker:dev  # Backend watch + Vite hot reload
 npm run verify:production-container  # Smoke production với database riêng
 npm run verify:development-compose   # Smoke trình duyệt + hot reload với database riêng
@@ -62,13 +63,15 @@ Docker development: mở **http://localhost:5173**; backend ở **http://localho
 |-----------|----------|
 | **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 / TypeScript |
 | **Frontend** | Vue 3 / Vuetify 4 / Chart.js / Pinia |
+| **Design System** | Neo-Brutalism CQA (Zero Shadow, 1.5px Mechanical Border, Space Grotesk) |
+| **AI Engine** | Multi-Provider (Google Gemini, OpenAI, DeepSeek, Local Gateway via Ollama/vLLM) |
 | **Cơ sở dữ liệu** | PostgreSQL 16 |
 | **Real-time** | Socket.IO |
-| **Zalo Engine** | zca-js 2.x |
+| **Zalo Engine** | zca-js 2.x (hỗ trợ `selfListen` đồng bộ 2 chiều) |
 | **Triển khai** | Docker Compose / Nginx |
 
 > [!NOTE]
-> Docker production và development dùng Node.js 24 LTS. Cần cung cấp `GEMINI_API_KEY` cùng `GEMINI_MODEL` hợp lệ khi bật AI Reports; mặc định là `gemini-3.6-flash`.
+> Docker production và development dùng Node.js 24 LTS. Hệ thống hỗ trợ linh hoạt các nhà cung cấp AI: Google Gemini, OpenAI, DeepSeek hoặc Custom OpenAI-Compatible Local Gateway. Cơ chế bảo vệ SSRF mặc định chặn truy cập vào IP Private/Loopback nội bộ trừ khi `ALLOW_PRIVATE_AI_GATEWAYS=true` được thiết lập.
 
 ---
 

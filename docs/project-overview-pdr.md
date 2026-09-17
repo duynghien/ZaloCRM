@@ -2,33 +2,37 @@
 
 ## 1. Executive Summary
 
-**ZaloCRM** là hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân dành cho doanh nghiệp, chủ cửa hàng, đội ngũ bán hàng và hỗ trợ khách hàng. Hệ thống hỗ trợ tương tác trò chuyện real-time, quản lý khách hàng theo đường ống bán hàng (Pipeline), đặt và nhắc lịch hẹn tự động, báo cáo thống kê hiệu suất làm việc, cùng hệ thống API công khai và Webhook hỗ trợ tích hợp với các hệ thống bên ngoài.
+**ZaloCRM** là hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân dành cho doanh nghiệp, chuỗi chi nhánh, đội ngũ bán hàng và hỗ trợ khách hàng. Hệ thống hỗ trợ tương tác trò chuyện real-time với thanh điều hướng đa tài khoản (Account Rail), quản lý khách hàng theo đường ống bán hàng (Pipeline), đặt và nhắc lịch hẹn tự động, báo cáo thống kê hiệu suất làm việc, phân hệ Báo cáo Điều hành AI Đa Nhà Cung Cấp (Multi-Provider AI Digest & Failover), quy tắc thẩm định nhóm tự động (AI Group Audit Rules), cùng hệ thống API công khai và Webhook hỗ trợ tích hợp với các hệ thống bên ngoài.
 
 ---
 
 ## 2. Tầm Nhìn & Mục Tiêu (Vision & Objectives)
 
 ### 2.1. Tầm nhìn
-Trở thành giải pháp CRM Zalo mượt mà, an toàn và dễ triển khai nhất dành cho các doanh nghiệp vừa và nhỏ (SME) tại Việt Nam, giúp tối ưu hóa quy trình chăm sóc khách hàng và gia tăng tỷ lệ chuyển đổi đơn hàng qua Zalo.
+Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ triển khai nhất dành cho các doanh nghiệp vừa và nhỏ (SME) và chuỗi chi nhánh tại Việt Nam, giúp tối ưu hóa quy trình chăm sóc khách hàng và gia tăng tỷ lệ chuyển đổi đơn hàng qua Zalo.
 
 ### 2.2. Mục tiêu kỹ thuật & kinh doanh
-- **Quản lý đa tài khoản:** Đăng nhập và duy trì đồng thời nhiều tài khoản Zalo cá nhân trên một giao diện Web duy nhất mà không bị trùng lặp hay xung đột phiên.
-- **Phản hồi tức thì (Real-time):** Đồng bộ tin nhắn hai chiều giữa Zalo và CRM dưới 1 giây qua kết nối WebSocket (Socket.IO).
-- **An toàn & Chống khóa tài khoản:** Tự động giới hạn tốc độ gửi tin (Rate Limiting), chia nhỏ luồng gửi tin và lưu trữ thông tin phiên làm việc an toàn.
-- **Dễ dàng Triển khai & Bảo trì:** Đóng gói toàn bộ ứng dụng bằng Docker Compose, quy trình triển khai 1-click đơn giản trên bất kỳ VPS Linux nào.
+- **Quản lý đa tài khoản & phân chia chi nhánh:** Đăng nhập và duy trì đồng thời nhiều tài khoản Zalo cá nhân trên một giao diện Web duy nhất, hỗ trợ gán thẻ chi nhánh (`branchTag`) và mã màu nhận diện (`colorTag`) mà không bị trùng lặp hay xung đột phiên.
+- **Phản hồi tức thì & Đồng bộ đa thiết bị:** Đồng bộ tin nhắn hai chiều giữa Zalo và CRM dưới 1 giây qua WebSocket (Socket.IO). Tự động thu thập tin nhắn nhân viên gửi từ điện thoại/iPad ngoài (`selfListen: true`) và tự lành thông tin danh bạ.
+- **An toàn & Chống khóa tài khoản:** Tự động giới hạn tốc độ gửi tin (Rate Limiting 2 tầng: hạn mức ngày 200 tin và nhịp burst tương tác 3 tin/30s), chia nhỏ luồng gửi tin và lưu trữ thông tin phiên làm việc an toàn với AES-256-GCM.
+- **Trí tuệ nhân tạo linh hoạt (Multi-Provider AI):** Tự do lựa chọn hoặc kết hợp các nhà cung cấp AI hàng đầu (Google Gemini, OpenAI, DeepSeek, Local AI Gateway) với cơ chế tự động chuyển vùng dự phòng (failover) và trích xuất hình ảnh thông minh (Multimodal Burst Sampling).
+- **Dễ dàng Triển khai & Bảo trì:** Đóng gói toàn bộ ứng dụng bằng Docker Compose, quy trình triển khai 1-click an toàn (`deploy-compose.mjs`) có kiểm soát drain và migration độc lập.
 
 ---
 
 ## 3. Phạm Vi Tính Năng (Feature Scope)
 
-### 3.1. Phân hệ Quản lý Tài khoản Zalo
+### 3.1. Phân hệ Quản lý Tài khoản Zalo (Zalo Account Management)
 - **Đăng nhập QR Code:** Tạo mã QR đăng nhập trực quan, tự động cập nhật trạng thái khi quét thành công.
-- **Lưu & Tự khôi phục phiên:** Mã hóa dữ liệu session (cookie, IMEI) bằng thuật toán AES-256-GCM. Tự động kết nối lại khi mất mạng hoặc khởi động lại ứng dụng.
-- **Giới hạn an toàn:** Cấu hình giới hạn số lượng tin nhắn gửi đi trong ngày (ví dụ: tối đa 200 tin/ngày) và phát hiện gửi tin quá nhanh.
+- **Lưu & Tự khôi phục phiên:** Mã hóa dữ liệu session (cookie, IMEI, userAgent) bằng thuật toán AES-256-GCM. Tự động kết nối lại khi mất mạng hoặc khởi động lại ứng dụng có giãn cách (stagger 10s) chống nghẽn.
+- **Thẻ Chi Nhánh & Mã Màu Nhận Diện (Branch & Color Tags):** Hỗ trợ gán nhãn chi nhánh (`branchTag`, ví dụ: *Chi nhánh 1*, *Quận 1*) và chọn mã màu đại diện (`colorTag` gồm 8 mã màu tuyển chọn: Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate) giúp nhân viên nhận diện tức thì tài khoản đang thao tác.
+- **Giới hạn an toàn & Kiểm tra kết nối:** Theo dõi trạng thái live của từng tài khoản, cấu hình hạn mức an toàn trong ngày và chủ động ngắt kết nối/xóa tài khoản khi cần thiết.
 
-### 3.2. Phân hệ Trò chuyện Real-time (Live Chat)
-- **Giao diện đa cửa sổ:** Danh sách cuộc trò chuyện theo tài khoản Zalo, bộ lọc tin nhắn chưa trả lời, tìm kiếm hội thoại.
-- **Đa phương tiện:** Gửi/nhận tin nhắn văn bản, hình ảnh, tập tin (PDF, Docx,...), sticker và hiển thị tin nhắn nhóm.
+### 3.2. Phân hệ Trò chuyện Real-time & Thanh Điều Hướng Đa Tài Khoản (Live Chat & Account Rail)
+- **Thanh trượt đa tài khoản dọc (Account Rail):** Thanh điều hướng chuyên dụng ở mép trái khu vực chat (`AccountRail.vue`), hiển thị avatar có viền màu tương ứng, badge đếm tin nhắn chưa đọc tổng hợp theo tài khoản và nhãn chi nhánh, hỗ trợ chuyển đổi tức thì giữa các tài khoản Zalo chỉ với 1 click.
+- **Đồng bộ tin nhắn từ thiết bị ngoài (Self-Listen Sync):** Lắng nghe và đồng bộ real-time tin nhắn nhân viên gửi từ điện thoại hoặc iPad cá nhân (`isSelf: true`), gán đúng người gửi `self` và ghi nhận vào doanh số/thống kê mà không làm kẹt nhịp gửi trên Dashboard.
+- **Tự lành hội thoại & Danh bạ (Self-Healing Contacts):** Tự động liên kết các cuộc trò chuyện chưa có liên hệ (`contactId: null`) vào bảng Contact khi nhận tin nhắn mới; tự động cập nhật tên thật từ Zalo nếu trước đó là tên mặc định.
+- **Đa phương tiện & Xử lý tệp tin:** Gửi/nhận tin nhắn văn bản, hình ảnh, tập tin (PDF, Docx,...), sticker và hiển thị tin nhắn nhóm. Hỗ trợ thu hồi tin nhắn an toàn theo thread (`undo`).
 - **Trạng thái phản hồi:** Theo dõi tin nhắn chưa trả lời quá 30 phút, nhắc nhở nhân viên sale hỗ trợ kịp thời.
 
 ### 3.3. Phân hệ Quản lý Khách hàng (CRM Contacts & Pipeline)
@@ -44,11 +48,20 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn và dễ triển khai n
 - **Quản lý lịch hẹn:** Đặt lịch hẹn làm việc, tư vấn hoặc khám bệnh với khách hàng theo ngày giờ cụ thể.
 - **Tự động nhắc lịch:** Tiến trình chạy ẩn (Cron Job) tự động kiểm tra định kỳ và gửi thông báo nhắc lịch hẹn sắp tới qua Socket.IO và Zalo.
 
-### 3.6. Phân hệ Báo cáo Điều hành AI Digest (AI Reports v2)
-- **Động cơ Tóm tắt 2 tầng (Hierarchical Map-Reduce):** Tổng hợp lượng tin nhắn lớn từ các nhóm Zalo bằng mô hình Gemini (`GEMINI_MODEL`, mặc định `gemini-3.6-flash`).
-- **Lọc nhiễu & Ngân sách an toàn:** Tự động loại bỏ tin nhắn rác/chào hỏi; quản lý nghiêm ngặt ngân sách token và số lượng tin nhắn dưới cơ chế lease fence (`report-job-budget.ts`).
-- **Đóng băng nguồn bất biến:** Cố định mục tiêu `(orgId, zaloAccountId, groupThreadId, conversationId)` trong job schema v2, tránh thất lạc hoặc sai lệch tài khoản nguồn.
-- **Tự động hóa & Gửi lại (Resend):** Hỗ trợ lập lịch tự động gửi qua Zalo/Email SMTP theo Cron; hỗ trợ gửi lại với `Idempotency-Key` và ledger kiểm soát trạng thái gửi (`sent`, `failed`, `deliveryUncertain`).
+### 3.6. Phân hệ Báo cáo Điều hành AI Đa Nhà Cung Cấp (Multi-Provider AI Digest & Failover)
+- **Kiến trúc Đa Nhà Cung Cấp (Multi-Provider Engine):** Hỗ trợ linh hoạt các nhà cung cấp: **Google Gemini** (Gemini 2.5/3.0 Flash & Pro), **OpenAI** (GPT-4o, GPT-4o-mini), **DeepSeek** (DeepSeek-V3, DeepSeek-R1) và **Custom AI Gateway** (Ollama, vLLM, OpenRouter).
+- **Tự động Chuyển Vùng Dự Phòng (Failover Chain):** Cấu hình chuỗi dự phòng thông minh (ví dụ: Gemini → OpenAI → DeepSeek). Khi nhà cung cấp chính gặp sự cố (quá tải, lỗi rate limit 429 hoặc timeout), hệ thống tự động chuyển sang provider tiếp theo trong chuỗi.
+- **Single-Layer Budget Reservation:** Tái sử dụng cùng một `attemptKey` xuyên suốt chuỗi failover; token budget chỉ hoàn tất một lần duy nhất khi có provider thành công, loại bỏ hoàn toàn nguy cơ hao hụt ngân sách ảo.
+- **Dynamic Model Discovery & Connection Test:** Tự động dò tìm danh sách các mô hình khả dụng tương ứng với API Key và kiểm tra độ trễ kết nối trực tiếp từ giao diện cài đặt (`POST /api/v1/ai-reports/settings/models`, `POST /api/v1/ai-reports/settings/test-ai`).
+- **Cầu nối Thị Giác Lai (Smart Hybrid Vision Bridge):** Với các mô hình thuần văn bản (DeepSeek), hệ thống tự động điều phối hình ảnh qua provider thị giác hỗ trợ OCR để trích xuất văn bản hoặc chèn placeholder mô tả thay vì làm gián đoạn tiến trình.
+- **Multimodal Burst Sampling & Lấy mẫu ảnh thông minh:**
+  - Khử trùng lặp ảnh ứng viên theo Base URL (`dedupCandidatesByBaseUrl`).
+  - Lọc khử Prompt Injection đối với ngữ cảnh văn bản đi kèm trước mỗi ảnh.
+  - Chiến lược Burst Sampling: Lấy mẫu 100% nếu số lượng ảnh <= 3; tự động lấy mẫu đại diện [ảnh đầu, ảnh giữa, ảnh cuối] nếu cụm ảnh > 3 ảnh.
+  - Pool 4 worker xử lý đồng thời, có cache chống va chạm (anti-collision) và trần tổng dung lượng ảnh 12MB.
+- **Kiểm chứng chéo 2 tầng & Phát sóng Nhiệm vụ (Two-Tier Cross-Verification & Action Items):**
+  - **Tier 1 (Section 6 Directive):** Chỉ thị bắt buộc LLM đối soát chéo giữa các báo cáo văn bản của nhân sự và bằng chứng hình ảnh thực tế đính kèm (phát hiện báo cáo khống, ảnh chụp màn hình cũ).
+  - **Tier 2 (High Priority Action Items):** Tự động bóc tách danh sách việc cần làm (`report-action-item-parser.ts`), theo dõi trạng thái hoàn thành (`PUT /api/v1/ai-reports/:id/tasks/:taskId`) và hỗ trợ phát sóng danh sách việc ưu tiên cao tới nhóm Zalo hoặc đích gửi chỉ định (`POST /api/v1/ai-reports/:id/broadcast-tasks`).
 
 ### 3.7. Phân hệ Quy Tắc Giám Sát Nhóm AI & Điều Phối Kép (Scheduled AI Group Audit Rules & Multi-Channel Dispatch)
 - **Kiểm tra tuân thủ đa kịch bản:** Thiết lập các quy tắc đánh giá tự động theo từng nhóm Zalo với 4 kịch bản nghiệp vụ: *Nộp lịch/kế hoạch ngày* (`schedule_submission`), *Tiến độ công việc/KPI* (`work_progress`), *Thẩm định hình ảnh/biên bản* (`image_verification` qua Multimodal Vision tối đa 15 ảnh <= 12MB), và *Tùy chỉnh* (`custom`).
@@ -78,15 +91,21 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn và dễ triển khai n
 - Hỗ trợ tối thiểu 50 cuộc hội thoại Zalo hoạt động đồng thời trên VPS cấu hình 2 vCPU / 4GB RAM.
 - Hàng đợi Socket.IO đệm tối đa 100 sự kiện/account, tự động gửi tín hiệu resync khi tràn.
 
-### 4.2. Bảo mật (Security)
+### 4.2. Giao diện & Trải nghiệm Người Dùng (UI/UX Neo-Brutalism CQA Standard)
+- Thiết kế theo phong cách **Neo-Brutalism hiện đại chuẩn CQA**: 100% Zero Shadow (triệt tiêu hoàn toàn bóng mờ ảo), đường viền cơ học 1.5px dứt khoát, phản hồi click cơ học (`translate(1px, 1px)`).
+- Chuẩn bán kính bo góc: 12px cho cards/dialogs/tables và chat bubbles, 8px cho buttons/inputs/icon-boxes, 9999px cho status chips/badges dạng viên thuốc (`.neo-pill`).
+- Hệ thống Typography: Font Space Grotesk (700/800/900) cho tiêu đề trang (`.neo-page-title` in hoa nghiêng đậm), nhãn nút và chỉ số KPI; font Plus Jakarta Sans / Inter cho nội dung văn bản và hội thoại.
+- Hệ thống biểu tượng: Thư viện Custom SVG Icons độc lập và Brand SVG Icons chính hãng cho các AI provider (Gemini, OpenAI, DeepSeek, Gateway).
+
+### 4.3. Bảo mật (Security)
 - Mật khẩu người dùng được băm bằng thuật toán `bcryptjs` với salt round 12.
 - Access token JWT ngắn hạn (15 phút) lưu hoàn toàn trong bộ nhớ RAM trình duyệt (`session.ts`), không ghi vào `localStorage` hay `sessionStorage`.
 - Refresh token dạng opaque lưu SHA-256 digest trong bảng `auth_sessions`, xoay vòng phiên khi cấp token mới (single-use rotation), tự động thu hồi toàn bộ phiên khi phát hiện reuse token cũ.
 - Bảo vệ CSRF kép (double-submit cookie + header) và kiểm tra Origin/Referer nghiêm ngặt cho toàn bộ browser API.
-- Mã hóa dữ liệu nhạy cảm (Zalo session, secret keys, SMTP password) bằng `AES-256-GCM` trước khi lưu vào cơ sở dữ liệu PostgreSQL.
-- Chặn tấn công SSRF (`outbound-url-policy.ts`) cho Webhook và tải tệp đính kèm: chặn dải IP riêng tư IPv4/IPv6, kiểm tra DNS và giới hạn tối đa 3 lần redirect.
+- Mã hóa dữ liệu nhạy cảm (Zalo session, secret keys, AI API keys, SMTP password) bằng `AES-256-GCM` trước khi lưu vào cơ sở dữ liệu PostgreSQL.
+- Chặn tấn công SSRF (`outbound-url-policy.ts` và `ai-gateway-validator.ts`): chặn dải IP riêng tư IPv4/IPv6, kiểm tra DNS và giới hạn tối đa 3 lần redirect; yêu cầu cờ `ALLOW_PRIVATE_AI_GATEWAYS=true` nếu kết nối tới AI gateway mạng nội bộ (Ollama, vLLM).
 
-### 4.3. Khả dụng & Khôi phục (Availability & Disaster Recovery)
+### 4.4. Khả dụng & Khôi phục (Availability & Disaster Recovery)
 - Tự động sao lưu dữ liệu PostgreSQL định kỳ hàng ngày lưu trữ tối đa 7 bản ngày, 4 bản tuần và 3 bản tháng.
 - Cơ chế Liveness / Readiness Health Check tại `/health` theo dõi liên tục kết nối cơ sở dữ liệu và tính tương thích của schema migrations.
 - Quy trình deploy an toàn (`deploy-compose.mjs`): xác thực graceful drain 70s, ghim image digest và chạy migrator trước khi khởi động phiên bản ứng dụng mới.

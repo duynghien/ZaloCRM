@@ -119,11 +119,51 @@ Giao diện được xây dựng trên lưới layout công nghiệp, chia ô r�
 
 ## 3. Quy Chuẩn Chi Tiết Các Thành Phần Nghiệp Vụ (Business UI Components)
 
-### 3.1. Trạng Thái Tài Khoản Zalo (Zalo Account Indicators)
-Hỗ trợ hiển thị nhiều tài khoản Zalo cá nhân cùng lúc:
-- **Đang kết nối (Connected):** Badge nền xanh ngọc pastel, chữ xanh đậm, viền `1.5px solid #18181B`, chấm xanh cố định (`ONLINE`).
-- **Mất kết nối / Hết hạn session:** Badge nền đỏ pastel, viền 1.5px, kèm nút cơ học nổi bật `[QUÉT LẠI QR]`.
-- **Tài khoản đang lọc hội thoại:** Card tài khoản Zalo được bao viền xanh `primary` dày 2px với dấu tích dứt khoát.
+### 3.1. Trạng Thái & Thanh Chọn Đa Tài Khoản Zalo (Multi-Account Rail & Account Indicators)
+
+Hệ thống hỗ trợ quản lý và phân luồng đồng thời nhiều tài khoản Zalo cá nhân/doanh nghiệp:
+
+#### 3.1.1. Thanh Chọn Tài Khoản Zalo Dọc (`AccountRail.vue`)
+- **Vị trí & Kích thước:**
+  - Desktop: Chiếm cạnh trái ngoài cùng của khu vực làm việc với chiều rộng cố định `64px`, chiều cao `100%`, viền cơ học phải `1.5px solid var(--border-color)`.
+  - Mobile / Màn hình hẹp: Dải ngang cuộn mượt ở đầu màn hình với chiều cao cố định `56px`, viền đáy `1.5px solid var(--border-color)`.
+- **Nút "TẤT CẢ" (ALL Mode):**
+  - Khối vuông bo nhẹ `10px`, chữ `ALL` in hoa font Space Grotesk 800.
+  - Cho phép người vận hành xem hộp thư hợp nhất của toàn bộ tài khoản.
+  - Tích hợp huy hiệu tổng số tin nhắn chưa đọc (`rail-badge`) dạng viên thuốc đỏ `#EF4444` viền đen 1.5px.
+- **Nút Tài Khoản Riêng Biệt:**
+  - Khối Avatar đại diện `44x44px`, bo góc `10px`, bao viền cơ học `2px solid transparent` (chuyển viền đen `2px solid #18181B` khi active).
+  - Tự động hiển thị ảnh đại diện Zalo (`avatarUrl`) hoặc Monogram 2 ký tự viết tắt nếu chưa có ảnh.
+  - **Chấm trạng thái kết nối (Status Indicator):** Chấm tròn phẳng `10px` ở góc dưới phải: Xanh lục `#10B981` khi `ONLINE`, Xám viền đen khi `OFFLINE`.
+  - **Huy hiệu tin chưa đọc cá nhân:** Hiển thị số đếm chưa đọc (tối đa `99+`) trên góc trên phải avatar.
+- **Rich Tooltip Neo-Brutalism:**
+  - Khi hover/focus: Hiển thị Tooltip viền đen phẳng không bóng mờ, bao gồm Tên tài khoản, Số điện thoại, Trạng thái online, và **Nhãn chi nhánh (`branchTag`)** nổi bật.
+
+#### 3.1.2. Bảng Màu Nhận Diện Tài Khoản & Nhãn Chi Nhánh (`account-colors.ts`)
+Nhằm giúp nhân viên phân biệt tức thì tin nhắn đến từ tài khoản hay chi nhánh nào mà không nhầm lẫn, ZaloCRM trang bị bảng màu **Neo-Brutalism Palette gồm 12 sắc thái tương phản cao**:
+
+| Mã Sắc Thái | Giá Trị Hex | Tên Định Danh | Ứng dụng gợi ý |
+|-------------|------------|---------------|----------------|
+| `0` | `#0068FF` | Zalo Blue | Tài khoản CSKH Chính |
+| `1` | `#10B981` | Emerald Green | Chi nhánh Miền Bắc / Kế toán |
+| `2` | `#F59E0B` | Amber Yellow | Chi nhánh Miền Nam / Telesales |
+| `3` | `#EF4444` | Crimson Red | Kênh Xử lý Sự cố / VIP |
+| `4` | `#8B5CF6` | Vivid Purple | Chi nhánh Miền Trung / Kho vận |
+| `5` | `#EC4899` | Neon Pink | Kênh Marketing / Sự kiện |
+| `6` | `#06B6D4` | Bright Cyan | Kênh Tư vấn Dự án |
+| `7` | `#14B8A6` | Teal | Kênh Hợp đồng / Bán buôn |
+| `8` | `#F97316` | Bright Orange | Showroom Trưng bày |
+| `9` | `#6366F1` | Indigo | Kỹ thuật / Bảo hành |
+| `10` | `#84CC16` | Fresh Lime | Tuyển dụng / Nội bộ |
+| `11` | `#D946EF` | Fuchsia | Đại lý / Đối tác cấp 1 |
+
+- **Thuật toán màu tiền định (`getDeterministicAccountColor`):** Nếu tài khoản chưa gán mã màu riêng `colorTag`, hệ thống tự động băm (hash) `accountId` thành một trong 12 mã màu trên, đảm bảo tính ổn định thị giác xuyên suốt phiên làm việc.
+- **Tạo Monogram 2 ký tự tự động (`getAccountMonogram`):**
+  - Ưu tiên 1: Lấy 2 chữ cái đầu của `branchTag` (Ví dụ: "Hà Nội" -> "HN", "Sài Gòn" -> "SG").
+  - Ưu tiên 2: Lấy 2 chữ cái đầu của `displayName` (Ví dụ: "Nguyễn Văn" -> "NV").
+  - Ưu tiên 3: Lấy 2 số cuối của số điện thoại `phone`.
+  - Dự phòng: Lấy 2 ký tự đầu của `zaloUid` hoặc mặc định "ZL".
+- **Tính toán tương phản chữ (`getContrastTextColor`):** Tự động tính độ chói quang học (luminance). Nếu màu nền sáng (> 0.65) dùng chữ đen `#111827`, ngược lại dùng chữ trắng tuyền `#FFFFFF`.
 
 ---
 
@@ -145,16 +185,16 @@ Không gian chat chiếm toàn bộ chiều cao màn hình (`calc(100vh - 56px)`
      - Nền: `primary` (`#0068FF` ở Light / `#388BFD` ở Dark).
      - Chữ: Trắng `#FFFFFF`, sắc nét, dễ đọc.
      - Viền: `1.5px solid #18181B` (Light) hoặc `1.5px solid #000000` (Dark).
-     - Bo góc: `4px` (không bo tròn viên thuốc).
+     - Bo góc: `12px` (chuẩn `rounded-xl` CQA, không bo tròn viên thuốc).
      - Thời gian tin nhắn: Trắng mờ `rgba(255, 255, 255, 0.75)`, đặt góc dưới.
    - **Bong bóng tin nhắn của Khách hàng (Contact - Căn trái):**
      - Nền: `#FFFFFF` (Light) / `#1F1F23` (Dark).
      - Chữ: `#18181B` (Light) / `#F4F4F5` (Dark).
      - Viền: `1.5px solid #18181B` (Light) / `1.5px solid #3F3F46` (Dark).
-     - Bo góc: `4px`.
+     - Bo góc: `12px` (chuẩn `rounded-xl` CQA).
      - Thời gian tin nhắn: `#71717A` (Light) / `#A1A1AA` (Dark).
    - **Đính kèm Tệp tin & Ảnh:**
-     - Ảnh gửi/nhận: Bo viền `1.5px solid #18181B`, bo góc `4px`, xem ảnh mở modal Neo-Brutalism.
+     - Ảnh gửi/nhận: Bo viền `1.5px solid #18181B`, bo góc `8px`, xem ảnh mở modal Neo-Brutalism.
      - File thẻ (`file-card`): Khối chữ nhật nền trắng, icon tài liệu, nút tải về dạng phím cơ học.
    - **Thanh Nhập Tin Nhắn (Chat Input Area):**
      - Viền trên `1.5px solid var(--border-color)`.
@@ -185,7 +225,7 @@ Không gian chat chiếm toàn bộ chiều cao màn hình (`calc(100vh - 56px)`
 ### 3.4. Báo Cáo Phân Tích & Bảng Tin AI (AI Reports & Digest)
 
 - **Thẻ Chỉ Số KPI (KPI Cards):**
-  - Khung viền `1.5px solid var(--border-color)`.
+  - Khung viền `1.5px solid var(--border-color)`, bo góc `12px`.
   - Giá trị số liệu lớn: Font **Space Grotesk 900**, kích thước từ `2rem` đến `2.5rem`.
   - Nhãn danh mục: Class `.neo-subtitle`.
   - Tỷ lệ tăng trưởng: Chip hình chữ nhật xanh lá/đỏ viền đen dứt khoát.
@@ -197,6 +237,36 @@ Không gian chat chiếm toàn bộ chiều cao màn hình (`calc(100vh - 56px)`
 - **Văn Bản Markdown Khử Khuẩn (Sanitized AI Digest):**
   - Toàn bộ nội dung báo cáo AI được khử khuẩn qua `DOMPurify` trước khi render để chống triệt để Stored XSS.
   - Các khối trích dẫn (`blockquote`) và đoạn code trong báo cáo AI có nền tương phản và đường viền trái dày `3px solid #0068FF`.
+
+---
+
+### 3.5. Hệ Thống Icon Nhận Diện Tùy Chỉnh (Custom SVG Icons & AI Brand Icons)
+
+Thay vì dùng font icon nhòe nét, ZaloCRM tích hợp bộ icon vector phẳng qua plugin `custom-icons.ts`:
+- **Cơ chế nạp tự động (Eager Glob):** Toàn bộ file `.svg` trong `public/icons/` được nạp sẵn khi build, tự động chuẩn hóa thuộc tính `fill="currentColor"` và class `v-icon__svg`.
+- **41 Ánh xạ MDI sang SVG:** Tự động chuyển đổi các class icon quen thuộc như `mdi-view-dashboard-outline`, `mdi-message-text-outline`, `mdi-robot-outline` sang tệp SVG vector tương ứng.
+- **Icon Thương hiệu Nhà Cung Cấp AI:**
+  - `gemini.svg`: Logo Google Gemini cho các tác vụ Multimodal Vision.
+  - `openai.svg`: Logo OpenAI cho các model GPT-4o / GPT-4o-mini.
+  - `deepseek.svg`: Logo DeepSeek cho các tác vụ suy luận phân tích chi phí thấp.
+  - `ai.svg` / `auto.svg`: Biểu tượng vi mạch phẳng cho Custom OpenAI-Compatible Local Gateway.
+
+---
+
+### 3.6. Giao Diện Nhiệm Vụ Hành Động & Phát Tin Zalo (Action Items Checklist & Broadcast Modal)
+
+- **Thẻ Nhiệm Vụ Hành Động (Action Item Card):**
+  - Hiển thị bên dưới bản phân tích tổng quan của AI Report, bo góc `12px`, viền `1.5px solid var(--border-color)`.
+  - Mỗi nhiệm vụ là một dòng tương tác gồm Checkbox trạng thái, Tiêu đề nhiệm vụ, Người phụ trách (`assignee`), và Hạn chót (`deadline`).
+  - **Huy hiệu mức độ ưu tiên (`priority`):**
+    - `high`: Chip viên thuốc nền đỏ pastel `#FEE2E2`, chữ đỏ `#DC2626`, viền đen `1.5px`.
+    - `medium`: Chip viên thuốc nền vàng pastel `#FEF3C7`, chữ cam `#D97706`, viền đen `1.5px`.
+    - `low`: Chip viên thuốc nền xám pastel `#F4F4F5`, chữ xám chì `#4B5563`, viền đen `1.5px`.
+  - **Cập nhật trạng thái tức thì:** Nhân viên có thể tích chọn hoàn thành trực tiếp trên bảng điều khiển, dữ liệu đồng bộ qua `PUT /api/v1/ai-reports/:id/tasks/:taskId`.
+- **Hộp Thoại Phát Tin Nhóm Zalo (Broadcast Tasks Dialog):**
+  - Mở qua nút bấm cơ học `[PHÁT TIN ZALO]`.
+  - Cho phép người vận hành chọn Tài khoản Zalo phát tin, Nhóm Zalo đích tiếp nhận, và xem trước định dạng tin nhắn văn bản trước khi gửi.
+  - Sau khi phát tin thành công, hệ thống hiển thị mã tin nhắn Zalo và thời gian phát sóng xác nhận.
 
 ---
 

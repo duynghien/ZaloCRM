@@ -45,6 +45,11 @@ DB_NAME=zalocrm
 # Security Keys (BẮT BUỘC TẠO 2 KHÓA 64 KÝ TỰ HEX ĐỘC LẬP)
 JWT_SECRET=
 ENCRYPTION_KEY=
+
+# AI Multi-Provider & Gateway Network Isolation
+# Mặc định: false (nghiêm cấm AI Gateway trỏ về IP Private/Loopback/Metadata để chống SSRF).
+# Chỉ đặt true nếu bạn tự host Ollama / vLLM / LiteLLM trên mạng nội bộ LAN.
+ALLOW_PRIVATE_AI_GATEWAYS=false
 ```
 
 **Tạo 2 khóa mã hóa ngẫu nhiên 256-bit bằng OpenSSL:**
@@ -216,6 +221,9 @@ docker compose exec -T db psql -U crmuser zalocrm < backup-manual-20260813.sql
 - [x] Dùng root workspace `package-lock.json` làm nguồn duy nhất; Docker build và CI đều chạy clean `npm ci` từ root.
 - [x] Thay `prisma db push` bằng migration có version và `prisma migrate deploy`.
 - [x] Chặn SSRF cho webhook/attachment URL (`outbound-url-policy.ts`), kiểm tra DNS, chặn private IPv4/IPv6 và giới hạn tối đa 3 lần redirect.
+- [x] Chống SSRF cho AI Gateway tùy chỉnh (`validateCustomAiGatewayUrl`): Tự động chặn các địa chỉ IP nội bộ RFC1918, loopback và metadata instance; chỉ cho phép mở khi `ALLOW_PRIVATE_AI_GATEWAYS=true` được thiết lập tường minh cho hạ tầng private nội bộ.
+- [x] Lọc và khử khuẩn nội dung đầu vào AI (`sanitizeConversationHistory`): Vô hiệu hóa kỹ thuật Prompt Injection trong lịch sử chat khách hàng, giới hạn kích thước tệp đính kèm tối đa 12MB và pool burst sampling 4 worker đồng thời.
+- [x] Khử khuẩn nội dung hiển thị Báo cáo AI qua `DOMPurify` phía frontend, ngăn chặn triệt để Stored XSS từ kết quả trả về của LLM.
 - [x] Mã hóa webhook secret và SMTP password ở database/backups (`secure-setting-codec.ts`). Public API key vẫn plaintext/recoverable theo residual-risk waiver đã chấp nhận; chỉ Owner/Admin được xem, response phải `Cache-Control: no-store`, có audit trail và không log giá trị secret.
 - [x] Thực thi chính sách kiểm toán phụ thuộc nghiêm ngặt (`scripts/audit-production-policy.mjs`), chỉ cho phép 2 waiver cố định version/path cho Prisma CLI upstream (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`); cấm mọi waiver cho `uuid`.
 

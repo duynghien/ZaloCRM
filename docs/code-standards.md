@@ -16,9 +16,9 @@ Mọi mã nguồn đóng góp vào dự án ZaloCRM phải tuân thủ nghiêm n
 > - **Đặt tên file:** Sử dụng định dạng `kebab-case` dài và mang tính mô tả rõ ràng (ví dụ: `zalo-health-check.ts`, `appointment-reminder.ts`, `order-code-service.ts`).
 > - **Ngoại lệ không tách:** File cấu hình (`package.json`, `tsconfig.json`), Markdown (`.md`), hoặc Docker Compose.
 
-**Danh sách 23 files hiện tại đang vượt 200 dòng được theo dõi để tái cấu trúc (Refactoring Backlog):**
-- *Frontend (11 files):* `AiReportsView.vue` (1223), `use-zalo-accounts.ts` (281), `AppointmentsView.vue` (261), `TeamManagement.vue` (250), `ChatAppointments.vue` (248), `SettingsView.vue` (238), `ContactDetailDialog.vue` (236), `MessageThread.vue` (232), `use-chat.ts` (220), `OrdersView.vue` (208), `ai-report-api.ts` (201).
-- *Backend (12 files):* `ai-report-routes.ts` (406), `zalo-pool.ts` (372), `attachment-parser.ts` (362), `message-handler.ts` (307), `public-api-routes.ts` (299), `summarizer-service.ts` (255), `contact-routes.ts` (252), `order-routes.ts` (233), `zalo-listener-factory.ts` (226), `outbound-url-policy.ts` (224), `appointment-routes.ts` (219), `email-service.ts` (210).
+**Danh sách 43 files hiện tại đang vượt 200 dòng được theo dõi để tái cấu trúc (Refactoring Backlog):**
+- *Frontend (21 files):* `AiReportsView.vue` (1716), `AiAuditRuleDialog.vue` (457), `MessageThread.vue` (397), `AccountRail.vue` (368), `ai-report-api.ts` (364), `AiProviderSettingsCard.vue` (357), `AiAuditRulesCard.vue` (340), `use-zalo-accounts.ts` (307), `AppointmentsView.vue` (292), `ZaloAccountEditDialog.vue` (269), `ConversationList.vue` (266), `OrdersView.vue` (265), `TeamManagement.vue` (264), `ChatView.vue` (262), `ChatAppointments.vue` (258), `use-chat.ts` (252), `ZaloAccountCard.vue` (249), `SettingsView.vue` (238), `ZaloAccountsView.vue` (237), `ContactDetailDialog.vue` (236), `GlobalSearch.vue` (229).
+- *Backend (22 files):* `ai-report-routes.ts` (720), `ai-audit-rule-service.ts` (403), `zalo-pool.ts` (389), `summarizer-service.ts` (376), `attachment-burst-sampler.ts` (369), `attachment-parser.ts` (362), `noise-filter.ts` (343), `attachment-image-loader.ts` (330), `zalo-report-sender.ts` (319), `public-api-routes.ts` (299), `zalo-routes.ts` (295), `zalo-listener-factory.ts` (270), `ai-audit-evaluator.ts` (260), `message-handler.ts` (257), `contact-routes.ts` (252), `outbound-url-policy.ts` (237), `ai-provider-settings-service.ts` (237), `order-routes.ts` (233), `appointment-routes.ts` (219), `email-service.ts` (210), `ai-audit-evaluator-helpers.ts` (206), `chat-routes.ts` (204).
 
 ---
 
@@ -43,16 +43,25 @@ if (!account) {
 
 ---
 
-## 4. Chuẩn Mực Frontend (Vue 3 + Vuetify 4)
+## 4. Chuẩn Mực Frontend (Vue 3 + Vuetify 4 + Neo-Brutalism)
 
-### 4.1. Vue 3 Standard
+### 4.1. Vue 3 Standard & Composition API
 - Bắt buộc dùng **Composition API** với cú pháp `<script setup lang="ts">`.
 - Tránh mutate trực tiếp state từ ngoài Pinia store.
-- Sử dụng Vuetify 4 grid system (`v-container`, `v-row`, `v-col`) thay vì viết CSS layout tĩnh với pixel cố định (`width: 350px`).
+- Sử dụng Vuetify 4 grid system (`v-container`, `v-row`, `v-col`) thay vì viết CSS layout tĩnh với pixel cố định.
 
-### 4.2. Quản lý State với Pinia
+### 4.2. Quy Chuẩn Neo-Brutalism CQA
+- **100% Zero Shadow:** Tuyệt đối không dùng `box-shadow` mờ ảo.
+- **Crisp Mechanical Borders:** Đường viền cơ học `1.5px solid #18181B` (light) / `#3F3F46` (dark) cho mọi container, card, input, table.
+- **Bán kính góc CQA:** Card/Dialog/Table/Chat bubble = 12px; Button/Input/Icon-box = 8px; Status Chip/Badge = 9999px (viên thuốc `.neo-pill`).
+- **Typography:** Tiêu đề dùng Space Grotesk (`.neo-page-title` in hoa in nghiêng đậm với `.neo-title-accent`), nội dung dùng Plus Jakarta Sans.
+- **Biểu tượng:** Ưu tiên sử dụng Custom SVG Icons (`custom-icons.ts`) và Brand SVG Icons chính hãng thay vì generic font icons.
+- **Mã màu tài khoản Zalo:** Sử dụng bảng 8 màu quy chuẩn từ `account-colors.ts` (Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate).
+
+### 4.3. Quản lý State với Pinia & In-Memory Session
 - Các store nằm tại `src/stores/<feature>-store.ts`.
 - Tách biệt giữa State, Actions (call API) và Getters (bộ lọc/tính toán).
+- JWT Access Token ngắn hạn chỉ lưu trong bộ nhớ RAM client (`session.ts`), không ghi vào `localStorage` hay `sessionStorage`.
 
 ---
 
@@ -84,7 +93,7 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 
 1. **Không Hardcode Secrets:** Không commit token, mật khẩu, JWT secret hoặc private key lên repository.
 2. **Xác thực Đầu vào:** Kiểm tra và làm sạch dữ liệu đầu vào (Input Sanitization) phòng chống XSS và SQL Injection.
-3. **Mã hóa dữ liệu nhạy cảm:** Mọi thông tin phiên Zalo phải đi qua hàm mã hóa AES-256 trước khi ghi vào cơ sở dữ liệu.
+3. **Mã hóa dữ liệu nhạy cảm:** Mọi thông tin phiên Zalo, AI API Keys và mật khẩu SMTP phải đi qua hàm mã hóa AES-256-GCM trước khi ghi vào cơ sở dữ liệu.
 
 ### 7.1. Tenant, RBAC và ACL
 
@@ -93,11 +102,19 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 - Quyền `owner`, `admin`, `member` và `ZaloAccountAccess` phải được thực thi ở backend cho REST lẫn Socket.IO. Ẩn menu ở frontend chỉ là UX, không phải kiểm soát truy cập.
 - Token của người dùng bị khóa, đổi mật khẩu hoặc hạ quyền phải bị thu hồi hoặc được đối chiếu trạng thái hiện tại ở server.
 
-### 7.2. Secret và outbound request
+### 7.2. Secret, Outbound Request & AI Gateway SSRF
 
-- Webhook secret và mật khẩu SMTP phải lưu mã hóa; không dùng `valuePlain` cho các credential này. Public API key là ngoại lệ sản phẩm đã chấp nhận: vẫn plaintext/recoverable cho Owner/Admin nhưng phải có `Cache-Control: no-store`, audit trail, redaction trong log/error và không cache ở client/proxy.
-- URL webhook/attachment là dữ liệu không tin cậy. Chỉ cho phép host tin cậy hoặc phải chặn loopback, private, link-local, metadata IP cho cả IPv4/IPv6 sau DNS resolution và sau mỗi redirect.
+- Webhook secret, AI Provider API keys và mật khẩu SMTP phải lưu mã hóa; không dùng `valuePlain` cho các credential này. Public API key là ngoại lệ sản phẩm đã chấp nhận: vẫn plaintext/recoverable cho Owner/Admin nhưng phải có `Cache-Control: no-store`, audit trail, redaction trong log/error và không cache ở client/proxy.
+- URL webhook/attachment là dữ liệu không tin cậy. Chỉ cho phép host tin cậy hoặc phải chặn loopback, private, link-local, metadata IP cho cả IPv4/IPv6 sau DNS resolution và sau mỗi redirect qua `outbound-url-policy.ts`.
+- Mọi Custom AI Gateway URL phải được kiểm tra nghiêm ngặt qua `ai-gateway-validator.ts`. Chặn mọi kết nối loopback/private mạng LAN trừ khi bật cờ `ALLOW_PRIVATE_AI_GATEWAYS=true`.
 - Downloader phải giới hạn byte trong lúc stream, không đọc toàn bộ response không giới hạn vào RAM. Parser cần giới hạn trang, sheet, cell và thời gian xử lý.
+
+### 7.3. Multimodal Image & Prompt Injection Defense
+
+- Lọc khử Prompt Injection đối với toàn bộ ngữ cảnh tin nhắn trước ảnh trước khi đưa vào multimodal prompt.
+- Khử trùng lặp ảnh ứng viên theo Base URL (`attachment-burst-sampler.ts`).
+- Chặn đứng mọi nỗ lực tấn công Path Traversal khi nạp tệp ảnh cục bộ (`attachment-image-loader.ts`).
+- Giới hạn cứng trần dung lượng ảnh tổng cộng là 12MB cho mỗi lượt thẩm định/báo cáo đa phương thức.
 
 ---
 
@@ -109,6 +126,7 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 - Ngày phải tồn tại theo lịch; timestamp cần timezone. Chuẩn hóa UTC trước so sánh; AI chấp nhận chênh lệch không quá 30 × 24 giờ (31 ngày lịch gồm hai đầu), tối đa 20 cặp nguồn và 10 email đã chuẩn hóa không trùng.
 - Order code phải cấp trong transaction tạo order bằng counter org/ngày UTC và unique DB; không dùng count hoặc tự sửa mã trùng legacy.
 - AI source phải giữ account/thread/conversation đã resolve; sender chọn rõ, resend có idempotency ledger. Không tự retry dispatch claimed/uncertain hoặc reset ngân sách khi recovery.
+- Single-Layer Budget Reservation cho AI failover: tái sử dụng `attemptKey`, chỉ hoàn tất trừ ngân sách một lần duy nhất khi có provider thành công.
 - Liveness và readiness tách biệt. Readiness phải trả HTTP `503` khi database hoặc dependency bắt buộc không sẵn sàng.
 - Không tiếp tục chạy sau `uncaughtException` trong trạng thái không xác định. Thực hiện graceful shutdown cho HTTP, Socket.IO, Prisma, cron và Zalo listeners.
 
@@ -130,12 +148,11 @@ npm run verify:production-container
 npm run verify:development-compose
 ```
 
-- `npm test` chạy test của cả backend và frontend workspace; không bao gồm Playwright (`npm run test:e2e`). Danh sách lệnh là yêu cầu kiểm tra, không phải báo cáo đã pass.
+- `npm test` chạy toàn bộ test unit của cả backend và frontend workspace (hiện đạt **218 passing unit tests**: 162 backend + 56 frontend); không bao gồm Playwright (`npm run test:e2e`).
 - Integration fixture PostgreSQL 16 disposable: local cần Docker daemon hoạt động; CI cần PostgreSQL service riêng đã migrate. Fixture phải dùng chính app/auth/socket production, DB và session thật; không trỏ vào DB production hoặc thay Prisma bằng mock để chứng minh tenant/ACL isolation.
 - Root hiện chưa có script `lint`; không chạy hoặc ghi nhận `npm run lint` đã pass. Cần cấu hình script trước khi đưa lint thành gate bắt buộc.
 - Lockfile dùng trong Docker phải đồng bộ với manifest tương ứng.
-- Thay đổi auth, tenant boundary, webhook, file parser và message ingestion bắt buộc có test regression.
+- Thay đổi auth, tenant boundary, webhook, file parser, AI multi-provider, attachment sampler và message ingestion bắt buộc có test regression.
 - CI phải chặn merge khi test, typecheck, build hoặc dependency audit vượt ngưỡng đã chấp nhận; lint áp dụng sau khi có cấu hình. Chỉ xác nhận CI/release khi có kết quả thực tế của revision tương ứng.
-
 - Production audit chặn mọi advisory ngoài hai waiver Prisma CLI khóa version/path: `deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`. Không waiver `uuid`; waiver lệch version/path/consumer graph phải fail.
 - Gate hành vi phải có test HTTP/DB/Socket/browser thực, không dùng source-string assertions hay suite bị skip/0 test thay bằng chứng. Local pass không thay hosted CI tại commit cuối.
