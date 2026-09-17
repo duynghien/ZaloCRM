@@ -31,6 +31,8 @@ import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
 import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
+import { chatCopilotRoutes } from './modules/chat/copilot/chat-copilot-routes.js';
+import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 
 import { initializeSocketServer } from './shared/realtime/socket-server.js';
 
@@ -76,12 +78,14 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   }
 
   initializeSocketServer(app);
+  chatTurnDebouncer.init(app.io);
 
   // ── Routes ────────────────────────────────────────────────────────────────
 
   await app.register(authRoutes);
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
+  await app.register(chatCopilotRoutes);
   await app.register(contactRoutes);
   await app.register(contactSubResourceRoutes);
   await app.register(appointmentRoutes);

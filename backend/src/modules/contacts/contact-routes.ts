@@ -213,6 +213,67 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  // ── PATCH /api/v1/contacts/:id — partial update & metadata deep-merge ─────
+  app.patch('/api/v1/contacts/:id', async (request: FastifyRequest, reply: FastifyReply) => {
+    try {
+      const user = request.user!;
+      const { id } = request.params as { id: string };
+      const body = request.body as Record<string, any>;
+
+      const existing = await prisma.contact.findFirst({
+        where: { id, orgId: user.orgId },
+        select: { id: true, phone: true, fullName: true, metadata: true },
+      });
+      if (!existing) return reply.status(404).send({ error: 'Contact not found' });
+
+      const updateData: any = {};
+      if (body.fullName !== undefined) updateData.fullName = body.fullName;
+      if (body.phone !== undefined) updateData.phone = body.phone;
+      if (body.email !== undefined) updateData.email = body.email;
+      if (body.avatarUrl !== undefined) updateData.avatarUrl = body.avatarUrl;
+      if (body.source !== undefined) updateData.source = body.source;
+      if (body.status !== undefined) updateData.status = body.status;
+      if (body.notes !== undefined) updateData.notes = body.notes;
+      if (body.tags !== undefined) updateData.tags = body.tags;
+
+      let mergedMetadata = typeof existing.metadata === 'object' && existing.metadata !== null
+        ? { ...(existing.metadata as Record<string, any>) }
+        : {};
+
+      if (body.metadata && typeof body.metadata === 'object') {
+        mergedMetadata = { ...mergedMetadata, ...body.metadata };
+      }
+
+      const newAddr = (body.shippingAddress || body.newShippingAddress || body.address);
+      if (typeof newAddr === 'string' && newAddr.trim()) {
+        const cleanAddr = newAddr.trim();
+        const existingAddrs: string[] = Array.isArray(mergedMetadata.shippingAddresses)
+          ? [...mergedMetadata.shippingAddresses]
+          : [];
+        if (!existingAddrs.includes(cleanAddr)) {
+          existingAddrs.push(cleanAddr);
+        }
+        mergedMetadata.shippingAddresses = existingAddrs;
+      }
+
+      updateData.metadata = mergedMetadata;
+
+      const updated = await prisma.contact.update({
+        where: { id },
+        data: updateData,
+        include: {
+          assignedUser: { select: { id: true, fullName: true, email: true } },
+          _count: { select: { conversations: true } },
+        },
+      });
+
+      return updated;
+    } catch (err) {
+      logger.error('[contacts] Patch error:', err);
+      return reply.status(500).send({ error: 'Failed to patch contact' });
+    }
+  });
+
   // ── PUT /api/v1/contacts/:id/tags — update tags only ─────────────────────
   app.put('/api/v1/contacts/:id/tags', async (request: FastifyRequest, reply: FastifyReply) => {
     try {

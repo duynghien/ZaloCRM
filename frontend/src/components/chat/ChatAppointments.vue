@@ -144,7 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue';
+import { ref, reactive, watch } from 'vue';
 import { api } from '@/api/index';
 
 export interface Appointment {
@@ -159,6 +159,7 @@ export interface Appointment {
 const props = defineProps<{
   contactId: string;
   appointments: Appointment[];
+  pendingDraft?: { date?: string; time?: string; notes?: string } | null;
 }>();
 
 const emit = defineEmits<{
@@ -255,4 +256,16 @@ async function submitEdit(appointmentId: string) {
     saving.value = false;
   }
 }
+
+function populateDraft(draft: { date?: string; time?: string; notes?: string }) {
+  if (!draft) return;
+  showForm.value = true;
+  if (draft.date) createForm.date = draft.date;
+  if (draft.time) createForm.time = draft.time;
+  if (draft.notes) createForm.notes = draft.notes;
+}
+
+defineExpose({ populateDraft });
+
+watch(() => props.pendingDraft, (d) => { if (d) populateDraft(d); }, { immediate: true });
 </script>

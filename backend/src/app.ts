@@ -13,6 +13,7 @@ import { startReportCronJobs, stopReportCronJobs } from './modules/ai-reports/re
 import { startReportJobWorker, stopReportJobWorker } from './modules/ai-reports/report-job-worker.js';
 import { decryptData } from './shared/utils/crypto.js';
 import { validateConfiguredGeminiModel } from './modules/ai-reports/ai-client.js';
+import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -27,6 +28,7 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
 
     try {
       closeReportAdmission();
+      chatTurnDebouncer.cleanup();
       await Promise.all([stopReportCronJobs(), stopReportJobWorker(), stopAppointmentReminder()]);
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();

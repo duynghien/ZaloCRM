@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { emitWebhook } from '../api/webhook-service.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
+import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
 export { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
 
 export interface IncomingMessage {
@@ -114,6 +115,17 @@ export async function handleIncomingMessage(
       content: msg.content,
       contentType: msg.contentType,
       sentAt: message.sentAt,
+    });
+
+    // Inbound conversation turn debouncer for Copilot (fire-and-forget)
+    chatTurnDebouncer.handleMessageTurn({
+      conversationId: conversation.id,
+      accountId: msg.accountId,
+      orgId: account.orgId,
+      isSelf: msg.isSelf,
+      threadType: msg.threadType,
+    }).catch((err) => {
+      logger.warn('[message-handler] Copilot debouncer error:', err);
     });
 
     return {

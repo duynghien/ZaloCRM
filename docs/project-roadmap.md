@@ -18,7 +18,7 @@ gantt
     section Intelligence & Scale
     Multi-Provider AI & Audit  :done,    des6, 2026-09, 2026-09
     Multi-Account & Neo-Brutalism :done, des7, 2026-09, 2026-09
-    Conversational Copilot (Phase 8) :  des8, 2026-11, 2027-02
+    Conversational Copilot (Phase 8) :done, des8, 2026-09, 2026-09
 ```
 
 ---
@@ -83,8 +83,9 @@ gantt
 
 ---
 
-### Phase 8: Trợ Lý Ảo Bán Hàng & Tự Động Hóa Hội Thoại Nâng Cao (KẾ HOẠCH BẮT ĐẦU 11/2026 - 02/2027)
-- [ ] Gợi ý câu trả lời thông minh theo ngữ cảnh (Contextual Smart Replies) trực tiếp trong khung chat cho nhân viên tư vấn.
-- [ ] Phân tích tâm lý khách hàng thời gian thực (Real-time Sentiment & Buying Intent Scoring).
-- [ ] Tự động bóc tách thông tin khách hàng và tạo nhanh Đơn hàng / Lịch hẹn qua AI Tool Calling.
-- [ ] Hệ thống Cảnh báo Bất thường (Anomaly Alerting) khi phát hiện xung đột hoặc khách hàng khiếu nại gay gắt.
+### Phase 8: Trợ Lý Ảo Bán Hàng & Tự Động Hóa Hội Thoại Nâng Cao (ĐÃ HOÀN THÀNH)
+- [x] **Single-Inference Unified Copilot Engine:** Khởi tạo kiến trúc 1 lần suy luận duy nhất sinh toàn bộ 4 chiều thông tin (insights, smartReplies, quickDraft, anomalyAlert) với độ trễ < 1.5s, tiết kiệm 75% token, bọc thẻ XML `<customer_utterance>` triệt tiêu injection, bộ nhớ đệm In-Memory LRU Cache (500 mục, 5m TTL).
+- [x] **Smart Conversation Turn Debouncer (3.0s):** Cơ chế trễ thông minh tự động gom tin nhắn khách, huỷ bộ hẹn giờ ngay khi nhân viên gửi phản hồi (`isSelf: true`), trần đợi tối đa (12s ceiling) và kiểm soát trùng lặp token suy luận.
+- [x] **Chat Copilot Bar & Smart Reply Chips UI:** Thanh trợ lý phía trên compose bar với Neo-Brutalism pills (Sentiment, Buying Intent score), 3 Smart Reply chips gán phím tắt `Alt + 1/2/3`, click 1 lần chèn văn bản vào input an toàn.
+- [x] **AI Draft Card Human-in-the-Loop:** Tự động trích xuất liên hệ, địa chỉ giao hàng, sản phẩm gợi ý và lịch hẹn; hiển thị thẻ thao tác nhanh để nhân viên click mở modal tạo đơn hàng/lịch hẹn đã điền sẵn 100% dữ liệu hoặc lưu địa chỉ vào danh bạ (không tự ý commit DB).
+- [x] **Cảnh Báo Bất Thường & Leo Thang Quản Lý (Anomaly Escalation):** Banner nguy hiểm Neo-Brutalism cảnh báo xung đột/khiếu nại kèm kịch bản xoa dịu mẫu, huy hiệu `⚠️ KHIẾU NẠI` trên danh sách hội thoại, gửi thông báo Socket khẩn tới Owner/Admin và ghi nhật ký kiểm toán `ActivityLog`.

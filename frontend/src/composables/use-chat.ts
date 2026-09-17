@@ -3,6 +3,7 @@ import { useChatRecovery } from './use-chat-recovery';
 import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
 import { io, Socket } from 'socket.io-client';
 import type { Contact } from '@/composables/use-contacts';
+import { bindCopilotSocket, unbindCopilotSocket, useChatCopilot } from './use-chat-copilot';
 
 export interface ZaloAccount {
   id: string;
@@ -30,6 +31,7 @@ export interface Conversation {
   unreadCount: number;
   isReplied: boolean;
   messages?: ConversationMessage[];
+  metadata?: Record<string, any> | null;
 }
 
 export interface Message {
@@ -109,6 +111,7 @@ export function useChat() {
       const res = await api.post(`/conversations/${convId}/messages`, { content });
       if (selectedConvId.value === convId && recovery.generation() === generation
         && !messages.value.some(message => message.id === res.data.id)) messages.value.push(res.data);
+      useChatCopilot().clearSuggestion(convId);
       void recovery.request();
     } catch (err) {
       console.error('Failed to send message:', err);
@@ -129,6 +132,7 @@ export function useChat() {
       reconnection: true,
       reconnectionAttempts: 5,
     });
+    bindCopilotSocket(socket);
 
     const onTokenChanged = (event: Event) => {
       const nextToken = (event as CustomEvent<string>).detail || '';
@@ -216,6 +220,7 @@ export function useChat() {
 
   function destroySocket() {
     recovery.cancel();
+    if (socket) unbindCopilotSocket(socket);
     socket?.removeAllListeners();
     socket?.disconnect();
     socket = null;

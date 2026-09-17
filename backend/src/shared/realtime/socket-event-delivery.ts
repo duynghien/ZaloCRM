@@ -7,6 +7,7 @@ import { beginAccountOperation, currentSocketIdentity, socketSessionIsCurrent } 
 
 export const ACCOUNT_EVENT_QUEUE_LIMIT = 100;
 const qrEvents = new Set(['zalo:qr', 'zalo:qr-expired', 'zalo:scanned']);
+const chatRequiredEvents = new Set(['chat:copilot_suggestion']);
 type Queue = { tail: Promise<void>; size: number; dirty: boolean; signal?: Promise<void>; generation: number; reason: string; latestQr?: { event: string; payload: unknown } };
 const queues = new WeakMap<Server, Map<string, Queue>>();
 let recoveryGeneration = 0;
@@ -59,8 +60,8 @@ async function deliverAccount(io: Server, accountId: string, event: string, payl
         if (qrEvents.has(event) && (!intent || accountSubscription(socket, accountId) !== intent)) return;
         try {
           const user = await currentSocketIdentity(socket);
-          if (user.orgId !== account.orgId) return;
-          if (!(await hasZaloAccess(user, accountId, qrEvents.has(event) ? 'admin' : 'read'))) return;
+          const requiredLevel = qrEvents.has(event) ? 'admin' : (chatRequiredEvents.has(event) ? 'chat' : 'read');
+          if (!(await hasZaloAccess(user, accountId, requiredLevel))) return;
           if (closedServers.has(io) || !operation.valid || !socketSessionIsCurrent(socket)) return;
           if (qrEvents.has(event) && accountSubscription(socket, accountId) !== intent) return;
           socket.emit(event, payload);
@@ -152,3 +153,20 @@ export async function emitOrganizationEvent(io: Server, orgId: string, event: st
     } catch { logger.warn('[realtime] Organization event denied after recipient validation failure'); }
   }));
 }
+
+export async function emitManagerEvent(io: Server, orgId: string, event: string, payload: unknown): Promise<void> {
+  const candidates = io.sockets.adapter.rooms.get(`org:${orgId}`) ?? new Set<string>();
+  await Promise.all([...candidates].map(async (id) => {
+    const socket = io.sockets.sockets.get(id);
+    if (!socket) return;
+    try {
+      const user = await currentSocketIdentity(socket);
+      if (user.orgId === orgId && (user.role === 'owner' || user.role === 'admin') && socketSessionIsCurrent(socket)) {
+        socket.emit(event, payload);
+      }
+    } catch {
+      logger.warn('[realtime] Manager event denied after recipient validation failure');
+    }
+  }));
+}
+

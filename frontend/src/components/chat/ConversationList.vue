@@ -98,6 +98,14 @@
           >
             Nhóm
           </v-chip>
+          <span
+            v-if="hasAnomaly(conv)"
+            class="neo-pill ml-1 px-1 py-0 text-caption font-weight-bold"
+            style="background-color: #FEE2E2; color: #DC2626; border: 1px solid #EF4444; font-size: 0.65rem !important;"
+            title="Cuộc trò chuyện có khiếu nại hoặc bức xúc cần xử lý"
+          >
+            ⚠️ KHIẾU NẠI
+          </span>
           <v-spacer />
           <span class="text-caption text-grey ml-1">{{ formatTime(conv.lastMessageAt) }}</span>
         </v-list-item-title>
@@ -157,6 +165,15 @@ import { computed } from 'vue';
 import type { Conversation } from '@/composables/use-chat';
 import type { ZaloAccount } from '@/composables/use-zalo-accounts';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
+import { useChatCopilot } from '@/composables/use-chat-copilot';
+
+const { activeAnomalyMap } = useChatCopilot();
+
+function hasAnomaly(conv: Conversation): boolean {
+  if (activeAnomalyMap.value.has(conv.id)) return true;
+  const meta = conv.contact?.metadata as Record<string, any> | undefined;
+  return meta?.escalationStatus === 'pending';
+}
 
 const props = defineProps<{
   conversations: Conversation[];

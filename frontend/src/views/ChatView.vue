@@ -44,6 +44,8 @@
       :show-contact-panel="showContactPanel"
       @send="sendMessage"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
+      @open-order-draft="onOpenOrderDraft"
+      @open-appointment-draft="onOpenAppointmentDraft"
       @back="onMobileBack"
       style="flex: 1; min-width: 300px;"
     />
@@ -58,6 +60,8 @@
       <ChatContactPanel
         :contact-id="selectedConv.contact.id"
         :contact="selectedConv.contact"
+        :pending-order-draft="pendingOrderDraft"
+        :pending-appointment-draft="pendingAppointmentDraft"
         @close="showContactPanel = false"
         @saved="fetchConversations()"
       />
@@ -91,6 +95,18 @@ const {
 } = useChat();
 
 const showContactPanel = ref(false);
+const pendingOrderDraft = ref<{ totalAmount?: number; notes?: string } | null>(null);
+const pendingAppointmentDraft = ref<{ date?: string; time?: string; notes?: string } | null>(null);
+
+function onOpenOrderDraft(draft: any) {
+  pendingOrderDraft.value = draft;
+  showContactPanel.value = true;
+}
+
+function onOpenAppointmentDraft(draft: any) {
+  pendingAppointmentDraft.value = draft;
+  showContactPanel.value = true;
+}
 
 function onSelectAccount(id: string | null) {
   // If a conversation is currently open and it doesn't belong to the newly selected account, close it immediately

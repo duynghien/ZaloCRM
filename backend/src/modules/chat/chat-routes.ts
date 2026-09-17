@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
 import { emitWebhook } from '../api/webhook-service.js';
+import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
 
 type QueryParams = Record<string, string>;
 
@@ -57,7 +58,7 @@ export async function chatRoutes(app: FastifyInstance) {
       prisma.conversation.findMany({
         where,
         include: {
-          contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true, zaloUid: true } },
+          contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true, zaloUid: true, metadata: true } },
           zaloAccount: { select: { id: true, displayName: true, zaloUid: true, branchTag: true, colorTag: true } },
           messages: {
             take: 1,
@@ -175,6 +176,14 @@ export async function chatRoutes(app: FastifyInstance) {
         where: { id },
         data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
       });
+
+      chatTurnDebouncer.handleMessageTurn({
+        conversationId: id,
+        accountId: conversation.zaloAccountId,
+        orgId: user.orgId,
+        isSelf: true,
+        threadType: conversation.threadType as any,
+      }).catch(() => {});
 
       await emitAccountEvent(app.io, conversation.zaloAccountId, 'chat:message', { accountId: conversation.zaloAccountId, message, conversationId: id });
       emitWebhook(conversation.zaloAccount.orgId, 'message.sent', {

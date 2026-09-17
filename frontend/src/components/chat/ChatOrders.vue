@@ -42,7 +42,10 @@ import { ref, reactive, watch } from 'vue';
 import { api } from '@/api/index';
 import { useOrders } from '@/composables/use-orders';
 
-const props = defineProps<{ contactId: string | null }>();
+const props = defineProps<{
+  contactId: string | null;
+  pendingDraft?: { totalAmount?: number; notes?: string } | null;
+}>();
 
 const { statusColor, statusLabel } = useOrders();
 
@@ -85,5 +88,15 @@ function formatDate(d: string) {
   return new Date(d).toLocaleDateString('vi-VN');
 }
 
+function populateDraft(draft: { totalAmount?: number; notes?: string }) {
+  if (!draft) return;
+  showCreate.value = true;
+  if (typeof draft.totalAmount === 'number') newOrder.totalAmount = draft.totalAmount;
+  if (draft.notes) newOrder.notes = draft.notes;
+}
+
+defineExpose({ populateDraft });
+
+watch(() => props.pendingDraft, (d) => { if (d) populateDraft(d); }, { immediate: true });
 watch(() => props.contactId, (id) => { if (id) loadOrders(); }, { immediate: true });
 </script>

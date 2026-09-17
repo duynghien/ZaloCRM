@@ -54,6 +54,7 @@ ZaloCRM/
 │       │   ├── auth/         # Login, Session refresh rotation, Org, Team, User RBAC
 │       │   ├── zalo/         # Zalo Account Pool, QR Login, ACL access, Friend sync, Rate limit 2 tầng, Self-listen
 │       │   ├── chat/         # Conversation, Message ingestion, Deduplication, Undo, Attachments
+│       │   │   └── copilot/  # Conversational Copilot (Single-Inference Service, Prompt Builder, Resilient Parser, Debouncer, Anomaly Escalator, Cache)
 │       │   ├── contacts/     # Contact CRM, Pipeline, Appointment & Reminder, Self-healing contacts
 │       │   ├── orders/       # Order management, Atomic sequential code generator (ORD-YYYYMMDD-NNN)
 │       │   ├── ai-reports/   # Multi-provider router, Burst sampler, Two-tier audit, Action item broadcast, Cron
@@ -88,9 +89,9 @@ ZaloCRM/
         ├── App.vue           # Root Vue Component
         ├── main.ts           # Entrypoint Vue app
         ├── api/              # Axios HTTP client, Session state in-memory, AI Report API
-        ├── composables/      # Vue composables (useChat, useChatRecovery, useZaloAccounts, useDashboard,...)
+        ├── composables/      # Vue composables (useChat, useChatCopilot, useChatRecovery, useZaloAccounts, useDashboard,...)
         ├── components/       # Reusable components
-        │   ├── chat/         # AccountRail, ConversationList, MessageThread, ChatAppointments, ChatOrders
+        │   ├── chat/         # AccountRail, ConversationList, MessageThread, ChatCopilotBar, ChatAiDraftCard, ChatAnomalyBanner, ChatAppointments, ChatOrders
         │   ├── contacts/     # ContactDetailDialog, ContactFilters
         │   ├── dashboard/    # KpiCards, DashboardDateFilter, MessageVolumeChart, PipelineChart,...
         │   ├── orders/       # OrderStaffTable
@@ -114,7 +115,7 @@ ZaloCRM/
 |------------------|----------------|----------------|
 | **auth** | Đăng nhập, băm mật khẩu `bcryptjs` (cost 12), JWT ngắn hạn trong RAM, Refresh Token xoay vòng qua model `AuthSession` trong DB, bảo vệ CSRF kép, quản lý User, Team, Organization. | `auth-routes.ts`, `auth-service.ts`, `user-routes.ts`, `team-routes.ts`, `org-routes.ts`, `auth-middleware.ts`, `role-middleware.ts` |
 | **zalo** | Đăng nhập QR Code, mã hóa session `AES-256-GCM`, quản lý `ZaloPool` (zca-js 2.x), phân quyền truy cập `ZaloAccountAccess`, gắn thẻ chi nhánh (`branchTag`) và màu nhận diện (`colorTag`), đồng bộ tin nhắn ngoài (`selfListen: true`), rate limiter 2 tầng và health check. | `zalo-routes.ts`, `zalo-pool.ts`, `zalo-socket.ts`, `zalo-access-routes.ts`, `zalo-sync-routes.ts`, `zalo-listener-factory.ts`, `zalo-health-check.ts`, `zalo-rate-limiter.ts` |
-| **chat** | Quản lý hội thoại, gửi/nhận tin nhắn đa phương tiện, lọc tin nhắn chưa đọc/chưa trả lời, xử lý deduplication tin nhắn đến và thu hồi (undo) an toàn theo thread. | `chat-routes.ts`, `message-handler.ts` |
+| **chat & copilot** | Quản lý hội thoại, tin nhắn đa phương tiện, lọc tin, thu hồi (undo) an toàn; kèm Trợ lý Ảo Bán Hàng (Conversational Copilot: Single-Inference AI Engine, Smart Turn Debouncer 3.0s, gợi ý phản hồi, bóc tách đơn/lịch Human-in-the-Loop, phát hiện bất thường & leo thang quản lý). | `chat-routes.ts`, `message-handler.ts`, `chat-copilot-service.ts`, `chat-turn-debouncer.ts`, `chat-copilot-routes.ts`, `chat-copilot-prompt-builder.ts`, `chat-copilot-parser.ts`, `chat-copilot-anomaly-escalator.ts`, `chat-copilot-cache.ts` |
 | **contacts** | Danh bạ khách hàng, phân loại Pipeline 5 trạng thái (`new` → `lost`), tự lành liên kết hội thoại và cập nhật tên Zalo, lịch hẹn tư vấn và tiến trình tự động nhắc hẹn qua Socket/Zalo. | `contact-routes.ts`, `contact-sub-resource-routes.ts`, `appointment-routes.ts`, `appointment-reminder.ts` |
 | **orders** | Quản lý đơn hàng bán hàng gắn với contact/conversation, cấp mã đơn hàng tuần tự nguyên tử `ORD-YYYYMMDD-NNN` chống race condition bằng `order_code_counters`. | `order-routes.ts`, `order-code-service.ts` |
 | **ai-reports** | Động cơ AI Multi-Provider (Gemini, OpenAI, DeepSeek, Local Gateway) với failover chain, single-layer budget reservation, Multimodal Burst Sampling (pool 4 worker, trần 12MB), Two-Tier Cross-Verification (Tier 1 đối soát văn bản-ảnh, Tier 2 trích xuất & phát sóng Action Items qua Zalo), và Quy tắc giám sát nhóm tự động theo phút có advisory lock. | `ai-report-routes.ts`, `ai-audit-rule-routes.ts`, `ai-audit-rule-service.ts`, `ai-audit-evaluator.ts`, `audit-rule-cron-runner.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `attachment-burst-sampler.ts`, `attachment-image-loader.ts`, `report-action-item-parser.ts`, `ai-provider-settings-service.ts`, `ai-gateway-validator.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts` |
@@ -145,6 +146,7 @@ ZaloCRM/
 - **Composables & State Helpers:**
   - `session.ts`: Quản lý access token ngắn hạn hoàn toàn trong RAM, đọc CSRF cookie, lắng nghe sự kiện đổi token.
   - `use-chat.ts` & `use-chat-recovery.ts`: Quản lý danh sách hội thoại, tin nhắn, gộp fetch và phục hồi sau mất kết nối hoặc nhận tín hiệu `realtime:resync-required`.
+  - `use-chat-copilot.ts`: Quản lý trạng thái Trợ lý Ảo Bán Hàng (Copilot), lắng nghe socket `chat:copilot_suggestion` & `chat:anomaly_alert`, kích hoạt gợi ý chủ động, chèn Smart Reply và đồng bộ địa chỉ nhận hàng.
   - `use-zalo-accounts.ts` & `zalo-qr-subscription.ts`: Quản lý polling/socket QR subscription với server ack intent.
   - `ai-report-view-helpers.ts` & `ai-report-api.ts`: Chuẩn hóa dữ liệu hiển thị trạng thái job, target resolution, resend dispatch ledger, task status toggle và task broadcast.
   - `account-colors.ts`: Định nghĩa 8 màu chuẩn nhận diện tài khoản Zalo, các token viền, nền sáng/tối và chip styling.
@@ -194,6 +196,8 @@ GET    /api/v1/conversations/:id              # Chi tiết cuộc trò chuyện 
 GET    /api/v1/conversations/:id/messages     # Lấy lịch sử tin nhắn của cuộc trò chuyện (quyền read)
 POST   /api/v1/conversations/:id/messages     # Gửi tin nhắn văn bản/file tới cuộc trò chuyện (quyền chat)
 POST   /api/v1/conversations/:id/mark-read    # Đánh dấu cuộc trò chuyện đã đọc (quyền read)
+POST   /api/v1/conversations/:id/copilot/suggest # Kích hoạt suy luận gợi ý Copilot chủ động (On-Demand)
+PATCH  /api/v1/conversations/:id/resolve-anomaly # Đánh dấu đã xử lý khiếu nại/bất thường trong hội thoại
 ```
 
 ### 4.5. Khách Hàng (Contacts & Pipeline)
@@ -203,6 +207,7 @@ GET    /api/v1/contacts/pipeline              # Thống kê danh sách khách h�
 GET    /api/v1/contacts/:id                   # Chi tiết khách hàng
 POST   /api/v1/contacts                       # Tạo khách hàng mới
 PUT    /api/v1/contacts/:id                   # Cập nhật thông tin khách hàng
+PATCH  /api/v1/contacts/:id                   # Cập nhật một phần (hỗ trợ deep-merge metadata địa chỉ giao hàng)
 PUT    /api/v1/contacts/:id/tags              # Cập nhật danh sách thẻ của khách hàng
 DELETE /api/v1/contacts/:id                   # Xóa khách hàng
 GET    /api/v1/contacts/:id/appointments      # Lấy danh sách lịch hẹn của khách hàng

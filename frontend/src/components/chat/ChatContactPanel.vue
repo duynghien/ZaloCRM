@@ -51,11 +51,16 @@
         v-if="props.contactId"
         :contact-id="props.contactId"
         :appointments="contactAppointments"
+        :pending-draft="props.pendingAppointmentDraft"
         @refresh="reloadAppointments"
       />
 
       <!-- Orders sub-component -->
-      <ChatOrders v-if="props.contactId" :contact-id="props.contactId" />
+      <ChatOrders
+        v-if="props.contactId"
+        :contact-id="props.contactId"
+        :pending-draft="props.pendingOrderDraft"
+      />
     </div>
   </div>
 </template>
@@ -70,6 +75,8 @@ import ChatOrders from './ChatOrders.vue';
 const props = defineProps<{
   contactId: string | null;
   contact: Contact | null;
+  pendingOrderDraft?: { totalAmount?: number; notes?: string } | null;
+  pendingAppointmentDraft?: { date?: string; time?: string; notes?: string } | null;
 }>();
 
 const emit = defineEmits<{ close: []; saved: [] }>();

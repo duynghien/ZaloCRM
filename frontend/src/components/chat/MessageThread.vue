@@ -70,6 +70,13 @@
 
       <!-- Messages -->
       <div ref="messagesContainer" class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area">
+        <ChatAnomalyBanner
+          v-if="conversation"
+          :anomaly="currentAnomaly"
+          :conversation-metadata="conversation.contact?.metadata"
+          @apply-reply="onApplyReply"
+          @resolve="onResolveAnomaly"
+        />
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
         <div v-for="msg in messages" :key="msg.id" class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
           <div style="max-width: 70%;">
@@ -125,6 +132,27 @@
           </div>
         </div>
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
+      <!-- Copilot Draft Card (1-on-1 chats only) -->
+      <div v-if="conversation && conversation.threadType === 'user'" class="px-2 pt-1">
+        <ChatAiDraftCard
+          :draft="currentSuggestion?.quickDraft"
+          :contact-id="conversation.contact?.id"
+          :existing-phone="conversation.contact?.phone"
+          @open-order-draft="$emit('open-order-draft', $event)"
+          @open-appointment-draft="$emit('open-appointment-draft', $event)"
+          @enrich-contact="onEnrichContact"
+        />
+      </div>
+
+      <!-- Copilot Smart Reply Bar -->
+      <div v-if="conversation" class="px-2">
+        <ChatCopilotBar
+          :suggestion="currentSuggestion"
+          :conversation-id="conversation.id"
+          :loading-manual="loadingManual"
+          @apply-reply="onApplyReply"
+          @request-manual="requestManualCopilot(conversation.id)"
+        />
       </div>
 
       <!-- Safety Compose Bar (Chốt chặn an toàn) -->
@@ -191,6 +219,10 @@ import { useDisplay } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
+import ChatCopilotBar from './ChatCopilotBar.vue';
+import ChatAiDraftCard from './ChatAiDraftCard.vue';
+import ChatAnomalyBanner from './ChatAnomalyBanner.vue';
+import { useChatCopilot } from '@/composables/use-chat-copilot';
 
 const { mobile } = useDisplay();
 
@@ -206,7 +238,34 @@ const emit = defineEmits<{
   send: [content: string];
   'toggle-contact-panel': [];
   back: [];
+  'open-order-draft': [draftData: any];
+  'open-appointment-draft': [draftData: any];
 }>();
+
+const {
+  currentSuggestion,
+  currentAnomaly,
+  loadingManual,
+  requestManualCopilot,
+  resolveAnomaly,
+  confirmEnrichContact,
+} = useChatCopilot(computed(() => props.conversation?.id || null));
+
+function onApplyReply(text: string) {
+  inputText.value = text;
+}
+
+async function onResolveAnomaly() {
+  if (props.conversation?.id) {
+    await resolveAnomaly(props.conversation.id);
+  }
+}
+
+async function onEnrichContact(data: { phone?: string; address?: string }) {
+  if (props.conversation?.contact?.id) {
+    await confirmEnrichContact(props.conversation.contact.id, data);
+  }
+}
 
 const accountColor = computed(() => {
   const acc = props.conversation?.zaloAccount;

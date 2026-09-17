@@ -155,6 +155,14 @@ sequenceDiagram
   - **Tier 2 (High Priority Action Items):** Phân tích và trích xuất bảng nhiệm vụ hành động (`report-action-item-parser.ts`), cập nhật trạng thái nhiệm vụ trực tiếp (`PUT /api/v1/ai-reports/:id/tasks/:taskId`) và phát sóng tức thì các nhiệm vụ ưu tiên cao sang nhóm Zalo hoặc người phụ trách (`POST /api/v1/ai-reports/:id/broadcast-tasks` qua `formatTasksForZaloMessage`).
 - **Cô lập & mã hóa cấu hình đa người dùng:** Dữ liệu cấu hình và API key của từng tổ chức được mã hóa `AES-256-GCM` trong bảng `AppSetting` (`settingKey: 'ai_provider_config'`). API DTO luôn che giấu (`maskKey`) các secret và tuyệt đối không làm lộ khóa cấu hình cấp hệ thống của máy chủ cho client.
 
+### 3.1.6. Trợ Lý Ảo Bán Hàng (Conversational Copilot Architecture)
+
+- **Single-Inference Unified Engine:** 1 lần gọi suy luận duy nhất sinh đồng thời 4 chiều nghiệp vụ (Tâm lý khách & điểm ý định mua hàng 0-100, 3 gợi ý phản hồi theo ngữ cảnh kèm phím tắt `Alt+1/2/3`, thông tin bóc tách đơn hàng/lịch hẹn, và cảnh báo bất thường/khiếu nại). Bỏ qua lớp budget reservation của AI Reports nặng nề để đạt độ trễ < 1.5s, tích hợp LRU Cache In-Memory (500 entries, 5m TTL).
+- **Smart Turn Debouncer (3.0s) & Race Guard:** Nhận diện tin nhắn vụn vặt của khách hàng, hoãn gọi LLM tới 3.0 giây sau tin nhắn cuối cùng (tùy chỉnh 1.5s - 5.0s theo cấu hình org, trần tối đa 12s tránh trễ vô hạn). Tự động huỷ bộ đếm và ngắt luồng AI đang chạy (`AbortController`) ngay khi nhân viên bấm gửi tin nhắn phản hồi (`isSelf: true`).
+- **Phòng chống Prompt Injection & Ảo giác Giá:** Khử độc và bọc kín tin nhắn khách hàng trong thẻ XML `<customer_utterance>`. Bắt buộc không tự bịa đặt giá nếu không có dữ liệu đối chiếu trong ngữ cảnh doanh nghiệp.
+- **Quy trình Phê Duyệt Human-in-the-Loop:** Dữ liệu bóc tách đơn hàng, địa chỉ giao hàng và lịch hẹn được hiển thị qua thẻ `ChatAiDraftCard.vue`. Nhân viên bấm click để mở modal điền sẵn 100% dữ liệu và chủ động xác nhận commit (tuyệt đối không tự động tạo đơn/lịch hẹn vào DB để ngăn chặn sai sót tài chính).
+- **Cảnh báo Bất thường & Leo thang Quản lý (Anomaly Escalation):** Khi phát hiện khách hàng bức xúc gay gắt, chửi bới hoặc dọa báo công an, hệ thống ghim cờ `escalationStatus: 'pending'` vào `metadata` của Contact, kích hoạt dải cảnh báo đỏ `ChatAnomalyBanner.vue` kèm kịch bản xoa dịu mẫu, phát Socket.IO sự kiện `chat:anomaly_alert` tới Owner/Admin và ghi nhật ký kiểm toán vào `ActivityLog`.
+
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
 2. Hệ thống gọi `encryptData(sessionData, ENCRYPTION_KEY)` mã hóa chuỗi JSON thành binary bằng thuật toán `AES-256-GCM` với IV ngẫu nhiên và Auth Tag.
