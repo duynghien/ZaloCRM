@@ -16,12 +16,12 @@ class ZaloRateLimiter {
   private recentMsgIds = new Map<string, number>();  // msgKey -> timestamp for dedup
 
   /** Check if sending is allowed for accountId */
-  checkLimits(accountId: string): { allowed: boolean; reason?: string; canForce?: boolean } {
+  checkLimits(accountId: string, weight: number = 1): { allowed: boolean; reason?: string; canForce?: boolean } {
     const today = new Date().toISOString().split('T')[0];
     const daily = this.dailyCounts.get(accountId);
 
     // 1. Daily limit check
-    if (daily && daily.date === today && daily.count >= DAILY_LIMIT) {
+    if (daily && daily.date === today && daily.count + (weight - 1) >= DAILY_LIMIT) {
       return {
         allowed: false,
         reason: `Đã đạt giới hạn an toàn ${DAILY_LIMIT} tin/ngày`,
@@ -45,7 +45,7 @@ class ZaloRateLimiter {
 
     // 3. Burst window check
     const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
-    if (recent.length >= BURST_LIMIT) {
+    if (recent.length + (weight - 1) >= BURST_LIMIT) {
       return {
         allowed: false,
         reason: `Tần suất gửi quá cao (tối đa ${BURST_LIMIT} tin/30s)`,
@@ -56,25 +56,46 @@ class ZaloRateLimiter {
     return { allowed: true };
   }
 
+  /** Check if a message ID was recently sent from CRM (for echo loop prevention) */
+  isRecentMsgId(accountId: string, zaloMsgId: string): boolean {
+    if (!zaloMsgId) return false;
+    const msgKey = `${accountId}:${zaloMsgId}`;
+    const cachedAt = this.recentMsgIds.get(msgKey);
+    if (cachedAt && Date.now() - cachedAt < DEDUP_TTL_MS) {
+      return true;
+    }
+    return false;
+  }
+
   /** Record a successful send for rate tracking */
-  recordSend(accountId: string, zaloMsgId?: string | null, isExternal: boolean = false): void {
+  recordSend(accountId: string, zaloMsgId?: string | null | string[], isExternal: boolean = false, weight: number = 1): void {
     const now = Date.now();
     const today = new Date().toISOString().split('T')[0];
 
+    const idsToCache: string[] = [];
+    if (Array.isArray(zaloMsgId)) {
+      for (const id of zaloMsgId) {
+        if (id) idsToCache.push(id);
+      }
+    } else if (zaloMsgId) {
+      idsToCache.push(zaloMsgId);
+    }
+
     // Deduplication check via recentMsgIds
     let isDuplicate = false;
-    if (zaloMsgId) {
-      const msgKey = `${accountId}:${zaloMsgId}`;
+    for (const id of idsToCache) {
+      const msgKey = `${accountId}:${id}`;
       const cachedAt = this.recentMsgIds.get(msgKey);
       if (cachedAt && now - cachedAt < DEDUP_TTL_MS) {
         isDuplicate = true;
       } else {
         this.recentMsgIds.set(msgKey, now);
-        if (this.recentMsgIds.size > 1000) {
-          for (const [k, ts] of this.recentMsgIds) {
-            if (now - ts >= DEDUP_TTL_MS) this.recentMsgIds.delete(k);
-          }
-        }
+      }
+    }
+
+    if (this.recentMsgIds.size > 2000) {
+      for (const [k, ts] of this.recentMsgIds) {
+        if (now - ts >= DEDUP_TTL_MS) this.recentMsgIds.delete(k);
       }
     }
 
@@ -82,17 +103,20 @@ class ZaloRateLimiter {
     if (!isExternal) {
       this.lastSendTime.set(accountId, now);
       const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
-      recent.push(now);
+      for (let i = 0; i < weight; i++) {
+        recent.push(now);
+      }
       this.recentSends.set(accountId, recent);
     }
 
     // Update daily count only if not duplicate
     if (!isDuplicate) {
       const daily = this.dailyCounts.get(accountId);
+      const increment = Math.max(1, weight);
       if (daily && daily.date === today) {
-        daily.count++;
+        daily.count += increment;
       } else {
-        this.dailyCounts.set(accountId, { count: 1, date: today });
+        this.dailyCounts.set(accountId, { count: increment, date: today });
       }
     }
   }

@@ -6,6 +6,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import fastifyStatic from '@fastify/static';
+import multipart from '@fastify/multipart';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,6 +16,7 @@ import { logger } from './shared/utils/logger.js';
 import { authRoutes } from './modules/auth/auth-routes.js';
 import { zaloRoutes } from './modules/zalo/zalo-routes.js';
 import { chatRoutes } from './modules/chat/chat-routes.js';
+import { attachmentRoutes } from './modules/attachments/attachment-routes.js';
 import { contactRoutes } from './modules/contacts/contact-routes.js';
 import { contactSubResourceRoutes } from './modules/contacts/contact-sub-resource-routes.js';
 import { appointmentRoutes } from './modules/contacts/appointment-routes.js';
@@ -53,6 +55,13 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
     secret: config.jwtSecret,
   });
 
+  await app.register(multipart, {
+    limits: {
+      fileSize: 30 * 1024 * 1024,
+      files: 5,
+    },
+  });
+
   // Rate limiting with higher limits and per-key tracking
   await app.register(rateLimit, {
     max: 1000,
@@ -85,6 +94,7 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   await app.register(authRoutes);
   await app.register(zaloRoutes);
   await app.register(chatRoutes);
+  await app.register(attachmentRoutes);
   await app.register(chatCopilotRoutes);
   await app.register(contactRoutes);
   await app.register(contactSubResourceRoutes);

@@ -62,6 +62,10 @@ export async function handleIncomingMessage(
     if (!account) return null;
 
     if (msg.isSelf) {
+      if (msg.msgId && zaloRateLimiter.isRecentMsgId(msg.accountId, msg.msgId)) {
+        logger.info(`[message-handler] Skipping echo of recently sent CRM message ${msg.msgId}`);
+        return null;
+      }
       zaloRateLimiter.recordSend(msg.accountId, msg.msgId || null, true);
     }
 

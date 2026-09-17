@@ -15,11 +15,35 @@ import { config } from '../../config/index.js';
 import { encryptData, decryptData } from '../../shared/utils/crypto.js';
 import { attachZaloListener, type UserInfoCacheEntry } from './zalo-listener-factory.js';
 import { emitWebhook } from '../api/webhook-service.js';
+import imageSize from 'image-size';
+import fs from 'node:fs';
 
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { Zalo } = require('zca-js') as { Zalo: new (opts: { logging: boolean; selfListen?: boolean }) => any };
+const { Zalo } = require('zca-js') as {
+  Zalo: new (opts: {
+    logging: boolean;
+    selfListen?: boolean;
+    imageMetadataGetter?: (filePath: string) => Promise<{ width: number; height: number; size: number }>;
+  }) => any;
+};
+
+const imageMetadataGetter = async (filePath: string) => {
+  try {
+    const buffer = await fs.promises.readFile(filePath);
+    const dimensions = imageSize(buffer);
+    return {
+      width: dimensions.width || 0,
+      height: dimensions.height || 0,
+      size: buffer.length,
+    };
+  } catch (err) {
+    logger.warn(`[zalo-pool] Failed to get image dimensions for ${filePath}: ${err}`);
+    const stat = await fs.promises.stat(filePath).catch(() => ({ size: 0 }));
+    return { width: 0, height: 0, size: stat.size };
+  }
+};
 
 interface ZaloCredentials {
   cookie: any;
@@ -85,7 +109,7 @@ class ZaloAccountPool {
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false, selfListen: true });
+      const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
       const pending: ZaloInstance = { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
 
@@ -178,7 +202,7 @@ class ZaloAccountPool {
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false, selfListen: true });
+      const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
       const pending: ZaloInstance = { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
 

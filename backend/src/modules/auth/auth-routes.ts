@@ -12,17 +12,29 @@ function cookieOptions(expiresAt?: Date) {
   return { httpOnly: true, secure: config.isProduction, sameSite: 'lax' as const, path: '/api/v1/auth', ...(expiresAt ? { expires: expiresAt } : {}) };
 }
 
+function mediaCookieOptions(expiresAt?: Date) {
+  return { httpOnly: true, secure: config.isProduction, sameSite: 'lax' as const, path: '/api/v1/attachments', ...(expiresAt ? { expires: expiresAt } : {}) };
+}
+
 function clearSessionCookies(reply: FastifyReply): void {
   reply.clearCookie(config.refreshCookieName, cookieOptions());
   reply.clearCookie(config.csrfCookieName, { secure: config.isProduction, sameSite: 'lax', path: '/' });
+  reply.clearCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaCookieOptions());
 }
 
-function setSessionCookies(reply: FastifyReply, refreshToken: string, expiresAt: Date): string {
+function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id: string; orgId: string; role: string }, refreshToken: string, expiresAt: Date): string {
   const csrfToken = randomBytes(32).toString('base64url');
   reply.setCookie(config.refreshCookieName, refreshToken, cookieOptions(expiresAt));
   // The SPA reads this non-secret double-submit value from any protected route.
   // The refresh credential itself remains HttpOnly and limited to auth endpoints.
   reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: config.isProduction, sameSite: 'lax', path: '/', expires: expiresAt });
+
+  const mediaToken = app.jwt.sign(
+    { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
+    { expiresIn: '7d' },
+  );
+  reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(expiresAt));
+
   return csrfToken;
 }
 
@@ -48,7 +60,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!orgName || !fullName || !email || !password) return reply.status(400).send({ error: 'Missing required fields' });
     const user = await setup(orgName, fullName, email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, tokens.refreshToken, tokens.expiresAt);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt);
     return { token: tokens.accessToken, user };
   });
 
@@ -57,7 +69,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!email || !password) return reply.status(400).send({ error: 'Missing email or password' });
     const user = await login(email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, tokens.refreshToken, tokens.expiresAt);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt);
     return { token: tokens.accessToken, user };
   });
 
@@ -67,7 +79,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const refreshToken = request.cookies[config.refreshCookieName];
       if (!refreshToken) return reply.status(401).send({ error: 'Missing refresh session' });
       const { tokens, identity } = await rotateSession(app, refreshToken);
-      setSessionCookies(reply, tokens.refreshToken, tokens.expiresAt);
+      setSessionCookies(reply, app, identity, tokens.refreshToken, tokens.expiresAt);
       return { token: tokens.accessToken, user: identity };
     } catch (error) {
       clearSessionCookies(reply);

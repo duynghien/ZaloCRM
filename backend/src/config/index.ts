@@ -35,6 +35,26 @@ if (isProduction) {
   }
 }
 
+import fs from 'node:fs';
+import path from 'node:path';
+
+function resolveUploadDir(): string {
+  const preferred = process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files';
+  try {
+    fs.mkdirSync(preferred, { recursive: true });
+    const probe = path.join(preferred, `.probe-${Date.now()}`);
+    fs.writeFileSync(probe, '');
+    fs.unlinkSync(probe);
+    return preferred;
+  } catch {
+    const fallback = path.resolve(process.cwd(), 'uploads');
+    try {
+      fs.mkdirSync(fallback, { recursive: true });
+    } catch {}
+    return fallback;
+  }
+}
+
 export const config = {
   port: parseInt(process.env.PORT || '3000'),
   host: process.env.HOST || '0.0.0.0',
@@ -42,13 +62,14 @@ export const config = {
   jwtSecret,
   encryptionKey,
   databaseUrl: process.env.DATABASE_URL || 'postgresql://crmuser:password@localhost:5432/zalocrm',
-  uploadDir: process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files',
+  uploadDir: resolveUploadDir(),
   appUrl,
   appOrigin,
   accessTokenTtl: '15m',
   refreshSessionTtlMs: Math.max(1, Number.isFinite(refreshSessionDays) ? refreshSessionDays : 7) * 24 * 60 * 60 * 1000,
   refreshCookieName: 'zalo_crm_refresh',
   csrfCookieName: 'zalo_crm_csrf',
+  mediaCookieName: 'zalo_crm_media_session',
   geminiApiKey: process.env.GEMINI_API_KEY || '',
   geminiModel,
   aiPrimaryProvider,

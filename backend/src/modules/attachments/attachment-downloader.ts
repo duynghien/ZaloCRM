@@ -17,7 +17,7 @@ export interface DownloadResult {
   mimeType: string;
 }
 
-const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 30 * 1024 * 1024;
 
 /**
  * Get or create the local attachments storage directory

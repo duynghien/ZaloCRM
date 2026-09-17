@@ -14,6 +14,7 @@ import { startReportJobWorker, stopReportJobWorker } from './modules/ai-reports/
 import { decryptData } from './shared/utils/crypto.js';
 import { validateConfiguredGeminiModel } from './modules/ai-reports/ai-client.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
+import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachments/orphan-cleanup-task.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -29,7 +30,12 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
     try {
       closeReportAdmission();
       chatTurnDebouncer.cleanup();
-      await Promise.all([stopReportCronJobs(), stopReportJobWorker(), stopAppointmentReminder()]);
+      await Promise.all([
+        stopReportCronJobs(),
+        stopReportJobWorker(),
+        stopAppointmentReminder(),
+        stopOrphanCleanupTask(),
+      ]);
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();
       await zaloPool.drain();
@@ -66,6 +72,7 @@ async function bootstrap() {
     startZaloHealthCheck();
     startReportCronJobs();
     startReportJobWorker();
+    startOrphanCleanupTask();
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);
