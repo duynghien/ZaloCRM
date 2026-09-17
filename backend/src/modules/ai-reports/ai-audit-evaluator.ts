@@ -125,6 +125,7 @@ export async function evaluateAuditRule(
       budget,
       executionGuard,
       orgId,
+      taskType: 'audit_rule',
     });
   } catch (evalError: any) {
     await prisma.aiReportJob

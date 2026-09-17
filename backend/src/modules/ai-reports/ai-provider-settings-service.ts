@@ -61,6 +61,8 @@ export function getSystemDefaultAiSettings(): OrgAiProviderSettings {
     fallbackEnabled: fallbackChain.length > 0,
     fallbackChain,
     allowSystemFallback: true,
+    monthlyBudgetVnd: 0,
+    usdToVndRate: 25400,
   };
 }
 
@@ -99,6 +101,8 @@ export async function getOrgAiProviderCredentials(orgId: string): Promise<OrgAiP
       fallbackEnabled: saved.fallbackEnabled ?? system.fallbackEnabled,
       fallbackChain: saved.fallbackChain || system.fallbackChain,
       allowSystemFallback: allowSystem,
+      monthlyBudgetVnd: saved.monthlyBudgetVnd !== undefined ? Number(saved.monthlyBudgetVnd) : 0,
+      usdToVndRate: saved.usdToVndRate !== undefined ? Number(saved.usdToVndRate) : 25400,
     };
   } catch {
     return getSystemDefaultAiSettings();
@@ -128,6 +132,8 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
       fallbackEnabled: system.fallbackEnabled,
       fallbackChain: system.fallbackChain,
       allowSystemFallback: true,
+      monthlyBudgetVnd: 0,
+      usdToVndRate: 25400,
       providers: providersDto,
     };
   };
@@ -159,6 +165,8 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
       fallbackEnabled: saved.fallbackEnabled ?? true,
       fallbackChain: saved.fallbackChain || [],
       allowSystemFallback: saved.allowSystemFallback ?? true,
+      monthlyBudgetVnd: saved.monthlyBudgetVnd !== undefined ? Number(saved.monthlyBudgetVnd) : 0,
+      usdToVndRate: saved.usdToVndRate !== undefined ? Number(saved.usdToVndRate) : 25400,
       providers: providersDto,
     };
   } catch {
@@ -218,6 +226,8 @@ export async function saveOrgAiProviderSettings(orgId: string, payload: any): Pr
     fallbackEnabled: payload.fallbackEnabled ?? existingData.fallbackEnabled ?? true,
     fallbackChain: payload.fallbackChain || existingData.fallbackChain || [],
     allowSystemFallback: payload.allowSystemFallback ?? existingData.allowSystemFallback ?? true,
+    monthlyBudgetVnd: payload.monthlyBudgetVnd !== undefined ? Number(payload.monthlyBudgetVnd) : (existingData.monthlyBudgetVnd !== undefined ? Number(existingData.monthlyBudgetVnd) : 0),
+    usdToVndRate: payload.usdToVndRate !== undefined ? Number(payload.usdToVndRate) : (existingData.usdToVndRate !== undefined ? Number(existingData.usdToVndRate) : 25400),
     providers: updatedProviders,
   };
 

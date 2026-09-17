@@ -18,11 +18,13 @@ export interface GenerateContentOptions {
   budget: ReportJobBudget;
   executionGuard: () => Promise<void>;
   orgId?: string;
+  taskType?: string;
   signal?: AbortSignal;
   model?: string;
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  onUsage?: (usage: any) => void;
   onFallback?: (telemetry: FallbackTelemetry) => void;
 }
 
@@ -76,6 +78,9 @@ export async function generateContent(
   return router.generateContent(prompt, {
     budget: options.budget,
     executionGuard: options.executionGuard,
+    orgId: options.orgId,
+    taskType: options.taskType,
+    onUsage: options.onUsage,
     signal: options.signal,
     systemInstruction: options.systemInstruction,
     temperature: options.temperature,

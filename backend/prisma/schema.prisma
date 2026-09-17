@@ -28,6 +28,8 @@ model Organization {
   generatedReports   GeneratedReport[]
   reportJobs         AiReportJob[]
   reportResends      AiReportResend[]
+  aiUsageLogs        AiUsageLog[]
+  dailyAiStats       DailyAiUsageStat[]
 
   @@map("organizations")
 }
@@ -70,6 +72,7 @@ model User {
   createdReports   GeneratedReport[]   @relation("CreatedReports")
   reportJobs       AiReportJob[]       @relation("CreatedReportJobs")
   authSessions     AuthSession[]
+  aiUsageLogs      AiUsageLog[]
 
   @@map("users")
 }
@@ -498,3 +501,53 @@ model OrderCodeCounter {
   @@id([orgId, dateKey])
   @@map("order_code_counters")
 }
+
+model AiUsageLog {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  userId       String?  @map("user_id")
+  taskType     String   @map("task_type") // 'copilot' | 'executive_report' | 'audit_rule' | 'vision_ocr' | 'test_connection'
+  provider     String   // 'gemini' | 'openai' | 'deepseek' | 'custom'
+  model        String
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  cachedTokens Int      @default(0) @map("cached_tokens")
+  totalTokens  Int      @default(0) @map("total_tokens")
+  costUsd      Float    @default(0) @map("cost_usd")
+  costVnd      BigInt   @default(0) @map("cost_vnd")
+  durationMs   Int?     @map("duration_ms")
+  status       String   @default("success") // 'success' | 'failed'
+  metadata     Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt])
+  @@index([orgId, taskType])
+  @@map("ai_usage_logs")
+}
+
+model DailyAiUsageStat {
+  id           String   @id @default(uuid())
+  orgId        String   @map("org_id")
+  statDate     DateTime @map("stat_date") @db.Date // UTC+7 normalized date
+  taskType     String   @map("task_type")
+  provider     String
+  model        String
+  requestCount Int      @default(1) @map("request_count")
+  inputTokens  BigInt   @default(0) @map("input_tokens")
+  outputTokens BigInt   @default(0) @map("output_tokens")
+  cachedTokens BigInt   @default(0) @map("cached_tokens")
+  totalTokens  BigInt   @default(0) @map("total_tokens")
+  costUsd      Float    @default(0) @map("cost_usd")
+  costVnd      BigInt   @default(0) @map("cost_vnd")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, statDate, taskType, provider, model], name: "org_date_task_provider_model_unique")
+  @@index([orgId, statDate])
+  @@map("daily_ai_usage_stats")
+}
+

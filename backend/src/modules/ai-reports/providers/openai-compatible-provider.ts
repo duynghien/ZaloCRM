@@ -13,6 +13,7 @@ import type {
   TestConnectionResult,
 } from './ai-provider-interface.js';
 import { estimateTokensHeuristic } from './token-budget-estimator.js';
+import { recordAiUsage } from '../ai-usage-tracker.js';
 
 export class OpenAiCompatibleProvider implements AiProvider {
   readonly type: AiProviderType;
@@ -86,6 +87,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
     let lastError: any = null;
+    const start = Date.now();
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -103,10 +105,30 @@ export class OpenAiCompatibleProvider implements AiProvider {
           { signal: options.signal },
         );
 
+        const inputTokens = completion.usage?.prompt_tokens ?? 0;
+        const outputTokens = completion.usage?.completion_tokens ?? 0;
+        const cachedTokens = (completion.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
+        const totalTokens = completion.usage?.total_tokens ?? (inputTokens + outputTokens);
+        const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
+
+        options.onUsage?.(usageTelemetry);
+
+        if (options.orgId && options.taskType) {
+          recordAiUsage({
+            orgId: options.orgId,
+            taskType: options.taskType,
+            provider: this.type,
+            model: this.model,
+            usage: usageTelemetry,
+            durationMs: Date.now() - start,
+            status: 'success',
+          });
+        }
+
         if (options.attemptKey) {
           await options.budget.complete(options.attemptKey, {
-            inputTokens: completion.usage?.prompt_tokens,
-            outputTokens: completion.usage?.completion_tokens,
+            inputTokens,
+            outputTokens,
           });
         }
 
@@ -123,22 +145,47 @@ export class OpenAiCompatibleProvider implements AiProvider {
       }
     }
 
+    if (options.orgId && options.taskType) {
+      recordAiUsage({
+        orgId: options.orgId,
+        taskType: options.taskType,
+        provider: this.type,
+        model: this.model,
+        usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
+        durationMs: Date.now() - start,
+        status: 'failed',
+        metadata: { error: lastError?.message || String(lastError) },
+      });
+    }
+
     throw lastError || new Error(`${this.type} API call failed after retries for model ${this.model}`);
   }
 
   async testConnection(): Promise<TestConnectionResult> {
     const start = Date.now();
     try {
-      await this.client.chat.completions.create({
+      const completion = await this.client.chat.completions.create({
         model: this.model,
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 5,
       });
+
+      const inputTokens = completion.usage?.prompt_tokens ?? 0;
+      const outputTokens = completion.usage?.completion_tokens ?? 0;
+      const cachedTokens = (completion.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
+      const totalTokens = completion.usage?.total_tokens ?? (inputTokens + outputTokens);
+
       return {
         success: true,
         latencyMs: Date.now() - start,
         message: `Kết nối thành công tới ${this.type} (${this.model})`,
         modelName: this.model,
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          totalTokens,
+        },
       };
     } catch (err: any) {
       return {

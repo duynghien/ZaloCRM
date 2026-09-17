@@ -30,8 +30,8 @@ export async function preprocessMultimodalPrompt(
   logger.info(`[vision-bridge] Target provider ${targetProvider.type} is text-only. Preprocessing ${prompt.length} parts...`);
 
   const processedParts: ContentPart[] = [];
-  // Isolate attemptKey so the child OCR request does not conflict with the parent report reservation budget
-  const { attemptKey: _omit, ...subOptions } = options;
+  // Isolate attemptKey & onUsage so the child OCR request does not conflict with the parent report reservation budget or double-count tokens
+  const { attemptKey: _omit, onUsage: _omitUsage, ...subOptions } = options;
 
   for (const part of prompt) {
     if (!part.inlineData) {
@@ -51,6 +51,7 @@ export async function preprocessMultimodalPrompt(
 
         const extractedText = await visionProvider.generateContent(ocrPrompt, {
           ...subOptions,
+          taskType: 'vision_ocr',
           systemInstruction: 'Bạn là chuyên gia OCR trích xuất thông tin tài liệu và chứng từ kinh doanh.',
           maxOutputTokens: 1024,
         });

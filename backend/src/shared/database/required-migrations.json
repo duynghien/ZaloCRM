@@ -30,5 +30,9 @@
   {
     "name": "20260916000000_zalo_account_branch_and_color",
     "checksum": "672d5bdbcf2d9d04e42d31141ae37c42b42de960685f69666336f0e32ceef4bf"
+  },
+  {
+    "name": "20260917000000_ai_usage_and_cost_tracking",
+    "checksum": "cdf4ad723fb78e7ec19a9796431ad48904920ddb17f5b917c3366a78053f2d05"
   }
 ]

@@ -28,6 +28,8 @@ export interface OrgAiProviderSettings {
   fallbackEnabled: boolean;
   fallbackChain: AiProviderType[];
   allowSystemFallback: boolean;
+  monthlyBudgetVnd?: number;
+  usdToVndRate?: number;
 }
 
 export interface FallbackTelemetry {
@@ -38,6 +40,13 @@ export interface FallbackTelemetry {
   errorReason?: string;
 }
 
+export interface UsageTelemetry {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  totalTokens: number;
+}
+
 export interface GenerateOptions {
   budget: ReportJobBudget;
   attemptKey?: string;
@@ -46,6 +55,9 @@ export interface GenerateOptions {
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  orgId?: string;
+  taskType?: string;
+  onUsage?: (usage: UsageTelemetry) => void;
   onFallback?: (telemetry: FallbackTelemetry) => void;
 }
 
@@ -54,6 +66,7 @@ export interface TestConnectionResult {
   latencyMs: number;
   message: string;
   modelName: string;
+  usage?: UsageTelemetry;
 }
 
 export interface AiProvider {

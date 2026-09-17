@@ -27,6 +27,7 @@ import { GeminiProvider } from './providers/gemini-provider.js';
 import { OpenAiCompatibleProvider } from './providers/openai-compatible-provider.js';
 import { validateAiGatewayUrl } from './ai-gateway-validator.js';
 import { fetchProviderModelList } from './ai-model-catalog-service.js';
+import { recordAiUsage } from './ai-usage-tracker.js';
 import { aiAuditRuleRoutes } from './ai-audit-rule-routes.js';
 import './ai-audit-evaluator.js';
 
@@ -479,6 +480,30 @@ export async function aiReportRoutes(app: FastifyInstance) {
       : new OpenAiCompatibleProvider(providerConfig);
 
     const testResult = await provider.testConnection();
+    if (testResult.success && testResult.usage) {
+      recordAiUsage({
+        orgId: user.orgId,
+        userId: user.id,
+        taskType: 'test_connection',
+        provider: body.type,
+        model: providerConfig.model,
+        usage: testResult.usage,
+        durationMs: testResult.latencyMs,
+        status: 'success',
+      });
+    } else if (!testResult.success) {
+      recordAiUsage({
+        orgId: user.orgId,
+        userId: user.id,
+        taskType: 'test_connection',
+        provider: body.type,
+        model: providerConfig.model,
+        usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
+        durationMs: testResult.latencyMs,
+        status: 'failed',
+        metadata: { error: testResult.message },
+      });
+    }
     return testResult;
   });
 

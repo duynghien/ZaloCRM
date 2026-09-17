@@ -12,6 +12,7 @@ import type {
   TestConnectionResult,
 } from './ai-provider-interface.js';
 import { estimateTokensHeuristic } from './token-budget-estimator.js';
+import { recordAiUsage } from '../ai-usage-tracker.js';
 
 export class GeminiProvider implements AiProvider {
   readonly type = 'gemini' as const;
@@ -73,6 +74,7 @@ export class GeminiProvider implements AiProvider {
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
     const ai = this.getClient();
     let lastError: any = null;
+    const start = Date.now();
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -89,10 +91,30 @@ export class GeminiProvider implements AiProvider {
           },
         });
 
+        const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+        const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+        const cachedTokens = response.usageMetadata?.cachedContentTokenCount ?? 0;
+        const totalTokens = response.usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
+        const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
+
+        options.onUsage?.(usageTelemetry);
+
+        if (options.orgId && options.taskType) {
+          recordAiUsage({
+            orgId: options.orgId,
+            taskType: options.taskType,
+            provider: this.type,
+            model: this.model,
+            usage: usageTelemetry,
+            durationMs: Date.now() - start,
+            status: 'success',
+          });
+        }
+
         if (options.attemptKey) {
           await options.budget.complete(options.attemptKey, {
-            inputTokens: response.usageMetadata?.promptTokenCount,
-            outputTokens: response.usageMetadata?.candidatesTokenCount,
+            inputTokens,
+            outputTokens,
           });
         }
 
@@ -109,6 +131,19 @@ export class GeminiProvider implements AiProvider {
       }
     }
 
+    if (options.orgId && options.taskType) {
+      recordAiUsage({
+        orgId: options.orgId,
+        taskType: options.taskType,
+        provider: this.type,
+        model: this.model,
+        usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
+        durationMs: Date.now() - start,
+        status: 'failed',
+        metadata: { error: lastError?.message || String(lastError) },
+      });
+    }
+
     throw lastError || new Error(`Gemini API call failed after retries for model ${this.model}`);
   }
 
@@ -116,16 +151,27 @@ export class GeminiProvider implements AiProvider {
     const start = Date.now();
     try {
       const ai = this.getClient();
-      await ai.models.generateContent({
+      const response = await ai.models.generateContent({
         model: this.model,
         contents: 'ping',
         config: { maxOutputTokens: 10 },
       });
+      const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+      const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+      const cachedTokens = response.usageMetadata?.cachedContentTokenCount ?? 0;
+      const totalTokens = response.usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
+
       return {
         success: true,
         latencyMs: Date.now() - start,
         message: 'Kết nối thành công tới Gemini',
         modelName: this.model,
+        usage: {
+          inputTokens,
+          outputTokens,
+          cachedTokens,
+          totalTokens,
+        },
       };
     } catch (err: any) {
       return {
