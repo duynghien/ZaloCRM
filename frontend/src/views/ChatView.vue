@@ -42,7 +42,7 @@
       :loading="loadingMsgs"
       :sending="sendingMsg"
       :show-contact-panel="showContactPanel"
-      @send="sendMessage"
+      @send="handleSendMessage"
       @toggle-contact-panel="showContactPanel = !showContactPanel"
       @open-order-draft="onOpenOrderDraft"
       @open-appointment-draft="onOpenAppointmentDraft"
@@ -66,6 +66,11 @@
         @saved="fetchConversations()"
       />
     </div>
+
+    <!-- Send error notification -->
+    <v-snackbar v-model="showSendError" color="error" timeout="4000">
+      {{ sendErrorMessage }}
+    </v-snackbar>
   </div>
 </template>
 
@@ -97,6 +102,17 @@ const {
 const showContactPanel = ref(false);
 const pendingOrderDraft = ref<{ totalAmount?: number; notes?: string } | null>(null);
 const pendingAppointmentDraft = ref<{ date?: string; time?: string; notes?: string } | null>(null);
+const sendErrorMessage = ref('');
+const showSendError = ref(false);
+
+async function handleSendMessage(content: string, attachmentIds?: string[]) {
+  try {
+    await sendMessage(content, attachmentIds);
+  } catch (err: any) {
+    sendErrorMessage.value = err.response?.data?.error || 'Không thể gửi tin nhắn. Vui lòng thử lại.';
+    showSendError.value = true;
+  }
+}
 
 function onOpenOrderDraft(draft: any) {
   pendingOrderDraft.value = draft;

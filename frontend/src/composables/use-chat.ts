@@ -34,6 +34,23 @@ export interface Conversation {
   metadata?: Record<string, any> | null;
 }
 
+export interface MessageAttachment {
+  url: string;
+  filename: string;
+  originalName?: string;
+  size?: number;
+  mimeType?: string;
+}
+
+export interface UploadedMedia {
+  id: string;
+  filename: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+}
+
 export interface Message {
   id: string;
   content: string | null;
@@ -43,6 +60,7 @@ export interface Message {
   sentAt: string;
   isDeleted: boolean;
   zaloMsgId: string | null;
+  attachments?: MessageAttachment[];
 }
 
 export function useChat() {
@@ -102,19 +120,50 @@ export function useChat() {
     }
   }
 
-  async function sendMessage(content: string) {
-    if (!selectedConvId.value || !content.trim()) return;
+  async function uploadMediaFiles(files: File[]): Promise<UploadedMedia[]> {
+    if (!files || files.length === 0) return [];
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    const res = await api.post('/media/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return res.data.files || [];
+  }
+
+  async function deleteStagedFile(id: string): Promise<void> {
+    if (!id) return;
+    try {
+      await api.delete(`/media/upload/${encodeURIComponent(id)}`);
+    } catch (err) {
+      console.warn('Failed to delete staged media file:', err);
+    }
+  }
+
+  async function sendMessage(content: string, attachmentIds?: string[]) {
+    const hasText = Boolean(content && content.trim());
+    const hasAttachments = Boolean(attachmentIds && attachmentIds.length > 0);
+    if (!selectedConvId.value || (!hasText && !hasAttachments)) return;
     const convId = selectedConvId.value;
     const generation = recovery.generation();
     sendingMsg.value = true;
     try {
-      const res = await api.post(`/conversations/${convId}/messages`, { content });
+      const payload: { content?: string; attachmentIds?: string[] } = {};
+      if (hasText) payload.content = content.trim();
+      if (hasAttachments) payload.attachmentIds = attachmentIds;
+
+      const res = await api.post(`/conversations/${convId}/messages`, payload);
       if (selectedConvId.value === convId && recovery.generation() === generation
         && !messages.value.some(message => message.id === res.data.id)) messages.value.push(res.data);
       useChatCopilot().clearSuggestion(convId);
       void recovery.request();
+      return res.data;
     } catch (err) {
       console.error('Failed to send message:', err);
+      throw err;
     } finally {
       sendingMsg.value = false;
     }
@@ -250,6 +299,8 @@ export function useChat() {
     fetchAccountUnreads,
     fetchConversations,
     selectConversation,
+    uploadMediaFiles,
+    deleteStagedFile,
     sendMessage,
     initSocket,
     destroySocket,

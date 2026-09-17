@@ -69,7 +69,21 @@
       </div>
 
       <!-- Messages -->
-      <div ref="messagesContainer" class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area">
+      <div
+        ref="messagesContainer"
+        class="flex-grow-1 overflow-y-auto pa-3 chat-messages-area position-relative"
+        @dragenter.prevent="onDragEnter"
+        @dragover.prevent
+        @dragleave.prevent="onDragLeave"
+        @drop.prevent="onDrop"
+      >
+        <!-- Drag & drop overlay -->
+        <div v-if="isDragging" class="drag-drop-overlay d-flex flex-column align-center justify-center">
+          <v-icon icon="mdi-cloud-upload" size="56" color="primary" class="mb-2" />
+          <div class="text-subtitle-1 font-weight-bold">Thả tệp vào đây để gửi</div>
+          <div class="text-caption text-grey">Tối đa 5 tệp (Ảnh &le; 15MB, Tài liệu &le; 30MB)</div>
+        </div>
+
         <ChatAnomalyBanner
           v-if="conversation"
           :anomaly="currentAnomaly"
@@ -88,9 +102,40 @@
               <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
                 {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
               </div>
+              <!-- Structured multi-attachment (new format) -->
+              <div v-else-if="msg.attachments && msg.attachments.length > 0" class="message-attachments-container">
+                <div v-for="(att, attIdx) in msg.attachments" :key="att.filename || attIdx" class="mb-1">
+                  <!-- Image attachment -->
+                  <div v-if="isImageFile(att.filename || att.originalName, att.mimeType)">
+                    <img
+                      :src="att.url"
+                      :alt="att.originalName || 'Hình ảnh'"
+                      class="chat-image"
+                      @click="openLightbox(att.url, att.originalName || att.filename)"
+                    />
+                  </div>
+                  <!-- Document attachment -->
+                  <div v-else class="file-card">
+                    <v-icon size="20" class="mr-2" :color="getFileIconColor(att.originalName || att.filename)">
+                      {{ getFileIcon(att.originalName || att.filename) }}
+                    </v-icon>
+                    <div class="flex-grow-1 overflow-hidden mr-2">
+                      <div class="text-body-2 font-weight-medium text-truncate">{{ att.originalName || att.filename }}</div>
+                      <div class="text-caption" style="opacity: 0.6;">{{ formatFileSize(att.size) }}</div>
+                    </div>
+                    <v-btn icon size="x-small" variant="text" @click="openFile(att.url)">
+                      <v-icon size="16">mdi-download</v-icon>
+                    </v-btn>
+                  </div>
+                </div>
+                <!-- Optional Caption text -->
+                <div v-if="msg.content && msg.content.trim()" class="mt-2 text-body-2" style="white-space: pre-wrap;">
+                  {{ parseDisplayContent(msg.content) }}
+                </div>
+              </div>
               <!-- Image -->
               <div v-else-if="getImageUrl(msg)">
-                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="previewImageUrl = getImageUrl(msg)!" />
+                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="openLightbox(getImageUrl(msg)!)" />
               </div>
               <!-- File/PDF -->
               <div v-else-if="getFileInfo(msg)" class="file-card">
@@ -195,23 +240,72 @@
         </div>
       </div>
 
+      <!-- Staged Media Bar -->
+      <StagedMediaBar
+        :files="stagedFiles"
+        :uploading="uploading"
+        @remove="removeStagedFile"
+      />
+
       <!-- Input -->
       <div class="pa-2 d-flex align-end chat-input-area">
-        <v-textarea v-model="inputText" placeholder="Nhập tin nhắn..." variant="outlined" rounded="lg" density="compact" hide-details auto-grow rows="1" max-rows="3" @keydown.enter.exact.prevent="handleSend" class="flex-grow-1 mr-2" />
-        <v-btn icon color="primary" rounded="lg" style="border: 1.5px solid var(--border-color);" :loading="sending" :disabled="!inputText.trim()" @click="handleSend"><v-icon>send.svg</v-icon></v-btn>
+        <input
+          ref="fileInput"
+          type="file"
+          multiple
+          accept="image/jpeg,image/png,image/webp,image/gif,.pdf,.xlsx,.xls,.docx,.doc,.txt,.zip,.rar"
+          style="display: none;"
+          @change="onFileInputChange"
+        />
+        <v-btn
+          icon="mdi-paperclip"
+          variant="text"
+          rounded="lg"
+          class="mr-1 flex-shrink-0"
+          :disabled="sending || uploading"
+          title="Đính kèm tệp (Tối đa 5 tệp)"
+          @click="triggerFileInput"
+        />
+        <v-textarea
+          v-model="inputText"
+          placeholder="Nhập tin nhắn..."
+          variant="outlined"
+          rounded="lg"
+          density="compact"
+          hide-details
+          auto-grow
+          rows="1"
+          max-rows="3"
+          @keydown.enter.exact.prevent="handleSend"
+          @paste="handlePaste"
+          class="flex-grow-1 mr-2"
+        />
+        <v-btn
+          icon
+          color="primary"
+          rounded="lg"
+          style="border: 1.5px solid var(--border-color);"
+          :loading="sending || uploading"
+          :disabled="!inputText.trim() && stagedFiles.length === 0"
+          @click="handleSend"
+        >
+          <v-icon>send.svg</v-icon>
+        </v-btn>
       </div>
     </template>
 
-    <!-- Image preview dialog -->
-    <v-dialog v-model="showImagePreview" max-width="900" content-class="elevation-0">
-      <div class="text-center" @click="showImagePreview = false" style="cursor: pointer;">
-        <img :src="previewImageUrl" alt="Preview" style="max-width: 100%; max-height: 85vh; border-radius: 8px; border: 2px solid var(--border-color);" />
-        <div class="text-caption mt-2 neo-subtitle" style="color: var(--text-muted);">Nhấn để đóng</div>
-      </div>
-    </v-dialog>
+    <!-- Media Lightbox Dialog -->
+    <MediaLightboxDialog
+      v-model="showLightbox"
+      :image-url="lightboxUrl"
+      :filename="lightboxFilename"
+    />
 
     <!-- Sync snackbar -->
     <v-snackbar v-model="syncSnack.show" :color="syncSnack.color" timeout="3000">{{ syncSnack.text }}</v-snackbar>
+
+    <!-- Error snackbar -->
+    <v-snackbar v-model="showErrorSnack" color="error" timeout="4000">{{ errorMessage }}</v-snackbar>
   </div>
 </template>
 
@@ -221,9 +315,13 @@ import { useDisplay } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
+import { formatFileSize, getFileIcon, getFileIconColor, isImageFile } from '@/utils/file-utils';
+import { useStagedMedia } from '@/composables/use-staged-media';
 import ChatCopilotBar from './ChatCopilotBar.vue';
 import ChatAiDraftCard from './ChatAiDraftCard.vue';
 import ChatAnomalyBanner from './ChatAnomalyBanner.vue';
+import StagedMediaBar from './StagedMediaBar.vue';
+import MediaLightboxDialog from './MediaLightboxDialog.vue';
 import { useChatCopilot } from '@/composables/use-chat-copilot';
 
 const { mobile } = useDisplay();
@@ -237,7 +335,7 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  send: [content: string];
+  send: [content: string, attachmentIds?: string[]];
   'toggle-contact-panel': [];
   back: [];
   'open-order-draft': [draftData: any];
@@ -252,6 +350,54 @@ const {
   resolveAnomaly,
   confirmEnrichContact,
 } = useChatCopilot(computed(() => props.conversation?.id || null));
+
+const {
+  stagedFiles,
+  uploading,
+  isDragging,
+  errorMessage,
+  showErrorSnack,
+  removeStagedFile,
+  clearStagedFiles,
+  onFileInputChange,
+  handlePaste,
+  handleDrop,
+  uploadStagedFiles,
+} = useStagedMedia();
+
+const fileInput = ref<HTMLInputElement | null>(null);
+function triggerFileInput() {
+  fileInput.value?.click();
+}
+
+let dragCounter = 0;
+function onDragEnter() {
+  dragCounter++;
+  isDragging.value = true;
+}
+function onDragLeave() {
+  dragCounter--;
+  if (dragCounter <= 0) {
+    isDragging.value = false;
+    dragCounter = 0;
+  }
+}
+function onDrop(e: DragEvent) {
+  dragCounter = 0;
+  isDragging.value = false;
+  handleDrop(e);
+}
+
+const lightboxUrl = ref('');
+const lightboxFilename = ref('');
+const showLightbox = ref(false);
+
+function openLightbox(url: string, filename?: string) {
+  if (!url) return;
+  lightboxUrl.value = url;
+  lightboxFilename.value = filename || '';
+  showLightbox.value = true;
+}
 
 function onApplyReply(text: string) {
   inputText.value = text;
@@ -283,11 +429,30 @@ const isAccountOnline = computed(() => {
 
 const inputText = ref('');
 const messagesContainer = ref<HTMLElement | null>(null);
-const previewImageUrl = ref('');
-const showImagePreview = computed({ get: () => !!previewImageUrl.value, set: (v) => { if (!v) previewImageUrl.value = ''; } });
 const syncSnack = ref({ show: false, text: '', color: 'success' });
 
-function handleSend() { if (!inputText.value.trim()) return; emit('send', inputText.value); inputText.value = ''; }
+async function handleSend() {
+  const text = inputText.value.trim();
+  const hasFiles = stagedFiles.value.length > 0;
+  if (!text && !hasFiles) return;
+  if (props.sending || uploading.value) return;
+
+  let attachmentIds: string[] | undefined = undefined;
+  if (hasFiles) {
+    try {
+      attachmentIds = await uploadStagedFiles();
+    } catch (err: any) {
+      const errorText = err.response?.data?.error || 'Tải tệp lên thất bại. Vui lòng thử lại.';
+      errorMessage.value = errorText;
+      showErrorSnack.value = true;
+      return;
+    }
+  }
+
+  emit('send', text, attachmentIds);
+  inputText.value = '';
+  clearStagedFiles();
+}
 function formatMessageTime(d: string) { return new Date(d).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }); }
 
 function openFile(url: string) {
@@ -454,5 +619,28 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
 
 .status-offline {
   background-color: #9CA3AF;
+}
+
+.position-relative {
+  position: relative;
+}
+
+.drag-drop-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(255, 255, 255, 0.94);
+  border: 3px dashed var(--primary-brand);
+  border-radius: 8px;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.message-attachments-container {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 </style>
