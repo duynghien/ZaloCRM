@@ -8,17 +8,21 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from './auth-middleware.js';
 import { checkSetupStatus, createSession, getProfile, login, revokeSession, revokeUserSessions, rotateSession, setup, validatePassword } from './auth-service.js';
 
+function isSecureCookie(): boolean {
+  return config.isProduction && config.appUrl.startsWith('https://');
+}
+
 function cookieOptions(expiresAt?: Date) {
-  return { httpOnly: true, secure: config.isProduction, sameSite: 'lax' as const, path: '/api/v1/auth', ...(expiresAt ? { expires: expiresAt } : {}) };
+  return { httpOnly: true, secure: isSecureCookie(), sameSite: 'lax' as const, path: '/api/v1/auth', ...(expiresAt ? { expires: expiresAt } : {}) };
 }
 
 function mediaCookieOptions(expiresAt?: Date) {
-  return { httpOnly: true, secure: config.isProduction, sameSite: 'lax' as const, path: '/api/v1/attachments', ...(expiresAt ? { expires: expiresAt } : {}) };
+  return { httpOnly: true, secure: isSecureCookie(), sameSite: 'lax' as const, path: '/api/v1/attachments', ...(expiresAt ? { expires: expiresAt } : {}) };
 }
 
 function clearSessionCookies(reply: FastifyReply): void {
   reply.clearCookie(config.refreshCookieName, cookieOptions());
-  reply.clearCookie(config.csrfCookieName, { secure: config.isProduction, sameSite: 'lax', path: '/' });
+  reply.clearCookie(config.csrfCookieName, { secure: isSecureCookie(), sameSite: 'lax', path: '/' });
   reply.clearCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaCookieOptions());
 }
 
@@ -27,7 +31,7 @@ function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id
   reply.setCookie(config.refreshCookieName, refreshToken, cookieOptions(expiresAt));
   // The SPA reads this non-secret double-submit value from any protected route.
   // The refresh credential itself remains HttpOnly and limited to auth endpoints.
-  reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: config.isProduction, sameSite: 'lax', path: '/', expires: expiresAt });
+  reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: isSecureCookie(), sameSite: 'lax', path: '/', expires: expiresAt });
 
   const mediaToken = app.jwt.sign(
     { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
@@ -115,5 +119,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     return { success: true };
   });
 
-  app.get('/api/v1/profile', { preHandler: authMiddleware }, async (request) => getProfile(request.user.id));
+  app.get('/api/v1/profile', { preHandler: authMiddleware }, async (request, reply) => {
+    const user = request.user!;
+    const mediaCookie = request.cookies[config.mediaCookieName || 'zalo_crm_media_session'];
+    if (!mediaCookie && user.orgId) {
+      const mediaToken = app.jwt.sign(
+        { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
+        { expiresIn: '7d' },
+      );
+      reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions());
+    }
+    return getProfile(request.user.id);
+  });
 }

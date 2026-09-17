@@ -81,15 +81,21 @@ import { formatFileSize, getFileIcon, getFileIconColor } from '@/utils/file-util
 
 <style scoped>
 .staged-media-bar {
+  flex-shrink: 0;
+  min-height: 64px;
+  box-sizing: border-box;
   background-color: var(--bg-surface, #ffffff);
   border-top: 1.5px solid var(--border-color);
   overflow-x: auto;
   white-space: nowrap;
+  position: relative;
+  z-index: 5;
 }
 
 .staged-media-list {
   overflow-x: auto;
   scrollbar-width: thin;
+  padding-bottom: 2px;
 }
 
 .staged-card {

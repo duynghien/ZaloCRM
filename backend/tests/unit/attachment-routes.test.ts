@@ -131,7 +131,7 @@ describe('Attachment Routes Integration', () => {
   let testFileDir: string;
 
   beforeEach(async () => {
-    app = Fastify({ logger: false });
+    app = Fastify({ logger: false, routerOptions: { maxParamLength: 1000 } });
     await app.register(fastifyCookie);
     await app.register(fastifyJwt, { secret: process.env.JWT_SECRET! });
     await app.register(multipart, { limits: { fileSize: 30 * 1024 * 1024, files: 5 } });
@@ -183,6 +183,57 @@ describe('Attachment Routes Integration', () => {
     expect(res.headers['content-security-policy']).toContain("default-src 'none'; sandbox");
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['content-disposition']).toBe('inline');
+  });
+
+  it('GET /api/v1/attachments/:filename serves image with valid token in query param', async () => {
+    const orgId = 'org-test';
+    const orgDir = path.join(testFileDir, orgId);
+    fs.mkdirSync(orgDir, { recursive: true });
+
+    const samplePng = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+      0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89,
+    ]);
+    const filename = `${orgId}-query-sample.png`;
+    fs.writeFileSync(path.join(orgDir, filename), samplePng);
+
+    const accessToken = app.jwt.sign(
+      { id: 'u-1', email: 'test@example.com', orgId, role: 'owner', sessionId: 'sess-1' },
+      { expiresIn: '15m' },
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/attachments/${filename}?token=${accessToken}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
+    expect(res.headers['content-disposition']).toBe('inline');
+  });
+
+  it('GET /api/v1/attachments/:filename serves long filename (> 100 characters) without 404', async () => {
+    const orgId = 'org-test';
+    const orgDir = path.join(testFileDir, orgId);
+    fs.mkdirSync(orgDir, { recursive: true });
+
+    const longName = `${orgId}-${'a'.repeat(80)}-screenshot.png`;
+    expect(longName.length).toBeGreaterThan(100);
+    fs.writeFileSync(path.join(orgDir, longName), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+
+    const accessToken = app.jwt.sign(
+      { id: 'u-1', email: 'test@example.com', orgId, role: 'owner', sessionId: 'sess-1' },
+      { expiresIn: '15m' },
+    );
+
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/v1/attachments/${longName}?token=${accessToken}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('image/png');
   });
 
   it('GET /api/v1/attachments/:filename serves file with valid ticket and forces download for documents', async () => {

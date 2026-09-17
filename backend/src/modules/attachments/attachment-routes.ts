@@ -249,6 +249,19 @@ export async function attachmentRoutes(app: FastifyInstance) {
       } catch {}
     }
 
+    // 4. Check Query Token (JWT access or media token passed as ?token=... or ?t=...)
+    if (!authenticatedOrgId) {
+      const queryToken = (request.query as any)?.token || (request.query as any)?.t;
+      if (queryToken && typeof queryToken === 'string') {
+        try {
+          const decoded = app.jwt.verify(queryToken) as any;
+          if (decoded && decoded.orgId) {
+            authenticatedOrgId = decoded.orgId;
+          }
+        } catch {}
+      }
+    }
+
     if (!authenticatedOrgId) {
       return reply.status(401).send({ error: 'Unauthorized: Media access requires valid session or ticket' });
     }

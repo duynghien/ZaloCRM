@@ -41,7 +41,13 @@ import { initializeSocketServer } from './shared/realtime/socket-server.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export async function createApp(options: { https?: { key: Buffer; cert: Buffer }; staticRoot?: string } = {}): Promise<FastifyInstance> {
-  const app = Fastify({ logger: false, ...(options.https ? { https: options.https } : {}) });
+  const app = Fastify({
+    logger: false,
+    routerOptions: {
+      maxParamLength: 1000,
+    },
+    ...(options.https ? { https: options.https } : {}),
+  });
   // ── Plugins ──────────────────────────────────────────────────────────────
 
   await app.register(cors, {

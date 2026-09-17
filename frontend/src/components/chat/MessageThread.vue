@@ -108,10 +108,11 @@
                   <!-- Image attachment -->
                   <div v-if="isImageFile(att.filename || att.originalName, att.mimeType)">
                     <img
-                      :src="att.url"
+                      :src="resolveAttachmentUrl(att.url)"
                       :alt="att.originalName || 'Hình ảnh'"
                       class="chat-image"
-                      @click="openLightbox(att.url, att.originalName || att.filename)"
+                      @click="openLightbox(resolveAttachmentUrl(att.url), att.originalName || att.filename)"
+                      @error="handleImageError($event, att)"
                     />
                   </div>
                   <!-- Document attachment -->
@@ -123,7 +124,7 @@
                       <div class="text-body-2 font-weight-medium text-truncate">{{ att.originalName || att.filename }}</div>
                       <div class="text-caption" style="opacity: 0.6;">{{ formatFileSize(att.size) }}</div>
                     </div>
-                    <v-btn icon size="x-small" variant="text" @click="openFile(att.url)">
+                    <v-btn icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(att.url))">
                       <v-icon size="16">mdi-download</v-icon>
                     </v-btn>
                   </div>
@@ -135,7 +136,7 @@
               </div>
               <!-- Image -->
               <div v-else-if="getImageUrl(msg)">
-                <img :src="getImageUrl(msg)!" alt="Hình ảnh" class="chat-image" @click="openLightbox(getImageUrl(msg)!)" />
+                <img :src="resolveAttachmentUrl(getImageUrl(msg)!)" alt="Hình ảnh" class="chat-image" @click="openLightbox(resolveAttachmentUrl(getImageUrl(msg)!))" @error="handleImageError" />
               </div>
               <!-- File/PDF -->
               <div v-else-if="getFileInfo(msg)" class="file-card">
@@ -144,7 +145,7 @@
                   <div class="text-body-2 font-weight-medium">{{ getFileInfo(msg)!.name }}</div>
                   <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(msg)!.size }}</div>
                 </div>
-                <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(getFileInfo(msg)!.href)">
+                <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(getFileInfo(msg)!.href))">
                   <v-icon size="16">mdi-download</v-icon>
                 </v-btn>
               </div>
@@ -244,6 +245,7 @@
       <StagedMediaBar
         :files="stagedFiles"
         :uploading="uploading"
+        class="flex-shrink-0"
         @remove="removeStagedFile"
       />
 
@@ -315,7 +317,7 @@ import { useDisplay } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
-import { formatFileSize, getFileIcon, getFileIconColor, isImageFile } from '@/utils/file-utils';
+import { formatFileSize, getFileIcon, getFileIconColor, isImageFile, resolveAttachmentUrl } from '@/utils/file-utils';
 import { useStagedMedia } from '@/composables/use-staged-media';
 import ChatCopilotBar from './ChatCopilotBar.vue';
 import ChatAiDraftCard from './ChatAiDraftCard.vue';
@@ -397,6 +399,26 @@ function openLightbox(url: string, filename?: string) {
   lightboxUrl.value = url;
   lightboxFilename.value = filename || '';
   showLightbox.value = true;
+}
+
+const imageRetries = new Set<string>();
+
+async function handleImageError(e: Event, att?: any) {
+  const target = e.target as HTMLImageElement;
+  if (!target) return;
+  const filename = att?.filename || target.src.split('/attachments/')[1]?.split('?')[0];
+  if (!filename) return;
+  if (imageRetries.has(filename)) return;
+  imageRetries.add(filename);
+
+  try {
+    const res = await api.post('/attachments/ticket', { filename });
+    if (res.data?.ticket) {
+      target.src = `/api/v1/attachments/${encodeURIComponent(filename)}?ticket=${encodeURIComponent(res.data.ticket)}`;
+    }
+  } catch (err) {
+    console.warn('[chat-image] Failed to refresh media ticket:', err);
+  }
 }
 
 function onApplyReply(text: string) {
@@ -602,8 +624,17 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
   transform: scale(1.01);
 }
 
+.chat-messages-area {
+  min-height: 0;
+}
+
 .safety-compose-bar {
+  flex-shrink: 0;
   user-select: none;
+}
+
+.chat-input-area {
+  flex-shrink: 0;
 }
 
 .status-dot {
