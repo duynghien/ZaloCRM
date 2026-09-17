@@ -243,3 +243,77 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
     return { success: false, partsSent, totalParts: parts.length, deliveryUncertain, error: message };
   }
 }
+
+/**
+ * Format executive report action items into a clean, professional, plain-text Zalo broadcast message.
+ * Strictly plain text with emojis; no CRM URLs to avoid spam detection and internal host issues.
+ */
+export function formatTasksForZaloMessage(
+  reportTitle: string,
+  groupName: string,
+  tasks: Array<{
+    task: string;
+    assignee?: string;
+    deadline?: string;
+    priority?: 'high' | 'medium' | 'low';
+    done?: boolean;
+  }>,
+  customNote?: string,
+): string {
+  const highTasks = tasks.filter((t) => t.priority === 'high');
+  const mediumTasks = tasks.filter((t) => t.priority === 'medium' || !t.priority);
+  const lowTasks = tasks.filter((t) => t.priority === 'low');
+
+  const lines: string[] = [
+    '📢 [BÀN GIAO CA & NHIỆM VỤ CẦN XỬ LÝ]',
+    `Từ báo cáo điều hành: ${reportTitle}`,
+    `Nhóm: ${groupName}`,
+  ];
+
+  if (customNote && customNote.trim()) {
+    lines.push(`\n💬 Ghi chú: ${customNote.trim()}`);
+  }
+
+  lines.push('');
+
+  let counter = 1;
+  if (highTasks.length > 0) {
+    lines.push('🔴 Ưu tiên cao:');
+    for (const t of highTasks) {
+      const status = t.done ? ' [Đã xong]' : '';
+      lines.push(`${counter++}. ${t.task}${status}`);
+      lines.push(`   👉 Phụ trách: ${t.assignee || 'Chưa phân công'} | Hạn: ${t.deadline || 'Trong ca'}`);
+    }
+    lines.push('');
+  }
+
+  if (mediumTasks.length > 0) {
+    lines.push('🟡 Ưu tiên trung bình:');
+    for (const t of mediumTasks) {
+      const status = t.done ? ' [Đã xong]' : '';
+      lines.push(`${counter++}. ${t.task}${status}`);
+      lines.push(`   👉 Phụ trách: ${t.assignee || 'Chưa phân công'} | Hạn: ${t.deadline || 'Trong ca'}`);
+    }
+    lines.push('');
+  }
+
+  if (lowTasks.length > 0) {
+    lines.push('🟢 Ưu tiên thấp:');
+    for (const t of lowTasks) {
+      const status = t.done ? ' [Đã xong]' : '';
+      lines.push(`${counter++}. ${t.task}${status}`);
+      lines.push(`   👉 Phụ trách: ${t.assignee || 'Chưa phân công'} | Hạn: ${t.deadline || 'Trong ca'}`);
+    }
+    lines.push('');
+  }
+
+  if (tasks.length === 0) {
+    lines.push('Hiện không có nhiệm vụ nào cần bàn giao.');
+    lines.push('');
+  }
+
+  lines.push('⚡ Đề nghị các nhân sự nhận việc kiểm tra và báo cáo tiến độ xử lý vào nhóm!');
+
+  return lines.join('\n');
+}
+

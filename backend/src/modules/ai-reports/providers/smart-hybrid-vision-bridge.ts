@@ -5,6 +5,7 @@ import { logger } from '../../../shared/utils/logger.js';
 import type { AiProvider, ContentPart, GenerateOptions } from './ai-provider-interface.js';
 
 const MISSING_VISION_NOTICE = '[Hình ảnh không được phân tích do thiếu Vision Provider]';
+const VISION_FAIL_NOTICE = '[Không thể giải mã ảnh do sự cố Vision Bridge]';
 
 /**
  * Preprocess a multimodal prompt for a provider. If the target provider doesn't support vision,
@@ -29,6 +30,8 @@ export async function preprocessMultimodalPrompt(
   logger.info(`[vision-bridge] Target provider ${targetProvider.type} is text-only. Preprocessing ${prompt.length} parts...`);
 
   const processedParts: ContentPart[] = [];
+  // Isolate attemptKey so the child OCR request does not conflict with the parent report reservation budget
+  const { attemptKey: _omit, ...subOptions } = options;
 
   for (const part of prompt) {
     if (!part.inlineData) {
@@ -47,7 +50,7 @@ export async function preprocessMultimodalPrompt(
         ];
 
         const extractedText = await visionProvider.generateContent(ocrPrompt, {
-          ...options,
+          ...subOptions,
           systemInstruction: 'Bạn là chuyên gia OCR trích xuất thông tin tài liệu và chứng từ kinh doanh.',
           maxOutputTokens: 1024,
         });
@@ -57,11 +60,13 @@ export async function preprocessMultimodalPrompt(
         });
         continue;
       } catch (err: any) {
-        logger.warn(`[vision-bridge] Vision OCR extraction failed, falling back to graceful placeholder: ${err?.message}`);
+        logger.warn(`[vision-bridge] Vision OCR extraction failed, falling back gracefully: ${err?.message}`);
+        processedParts.push({ text: `\n${VISION_FAIL_NOTICE}\n` });
+        continue;
       }
     }
 
-    // Graceful degradation when vision provider is unavailable or fails
+    // Graceful degradation when vision provider is unavailable
     processedParts.push({ text: `\n${MISSING_VISION_NOTICE}\n` });
   }
 

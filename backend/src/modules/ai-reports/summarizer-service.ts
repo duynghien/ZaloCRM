@@ -11,6 +11,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { generateContent } from './ai-client.js';
 import { filterAndFormatMessages, formatTranscriptForPrompt, type CleanedMessage } from './noise-filter.js';
 import { extractImagePartsFromMessages } from './attachment-image-loader.js';
+import { parseActionItemsFromMarkdown, type ReportActionItem } from './report-action-item-parser.js';
 import type { ContentPart, FallbackTelemetry } from './providers/ai-provider-interface.js';
 
 export interface GenerateReportParams {
@@ -87,7 +88,8 @@ YÊU CẦU:
 2. Nêu các vấn đề phát sinh, sự cố, tồn đọng chưa xong.
 3. Trích xuất các số liệu cụ thể (doanh số, tiến độ, số lượng, thời hạn, báo cáo đính kèm).
 4. Các kế hoạch hoặc đầu việc tiếp theo.
-5. Viết bằng tiếng Việt súc tích, gạch đầu dòng rõ ràng.`;
+5. Viết bằng tiếng Việt súc tích, gạch đầu dòng rõ ràng.
+6. ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ (nếu có ảnh đính kèm): Hãy quan sát kỹ từng hình ảnh được cung cấp và đối chiếu với nội dung nhân viên báo cáo (ví dụ: khay hoa quả có đủ các món và tươi ngon không; tình trạng máy móc, màn hình đo; cốc cà phê hủy; thành phẩm...). Nêu rõ những điểm KHỚP hoặc BẤT THƯỜNG phát hiện qua ảnh. NẾU PHÁT HIỆN SAI LỆCH HOẶC BẤT THƯỜNG: đánh cờ cảnh báo rõ ràng để quản lý rà soát.`;
 
     const prompt: string | ContentPart[] = imageParts.length > 0
       ? [{ text: promptText }, ...imageParts]
@@ -123,7 +125,10 @@ YÊU CẦU:
   for (const [idx, chunk] of chunks.entries()) {
     await runReportExecutionGuard(executionGuard);
     const transcript = formatTranscriptForPrompt(chunk);
-    const promptText = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}\n${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}`;
+    const photoVerificationHint = idx === 0 && imageParts.length > 0
+      ? `\nĐỐI CHIẾU HÌNH ẢNH THỰC TẾ: Hãy quan sát kỹ các hình ảnh đính kèm và đối chiếu với nội dung nhân viên báo cáo (khay hoa quả, máy móc, sự cố, thành phẩm...). Nêu rõ các điểm khớp hoặc bất thường phát hiện qua ảnh.`
+      : '';
+    const promptText = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":\n${transcript}\n${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}${photoVerificationHint}`;
 
     // Attach image parts to the first chunk
     const prompt: string | ContentPart[] = idx === 0 && imageParts.length > 0
@@ -149,7 +154,8 @@ YÊU CẦU:
   const reducePrompt = `Dưới đây là các tóm tắt từng phần của nhóm "${groupName}":
 ${chunkSummaries.join('\n\n')}
 
-Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ thông tin trùng lặp, nêu bật công việc hoàn thành, sự cố và số liệu chính.`;
+Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ thông tin trùng lặp, nêu bật công việc hoàn thành, sự cố và số liệu chính.
+ĐẶC BIỆT: Nếu trong các phần có mục ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ hoặc phát hiện sai lệch/bất thường từ hình ảnh minh chứng, BẮT BUỘC phải giữ lại đầy đủ mục này trong bản tổng hợp.`;
 
   try {
     return await generateContent(reducePrompt, {
@@ -235,7 +241,13 @@ HÃY SOẠN BÁO CÁO THEO ĐÚNG CẤU TRÚC MARKDOWN 5 PHẦN SAU ĐÂY:
 - [Tổng hợp các con số cụ thể: doanh số, đơn hàng, khách hàng mới, chi phí, tiến độ % nếu có]
 
 ## 📋 5. KẾ HOẠCH & HÀNH ĐỘNG TIẾP THEO (Next Steps & Assignments)
-- [Các đầu việc trọng tâm tiếp theo, phân công ai làm và thời hạn cần đạt]
+BẮT BUỘC TRÌNH BÀY DƯỚI DẠNG BẢNG MARKDOWN CHUẨN theo mẫu:
+| # | Hành động | Người phụ trách | Thời hạn | Ưu tiên |
+|---|---|---|---|---|
+| 1 | [Nội dung việc cụ thể, rõ ràng] | [Tên người/ca/bộ phận phụ trách] | [Thời hạn hoàn thành] | [🔴 Cao / 🟡 Trung bình / 🟢 Thấp] |
+
+QUY TẮC ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ:
+Nếu trong mục "ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ" của bất kỳ nhóm nào có ghi nhận sai lệch hoặc bất thường giữa hình ảnh và lời khai của nhân viên: BẮT BUỘC phải tạo 1 Action Item ưu tiên Cao (🔴 Cao) tại Mục 5 của báo cáo điều hành để Trưởng ca/Quản lý vận hành kiểm tra và xử lý.
 
 ---
 *(Trạng thái nhóm không có hoạt động mới: ${inactiveGroups.map((g) => g.groupName).join(', ') || 'Không có'})*
@@ -296,7 +308,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
   for (const { target, configData, rawMessages, groupName } of materialized) {
     await runReportExecutionGuard(executionGuard);
     const cleaned = filterAndFormatMessages(rawMessages);
-    const imageParts = await extractImagePartsFromMessages(rawMessages);
+    const imageParts = await extractImagePartsFromMessages(rawMessages, 15, { orgId, executionGuard, signal });
 
     const summary = await summarizeGroupMessages(
       groupName,
@@ -333,13 +345,24 @@ export async function generateDigestReport(params: GenerateReportParams) {
     summaryContent += `\n\n---\n*Ghi chú: Báo cáo được tổng hợp bởi model dự phòng ${safeModelName} do sự cố tạm thời từ nhà cung cấp chính.*`;
   }
 
+  const actionItems = parseActionItemsFromMarkdown(
+    summaryContent,
+    groupDigests[0]?.groupName,
+    groupDigests[0]?.groupThreadId,
+  );
+
   const reportData: Prisma.GeneratedReportUncheckedCreateInput = {
     orgId, createdById: userId || null,
     title: title || `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN')})`,
     reportType, periodFrom, periodTo, summaryContent,
     groupThreadIds: targets.map(target => target.groupThreadId),
     sourceTargets: targets.map(target => ({ ...target })), targetSchemaVersion: 2, targetResolutionStatus: 'verified',
-    structuredData: { totalGroups: targets.length, activeGroups: groupDigests.filter(g => g.filteredCount > 0).length, groupDigests: groupDigests.map(g => ({ ...g })) },
+    structuredData: {
+      totalGroups: targets.length,
+      activeGroups: groupDigests.filter(g => g.filteredCount > 0).length,
+      groupDigests: groupDigests.map(g => ({ ...g })),
+      actionItems: actionItems as unknown as Prisma.InputJsonValue,
+    } as Prisma.InputJsonObject,
     sentZalo: false, sentEmail: false,
     metadata: {
       generatedAt: new Date().toISOString(),

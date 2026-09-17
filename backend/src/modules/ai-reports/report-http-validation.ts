@@ -36,6 +36,22 @@ export function validateReportHttpRequest(request: FastifyRequest): void {
     if (body.supportsVision !== undefined && body.supportsVision !== null) bool(body.supportsVision);
     return;
   }
+  if (route.includes('/tasks/')) {
+    const allowed = ['done'];
+    if (Object.keys(body).some(key => !allowed.includes(key))) throw new RequestValidationError('Invalid task update request field');
+    if (body.done === undefined) throw new RequestValidationError('Missing required field: done');
+    bool(body.done);
+    return;
+  }
+  if (route.endsWith('/broadcast-tasks')) {
+    const allowed = ['senderAccountId', 'targetThreadId', 'selectedTaskIds', 'customHeaderNote'];
+    if (Object.keys(body).some(key => !allowed.includes(key))) throw new RequestValidationError('Invalid broadcast-tasks request field');
+    identifierInput(body.senderAccountId);
+    identifierInput(body.targetThreadId);
+    if (body.selectedTaskIds !== undefined) strings(body.selectedTaskIds, 50, 128);
+    if (body.customHeaderNote !== undefined) stringInput(body.customHeaderNote, 500);
+    return;
+  }
   if (!route.endsWith('/settings')) return;
   if (Object.keys(body).some(key => !['automation', 'smtp', 'aiProviders'].includes(key))) throw new RequestValidationError('Unknown settings field');
   if (body.automation !== undefined) {

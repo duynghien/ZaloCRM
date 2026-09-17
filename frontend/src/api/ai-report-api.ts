@@ -43,7 +43,13 @@ export interface GeneratedReportItem {
   targetResolutionStatus: 'legacy_unverified' | 'verified';
   sourceTargets: Array<{ zaloAccountId: string; groupThreadId: string; conversationId: string }> | null;
   summaryContent: string;
-  structuredData: any;
+  structuredData: {
+    totalGroups?: number;
+    activeGroups?: number;
+    groupDigests?: any[];
+    actionItems?: ReportActionItem[];
+    [key: string]: any;
+  };
   sentZalo: boolean;
   sentEmail: boolean;
   metadata?: {
@@ -177,6 +183,25 @@ export interface RunAuditRuleNowResult {
   operationalReminderMessage?: string;
   lastRunStatus: 'success' | 'failed' | 'dispatch_failed';
   error?: string;
+}
+
+export interface ReportActionItem {
+  id: string;
+  task: string;
+  assignee: string;
+  deadline: string;
+  priority: 'high' | 'medium' | 'low';
+  done: boolean;
+  completedAt?: string;
+  groupThreadId?: string;
+  groupName?: string;
+}
+
+export interface BroadcastTasksPayload {
+  senderAccountId: string;
+  targetThreadId: string;
+  selectedTaskIds?: string[];
+  customHeaderNote?: string;
 }
 
 export const aiReportApi = {
@@ -313,6 +338,27 @@ export const aiReportApi = {
 
   async runAuditRuleNow(id: string): Promise<RunAuditRuleNowResult> {
     const res = await api.post(`/ai-reports/rules/${id}/run-now`);
+    return res.data;
+  },
+
+  // Action Items & Task Broadcast
+  async updateReportTask(
+    reportId: string,
+    taskId: string,
+    done: boolean,
+  ): Promise<{ success: boolean; task: ReportActionItem; actionItems: ReportActionItem[] }> {
+    const res = await api.put(`/ai-reports/${encodeURIComponent(reportId)}/tasks/${encodeURIComponent(taskId)}`, { done });
+    return res.data;
+  },
+
+  async broadcastReportTasks(
+    reportId: string,
+    payload: BroadcastTasksPayload,
+    idempotencyKey: string,
+  ): Promise<{ success: boolean; partsSent: number; taskCount: number; replay?: boolean }> {
+    const res = await api.post(`/ai-reports/${encodeURIComponent(reportId)}/broadcast-tasks`, payload, {
+      headers: { 'Idempotency-Key': idempotencyKey },
+    });
     return res.data;
   },
 };

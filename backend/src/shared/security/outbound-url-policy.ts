@@ -100,6 +100,19 @@ async function resolvePublicAddress(url: URL): Promise<string> {
   return addresses[0].address;
 }
 
+function createPinnedLookup(address: string) {
+  const family = isIP(address) || 4;
+  return (_hostname: string, options: any, callback?: any) => {
+    const cb = typeof options === 'function' ? options : callback;
+    const opts = typeof options === 'object' && options !== null ? options : {};
+    if (opts.all) {
+      cb(null, [{ address, family }]);
+    } else {
+      cb(null, address, family);
+    }
+  };
+}
+
 async function requestPinned(url: URL, address: string, options: PublicFetchOptions): Promise<PublicFetchResponse> {
   const maxResponseBytes = options.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   return new Promise((resolve, reject) => {
@@ -107,7 +120,7 @@ async function requestPinned(url: URL, address: string, options: PublicFetchOpti
       protocol: 'https:', hostname: url.hostname, port: url.port || 443,
       path: `${url.pathname}${url.search}`, method: options.method ?? 'GET', headers: options.headers,
       servername: url.hostname.replace(/^\[|\]$/g, ''),
-      lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)),
+      lookup: createPinnedLookup(address),
       timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     }, (response) => {
       const chunks: Buffer[] = [];
@@ -147,7 +160,7 @@ async function requestPinnedToFile(url: URL, address: string, targetPath: string
       file?.destroy();
       void fs.promises.unlink(targetPath).catch(() => undefined).finally(() => reject(error));
     };
-    const request = https.request({ protocol: 'https:', hostname: url.hostname, port: url.port || 443, path: `${url.pathname}${url.search}`, method: options.method ?? 'GET', headers: options.headers, servername: url.hostname.replace(/^\[|\]$/g, ''), lookup: (_hostname, _options, callback) => callback(null, address, isIP(address)), timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS }, (response) => {
+    const request = https.request({ protocol: 'https:', hostname: url.hostname, port: url.port || 443, path: `${url.pathname}${url.search}`, method: options.method ?? 'GET', headers: options.headers, servername: url.hostname.replace(/^\[|\]$/g, ''), lookup: createPinnedLookup(address), timeout: options.timeoutMs ?? DEFAULT_TIMEOUT_MS }, (response) => {
       responseStream = response;
       const status = response.statusCode ?? 500;
       const headers = new Headers(Object.entries(response.headers).flatMap(([key, value]): [string, string][] => value === undefined ? [] : [[key, Array.isArray(value) ? value.join(', ') : value]]));
