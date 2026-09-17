@@ -71,15 +71,14 @@ function downloadImage() {
 
 <style scoped>
 .lightbox-wrapper {
-  background-color: rgba(24, 24, 27, 0.92);
+  background-color: rgba(24, 24, 27, 0.98);
   border: 2px solid var(--border-color);
   border-radius: 12px;
-  backdrop-filter: blur(8px);
 }
 
 .lightbox-toolbar {
   padding-bottom: 8px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.2);
 }
 
 .neo-btn {
@@ -102,6 +101,6 @@ function downloadImage() {
   border-radius: 8px;
   border: 2px solid var(--border-color);
   background-color: #000000;
-  box-shadow: 4px 4px 0px rgba(0, 0, 0, 0.5);
+  box-shadow: none !important;
 }
 </style>
