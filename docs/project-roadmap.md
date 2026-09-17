@@ -19,6 +19,8 @@ gantt
     Multi-Provider AI & Audit  :done,    des6, 2026-09, 2026-09
     Multi-Account & Neo-Brutalism :done, des7, 2026-09, 2026-09
     Conversational Copilot (Phase 8) :done, des8, 2026-09, 2026-09
+    AI Telemetry & Cost Analytics (Phase 9) :done, des9, 2026-09, 2026-09
+    Two-Way Media Messaging (Phase 10) :done, des10, 2026-09, 2026-09
 ```
 
 ---
@@ -54,9 +56,9 @@ gantt
 ---
 
 ### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (ĐÃ HOÀN THÀNH)
-- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds và các security/runtime invariant (bộ test đạt 218 unit tests sạch sẽ).
+- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds, media attachments, copilot debouncer, action items parser và các security/runtime invariant (bộ test đạt **309 unit tests** sạch sẽ: 224 backend + 85 frontend).
 - [x] Bổ sung browser smoke Playwright (10 spec files) xác nhận login route, QR intent, chat recovery, target qualification và không khôi phục bearer token qua persistent storage.
-- [x] Bổ sung bộ 20 integration test suites chạy trên PostgreSQL 16 disposable cho tenant isolation, socket delivery, message replay/undo, order code counter và AI budget/resend.
+- [x] Bổ sung bộ 24 integration test suites chạy trên PostgreSQL 16 disposable cho tenant isolation, socket delivery, message replay/undo, order code counter và AI budget/resend.
 - [x] Tích hợp GitHub Actions (`.github/workflows/ci.yml`) chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build trên pull request/main.
 - [x] Bổ sung các kịch bản kiểm chứng container smoke: `npm run verify:production-container` và `npm run verify:development-compose`.
 
@@ -89,3 +91,20 @@ gantt
 - [x] **Chat Copilot Bar & Smart Reply Chips UI:** Thanh trợ lý phía trên compose bar với Neo-Brutalism pills (Sentiment, Buying Intent score), 3 Smart Reply chips gán phím tắt `Alt + 1/2/3`, click 1 lần chèn văn bản vào input an toàn.
 - [x] **AI Draft Card Human-in-the-Loop:** Tự động trích xuất liên hệ, địa chỉ giao hàng, sản phẩm gợi ý và lịch hẹn; hiển thị thẻ thao tác nhanh để nhân viên click mở modal tạo đơn hàng/lịch hẹn đã điền sẵn 100% dữ liệu hoặc lưu địa chỉ vào danh bạ (không tự ý commit DB).
 - [x] **Cảnh Báo Bất Thường & Leo Thang Quản Lý (Anomaly Escalation):** Banner nguy hiểm Neo-Brutalism cảnh báo xung đột/khiếu nại kèm kịch bản xoa dịu mẫu, huy hiệu `⚠️ KHIẾU NẠI` trên danh sách hội thoại, gửi thông báo Socket khẩn tới Owner/Admin và ghi nhật ký kiểm toán `ActivityLog`.
+
+---
+
+### Phase 9: Đo Lường & Quản Lý Chi Phí AI (AI Telemetry & Cost Analytics) (ĐÃ HOÀN THÀNH)
+- [x] **Mô Hình Dữ Liệu Chi Phí AI (`AiUsageLog` & `DailyAiUsageStat`):** Bổ sung 2 bảng chuyên dụng trong Prisma Schema lưu trữ chi tiết từng lượt suy luận và tổng hợp chỉ số theo ngày/tính năng/mô hình.
+- [x] **Danh Mục Giá & Bảng Quy Đổi Tiền Tệ (`ai-pricing-catalog.ts`):** Ánh xạ giá token input/output/cached chi tiết của Gemini, OpenAI, DeepSeek; tính toán chính xác chi phí USD và VNĐ.
+- [x] **Tổng Hợp Số Liệu Nguyên Tử (Atomic Upsert):** Sử dụng raw query PostgreSQL `INSERT ... ON CONFLICT (org_id, stat_date, feature, provider, model) DO UPDATE` cộng dồn trực tiếp, loại trừ race condition.
+- [x] **Giao Diện Trực Quan & Xuất Báo Cáo:** Thẻ `AiCostKpiCard.vue` trên Dashboard, tab `AiUsageReportTab.vue` trong phân hệ AI Reports và endpoint xuất file Excel `.xlsx` phục vụ đối soát tài chính (`GET /api/v1/reports/export?type=ai-usage`).
+
+---
+
+### Phase 10: Tin Nhắn Đa Phương Tiện Hai Chiều & Khay Chờ Đính Kèm (Two-Way Media Messaging) (ĐÃ HOÀN THÀNH)
+- [x] **Khay Chờ Đính Kèm Thông Minh (`StagedMediaBar.vue`):** Hỗ trợ kéo thả, chọn tệp hoặc dán trực tiếp ảnh từ Clipboard (`Ctrl+V`), hiển thị thumbnail xem trước, tiến độ tải lên và nút hủy từng tệp/toàn bộ.
+- [x] **Hạ Tầng Tải Lên Độc Lập Theo Tenant:** Tệp staged lưu tại `uploads/attachments/staged/` với tên định danh `${orgId}-${uuid}-${sanitizedName}`, xác thực sâu chữ ký magic bytes (`image-size`), chặn tệp giả mạo.
+- [x] **Vé Streaming HMAC-SHA256 (60s):** Cơ chế sinh ticket ngắn hạn cho phép Zalo CDN nạp dữ liệu media qua endpoint công khai có ký số mà không để lộ token xác thực người dùng.
+- [x] **Hộp Thoại Phóng To Ảnh Chuẩn CQA (`MediaLightboxDialog.vue`):** Giao diện phẳng 100% Zero Shadow, đường viền 2px cơ học dứt khoát, hỗ trợ xem ảnh nét căng và tải về tệp gốc.
+- [x] **Tác Vụ Dọn Dẹp Định Kỳ (Orphan Cleanup Task):** Cron job chạy mỗi giờ (`0 * * * *`) tự động quét và xóa sạch các tệp staged mồ côi tồn tại quá 2 giờ.

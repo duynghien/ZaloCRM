@@ -16,9 +16,9 @@ Mọi mã nguồn đóng góp vào dự án ZaloCRM phải tuân thủ nghiêm n
 > - **Đặt tên file:** Sử dụng định dạng `kebab-case` dài và mang tính mô tả rõ ràng (ví dụ: `zalo-health-check.ts`, `appointment-reminder.ts`, `order-code-service.ts`).
 > - **Ngoại lệ không tách:** File cấu hình (`package.json`, `tsconfig.json`), Markdown (`.md`), hoặc Docker Compose.
 
-**Danh sách 43 files hiện tại đang vượt 200 dòng được theo dõi để tái cấu trúc (Refactoring Backlog):**
-- *Frontend (21 files):* `AiReportsView.vue` (1716), `AiAuditRuleDialog.vue` (457), `MessageThread.vue` (397), `AccountRail.vue` (368), `ai-report-api.ts` (364), `AiProviderSettingsCard.vue` (357), `AiAuditRulesCard.vue` (340), `use-zalo-accounts.ts` (307), `AppointmentsView.vue` (292), `ZaloAccountEditDialog.vue` (269), `ConversationList.vue` (266), `OrdersView.vue` (265), `TeamManagement.vue` (264), `ChatView.vue` (262), `ChatAppointments.vue` (258), `use-chat.ts` (252), `ZaloAccountCard.vue` (249), `SettingsView.vue` (238), `ZaloAccountsView.vue` (237), `ContactDetailDialog.vue` (236), `GlobalSearch.vue` (229).
-- *Backend (22 files):* `ai-report-routes.ts` (720), `ai-audit-rule-service.ts` (403), `zalo-pool.ts` (389), `summarizer-service.ts` (376), `attachment-burst-sampler.ts` (369), `attachment-parser.ts` (362), `noise-filter.ts` (343), `attachment-image-loader.ts` (330), `zalo-report-sender.ts` (319), `public-api-routes.ts` (299), `zalo-routes.ts` (295), `zalo-listener-factory.ts` (270), `ai-audit-evaluator.ts` (260), `message-handler.ts` (257), `contact-routes.ts` (252), `outbound-url-policy.ts` (237), `ai-provider-settings-service.ts` (237), `order-routes.ts` (233), `appointment-routes.ts` (219), `email-service.ts` (210), `ai-audit-evaluator-helpers.ts` (206), `chat-routes.ts` (204).
+**Danh sách 45 files hiện tại đang vượt 200 dòng được theo dõi để tái cấu trúc (Refactoring Backlog):**
+- *Frontend (21 files):* `AiReportsView.vue` (1716), `MessageThread.vue` (677), `AiAuditRuleDialog.vue` (457), `AccountRail.vue` (368), `ai-report-api.ts` (364), `AiProviderSettingsCard.vue` (357), `AiAuditRulesCard.vue` (340), `use-chat.ts` (308), `use-zalo-accounts.ts` (307), `ChatView.vue` (294), `AppointmentsView.vue` (292), `ConversationList.vue` (283), `ChatAppointments.vue` (271), `ZaloAccountEditDialog.vue` (269), `OrdersView.vue` (265), `TeamManagement.vue` (264), `ZaloAccountCard.vue` (249), `SettingsView.vue` (238), `ZaloAccountsView.vue` (237), `ContactDetailDialog.vue` (236), `GlobalSearch.vue` (229).
+- *Backend (24 files):* `ai-report-routes.ts` (745), `zalo-pool.ts` (413), `ai-audit-rule-service.ts` (403), `chat-routes.ts` (381), `summarizer-service.ts` (380), `attachment-burst-sampler.ts` (369), `attachment-parser.ts` (362), `noise-filter.ts` (343), `attachment-routes.ts` (341), `attachment-image-loader.ts` (330), `zalo-report-sender.ts` (319), `contact-routes.ts` (313), `public-api-routes.ts` (299), `zalo-routes.ts` (295), `message-handler.ts` (273), `zalo-listener-factory.ts` (270), `ai-audit-evaluator.ts` (261), `ai-provider-settings-service.ts` (247), `attachment-validator.ts` (245), `outbound-url-policy.ts` (237), `order-routes.ts` (233), `appointment-routes.ts` (219), `email-service.ts` (210), `ai-audit-evaluator-helpers.ts` (206).
 
 ---
 
@@ -56,7 +56,7 @@ if (!account) {
 - **Bán kính góc CQA:** Card/Dialog/Table/Chat bubble = 12px; Button/Input/Icon-box = 8px; Status Chip/Badge = 9999px (viên thuốc `.neo-pill`).
 - **Typography:** Tiêu đề dùng Space Grotesk (`.neo-page-title` in hoa in nghiêng đậm với `.neo-title-accent`), nội dung dùng Plus Jakarta Sans.
 - **Biểu tượng:** Ưu tiên sử dụng Custom SVG Icons (`custom-icons.ts`) và Brand SVG Icons chính hãng thay vì generic font icons.
-- **Mã màu tài khoản Zalo:** Sử dụng bảng 8 màu quy chuẩn từ `account-colors.ts` (Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate).
+- **Mã màu tài khoản Zalo:** Sử dụng bảng 12 màu quy chuẩn từ `account-colors.ts` (Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate, Indigo, Teal, Fuchsia, Lime).
 
 ### 4.3. Quản lý State với Pinia & In-Memory Session
 - Các store nằm tại `src/stores/<feature>-store.ts`.
@@ -114,7 +114,12 @@ Tất cả các commit phải tuân thủ chuẩn **Conventional Commits**:
 - Lọc khử Prompt Injection đối với toàn bộ ngữ cảnh tin nhắn trước ảnh trước khi đưa vào multimodal prompt.
 - Khử trùng lặp ảnh ứng viên theo Base URL (`attachment-burst-sampler.ts`).
 - Chặn đứng mọi nỗ lực tấn công Path Traversal khi nạp tệp ảnh cục bộ (`attachment-image-loader.ts`).
-- Giới hạn cứng trần dung lượng ảnh tổng cộng là 12MB cho mỗi lượt thẩm định/báo cáo đa phương thức.
+### 7.4. Bảo Mật Tệp Đính Kèm & Streaming Media
+
+- Xác thực sâu kiểu MIME qua chữ ký magic bytes (`image-size`) ngăn chặn triệt để kỹ thuật Polyglot file và tệp thực thi giả mạo đuôi ảnh.
+- Chuẩn hóa tên tệp chống Path Traversal (`sanitize-filename`), phân tách thư mục staged và committed cô lập theo tenant ID.
+- Vé streaming HMAC-SHA256 ngắn hạn (60s) cho phép Zalo CDN nạp media mà không để lộ JWT token.
+- Header bảo vệ dòng stream: `Content-Disposition: inline/attachment`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: sandbox; default-src 'none'`.
 
 ---
 
@@ -148,7 +153,7 @@ npm run verify:production-container
 npm run verify:development-compose
 ```
 
-- `npm test` chạy toàn bộ test unit của cả backend và frontend workspace (hiện đạt **218 passing unit tests**: 162 backend + 56 frontend); không bao gồm Playwright (`npm run test:e2e`).
+- `npm test` chạy toàn bộ test unit của cả backend và frontend workspace (hiện đạt **309 passing unit tests**: 224 backend + 85 frontend); không bao gồm Playwright (`npm run test:e2e`).
 - Integration fixture PostgreSQL 16 disposable: local cần Docker daemon hoạt động; CI cần PostgreSQL service riêng đã migrate. Fixture phải dùng chính app/auth/socket production, DB và session thật; không trỏ vào DB production hoặc thay Prisma bằng mock để chứng minh tenant/ACL isolation.
 - Root hiện chưa có script `lint`; không chạy hoặc ghi nhận `npm run lint` đã pass. Cần cấu hình script trước khi đưa lint thành gate bắt buộc.
 - Lockfile dùng trong Docker phải đồng bộ với manifest tương ứng.

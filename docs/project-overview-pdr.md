@@ -25,14 +25,16 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
 ### 3.1. Phân hệ Quản lý Tài khoản Zalo (Zalo Account Management)
 - **Đăng nhập QR Code:** Tạo mã QR đăng nhập trực quan, tự động cập nhật trạng thái khi quét thành công.
 - **Lưu & Tự khôi phục phiên:** Mã hóa dữ liệu session (cookie, IMEI, userAgent) bằng thuật toán AES-256-GCM. Tự động kết nối lại khi mất mạng hoặc khởi động lại ứng dụng có giãn cách (stagger 10s) chống nghẽn.
-- **Thẻ Chi Nhánh & Mã Màu Nhận Diện (Branch & Color Tags):** Hỗ trợ gán nhãn chi nhánh (`branchTag`, ví dụ: *Chi nhánh 1*, *Quận 1*) và chọn mã màu đại diện (`colorTag` gồm 8 mã màu tuyển chọn: Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate) giúp nhân viên nhận diện tức thì tài khoản đang thao tác.
+- **Thẻ Chi Nhánh & Mã Màu Nhận Diện (Branch & Color Tags):** Hỗ trợ gán nhãn chi nhánh (`branchTag`, ví dụ: *Chi nhánh 1*, *Quận 1*) và chọn mã màu đại diện (`colorTag` gồm 12 mã màu tuyển chọn: Blue, Emerald, Violet, Amber, Rose, Cyan, Orange, Slate, Indigo, Teal, Fuchsia, Lime) giúp nhân viên nhận diện tức thì tài khoản đang thao tác.
 - **Giới hạn an toàn & Kiểm tra kết nối:** Theo dõi trạng thái live của từng tài khoản, cấu hình hạn mức an toàn trong ngày và chủ động ngắt kết nối/xóa tài khoản khi cần thiết.
 
-### 3.2. Phân hệ Trò chuyện Real-time & Thanh Điều Hướng Đa Tài Khoản (Live Chat & Account Rail)
+### 3.2. Phân hệ Trò chuyện Real-time & Trợ Lý Copilot (Live Chat, Account Rail & Copilot)
 - **Thanh trượt đa tài khoản dọc (Account Rail):** Thanh điều hướng chuyên dụng ở mép trái khu vực chat (`AccountRail.vue`), hiển thị avatar có viền màu tương ứng, badge đếm tin nhắn chưa đọc tổng hợp theo tài khoản và nhãn chi nhánh, hỗ trợ chuyển đổi tức thì giữa các tài khoản Zalo chỉ với 1 click.
+- **Trợ lý Hội thoại Copilot (Conversational AI Copilot):** Tích hợp trực tiếp trong luồng chat với cơ chế kích hoạt chủ động (On-Demand) hoặc tự động khi phát hiện ý định khách hàng. Đề xuất câu trả lời gợi ý kèm 1-click áp dụng, tự động bóc tách thông tin khách hàng, đơn hàng hoặc lịch hẹn để điền sẵn vào form tạo mới, và phát hiện bất thường/khiếu nại để cảnh báo nhân viên xử lý kịp thời.
+- **Tin nhắn đa phương tiện hai chiều & Khay chờ (Media Staging & Two-Way Messaging):** Hỗ trợ kéo thả, dán ảnh trực tiếp từ Clipboard (`Ctrl+V`) hoặc chọn tệp qua file picker. Hiển thị khay chờ tệp đính kèm (`StagedMediaBar.vue`) cho phép xem trước thumbnail, xóa từng tệp hoặc xóa toàn bộ trước khi gửi kèm tin nhắn văn bản. Hộp thoại phóng to ảnh (`MediaLightboxDialog.vue`) thiết kế phẳng 100% Zero Shadow chuẩn CQA Neo-Brutalism. Luồng gửi media Zalo bảo vệ qua vé streaming HMAC ngắn hạn (60s).
 - **Đồng bộ tin nhắn từ thiết bị ngoài (Self-Listen Sync):** Lắng nghe và đồng bộ real-time tin nhắn nhân viên gửi từ điện thoại hoặc iPad cá nhân (`isSelf: true`), gán đúng người gửi `self` và ghi nhận vào doanh số/thống kê mà không làm kẹt nhịp gửi trên Dashboard.
 - **Tự lành hội thoại & Danh bạ (Self-Healing Contacts):** Tự động liên kết các cuộc trò chuyện chưa có liên hệ (`contactId: null`) vào bảng Contact khi nhận tin nhắn mới; tự động cập nhật tên thật từ Zalo nếu trước đó là tên mặc định.
-- **Đa phương tiện & Xử lý tệp tin:** Gửi/nhận tin nhắn văn bản, hình ảnh, tập tin (PDF, Docx,...), sticker và hiển thị tin nhắn nhóm. Hỗ trợ thu hồi tin nhắn an toàn theo thread (`undo`).
+- **Thu hồi tin nhắn:** Hỗ trợ thu hồi tin nhắn an toàn theo thread (`undo`) trên cả CRM lẫn đồng bộ Zalo.
 - **Trạng thái phản hồi:** Theo dõi tin nhắn chưa trả lời quá 30 phút, nhắc nhở nhân viên sale hỗ trợ kịp thời.
 
 ### 3.3. Phân hệ Quản lý Khách hàng (CRM Contacts & Pipeline)
@@ -81,6 +83,15 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
 ### 3.9. Phân hệ Tích hợp API & Webhook
 - **Public REST API:** Cung cấp các endpoint RESTful được xác thực bằng `X-API-Key` cho phép hệ thống bên ngoài tạo/lấy danh sách khách hàng, lịch hẹn, gửi tin nhắn.
 - **Webhook Subscriptions:** Đăng ký nhận sự kiện real-time: `message.received`, `message.sent`, `contact.created`, `zalo.connected`, `zalo.disconnected` với chữ ký bảo mật HMAC SHA-256.
+
+### 3.10. Phân hệ Theo Dõi & Quản Lý Chi Phí AI (AI Telemetry & Cost Analytics)
+- **Thu thập Telemetry tự động:** Mọi tác vụ sử dụng LLM/Vision (Copilot, Báo cáo điều hành, Thẩm định quy tắc nhóm, Kiểm tra kết nối AI) đều được tự động đo lường và lưu trữ chi tiết: số token input, output, cached, thời gian phản hồi (latency), model và provider.
+- **Bảng định giá chi tiết & Quy đổi tiền tệ:** Tích hợp danh mục giá chuẩn (`ai-pricing-catalog.ts`) tính toán chi phí chính xác đến từng micro-USD và quy đổi ra VNĐ theo tỷ giá cố định/cấu hình.
+- **Tổng hợp dữ liệu nguyên tử (Atomic Daily Rollup):** Dữ liệu được cộng dồn theo ngày vào bảng `daily_ai_usage_stats` sử dụng truy vấn SQL nguyên tử `INSERT ... ON CONFLICT DO UPDATE`, đảm bảo hiệu năng cao và loại trừ hoàn toàn tình trạng race condition.
+- **Trực quan hóa & Báo cáo quản trị:**
+  - **Thẻ KPI Chi phí AI (`AiCostKpiCard.vue`):** Hiển thị tổng chi phí tháng hiện tại, tỷ lệ tăng giảm so với tháng trước và cảnh báo ngân sách trực tiếp trên Dashboard.
+  - **Báo cáo sử dụng chi tiết (`AiUsageReportTab.vue`):** Biểu đồ phân bổ chi phí theo mô hình AI và tính năng nghiệp vụ, bảng kê chi tiết lượt gọi API có phân trang và bộ lọc theo khoảng thời gian.
+  - **Xuất dữ liệu Excel:** Hỗ trợ xuất toàn bộ dữ liệu thống kê ra file Excel `.xlsx` phục vụ công tác đối soát kế toán và lập kế hoạch ngân sách (`GET /api/v1/reports/export?type=ai-usage`).
 
 ---
 

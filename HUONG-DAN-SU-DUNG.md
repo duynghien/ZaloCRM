@@ -14,6 +14,9 @@
 10. [Quy tắc quan trọng](#10-quy-tắc-quan-trọng)
 11. [Báo cáo AI](#11-báo-cáo-ai)
 12. [Quy tắc giám sát nhóm AI (Audit Rules)](#12-quy-tắc-giám-sát-nhóm-ai-audit-rules)
+13. [Trợ lý Copilot thông minh](#13-trợ-lý-copilot-thông-minh)
+14. [Gửi tệp đính kèm & Ảnh](#14-gửi-tệp-đính-kèm--ảnh)
+15. [Theo dõi & Xuất chi phí AI](#15-theo-dõi--xuất-chi-phí-ai)
 
 ---
 
@@ -341,3 +344,79 @@ Dành cho Owner/Admin quản lý và đánh giá tự động việc nộp kế 
   - 🟠 **Lỗi gửi tin (dispatch_failed):** Báo cáo AI đã thẩm định và lưu an toàn, nhưng Zalo gửi tin gặp sự cố (mất quyền, gửi quá nhanh). Bạn có thể vào tab **Lịch Sử Báo Cáo** để kiểm tra và nhấn **Gửi lại (Resend)** sau khi khắc phục Zalo.
   - 🔴 **Thất bại:** Quá trình đánh giá AI gặp lỗi kỹ thuật.
 - Có thể tạm dừng hoặc bật lại quy tắc bất kỳ lúc nào bằng nút gạt Bật/Tắt trên bảng.
+
+---
+
+## 13. Trợ lý Copilot thông minh
+
+Trợ lý ảo Copilot được tích hợp trực tiếp ngay trên khung soạn thảo tin nhắn, hỗ trợ nhân viên tư vấn phản hồi khách hàng nhanh chóng và chính xác.
+
+### 13.1. Phân tích cảm xúc & Ý định mua hàng
+- Khi nhận được tin nhắn từ khách hàng, Copilot tự động phân tích và hiển thị:
+  - **Huy hiệu Cảm xúc:** `Tích cực` (xanh lá), `Tiêu cực` (đỏ), hoặc `Trung tính` (xám).
+  - **Điểm Ý định mua hàng (Buying Intent):** Thang điểm từ 0% đến 100%. Điểm càng cao cho thấy khách hàng đang có nhu cầu chốt đơn cấp thiết.
+
+### 13.2. Gợi ý trả lời nhanh (Smart Replies)
+- Copilot đưa ra tối đa 3 câu trả lời phù hợp nhất với ngữ cảnh hiện tại.
+- **Cách sử dụng:**
+  - Click chuột vào chip câu trả lời muốn chọn.
+  - Hoặc dùng phím tắt: **Alt + 1**, **Alt + 2**, hoặc **Alt + 3**.
+  - Nội dung sẽ được điền ngay vào ô nhập tin nhắn để bạn chỉnh sửa thêm trước khi nhấn gửi.
+
+### 13.3. Thẻ thao tác nhanh (Quick Draft)
+- Khi khách hàng cung cấp thông tin mua hàng hoặc hẹn lịch trong đoạn chat, Copilot sẽ tự động bóc tách và hiển thị thẻ hành động:
+  - **Tạo Đơn Hàng:** Bấm để mở form tạo đơn với Họ tên, SĐT, Địa chỉ và Sản phẩm đã được điền sẵn 100%.
+  - **Đặt Lịch Hẹn:** Bấm để mở form hẹn lịch với thời gian và ghi chú khách yêu cầu.
+  - **Lưu Địa Chỉ:** Bấm để cập nhật địa chỉ giao hàng vào hồ sơ khách hàng mà không cần gõ lại.
+
+### 13.4. Xử lý khiếu nại & Bất thường (Anomaly Alert)
+- Khi phát hiện khách hàng bức xúc, tranh chấp hoặc khiếu nại chất lượng dịch vụ:
+  - Hệ thống sẽ hiển thị một **Banner Cảnh Báo Đỏ** nổi bật phía trên khung chat.
+  - Cung cấp sẵn mẫu câu xoa dịu, xin lỗi và hướng giải quyết chuyên nghiệp.
+  - Sau khi nhân viên đã giải quyết xong thỏa đáng với khách hàng, nhấn nút **Đã xử lý khiếu nại** trên banner để gỡ cảnh báo.
+
+---
+
+## 14. Gửi tệp đính kèm & Ảnh
+
+Hệ thống hỗ trợ gửi và nhận tin nhắn đa phương tiện linh hoạt, an toàn và trực quan.
+
+### 14.1. Thêm tệp vào khay chờ (Staged Media)
+Bạn có thể thêm tối đa 5 tệp (ảnh hoặc tài liệu) cùng lúc bằng 3 cách:
+1. **Dán từ Clipboard:** Chụp màn hình hoặc copy ảnh rồi nhấn **Ctrl + V** (hoặc **Cmd + V** trên Mac) trực tiếp vào ô chat.
+2. **Kéo thả:** Kéo tệp ảnh/tài liệu từ máy tính và thả vào vùng chat.
+3. **Nút đính kèm:** Nhấn biểu tượng kẹp giấy 📎 cạnh ô nhập liệu để duyệt tệp trên máy tính.
+
+### 14.2. Quản lý khay chờ
+- Các tệp đang chờ gửi sẽ xuất hiện ở thanh khay chờ (`StagedMediaBar`) ngay trên ô soạn thảo.
+- Bạn có thể xem trước thumbnail của ảnh, kiểm tra dung lượng và tên tệp.
+- Nhấn dấu **[×]** trên từng ảnh để xóa tệp không muốn gửi, hoặc nhấn **Hủy tất cả** để xóa toàn bộ khay chờ.
+
+### 14.3. Gửi tin nhắn kèm tệp
+- Gõ thêm nội dung tin nhắn văn bản (nếu cần) rồi nhấn nút **Gửi** (hoặc phím **Enter**).
+- Hệ thống sẽ tải tệp lên máy chủ an toàn, sinh vé bảo mật và chuyển tiếp tới Zalo của khách hàng.
+
+### 14.4. Xem ảnh phóng to (Lightbox)
+- Khi có ảnh trong luồng chat (cả ảnh khách gửi và ảnh bạn gửi), click chuột trực tiếp vào ảnh để mở trình xem ảnh phóng to toàn màn hình (`Lightbox`).
+- Nhấn nút **Tải về** để lưu tệp gốc về máy tính hoặc nhấn **Đóng** (hoặc phím **Esc**) để quay lại khung chat.
+
+---
+
+## 15. Theo dõi & Xuất chi phí AI
+
+Dành cho Quản trị viên (Owner/Admin) kiểm soát chi phí sử dụng các mô hình trí tuệ nhân tạo (Gemini, OpenAI, DeepSeek).
+
+### 15.1. Thẻ KPI chi phí trên Dashboard
+- Truy cập trang **Dashboard** chính để xem thẻ **Chi phí AI Tháng này**.
+- Thẻ hiển thị tổng số tiền (USD và quy đổi VNĐ), kèm tỷ lệ phần trăm tăng/giảm so với tháng trước.
+
+### 15.2. Báo cáo chi tiết sử dụng AI
+- Vào menu **Báo cáo AI** → chọn tab **📊 Chi Phí Sử Dụng**.
+- Xem biểu đồ thống kê trực quan:
+  - Phân bổ chi phí theo **Nhà cung cấp / Mô hình** (Google Gemini, OpenAI GPT-4o, DeepSeek).
+  - Phân bổ chi phí theo **Tính năng nghiệp vụ** (Copilot chat, Báo cáo điều hành tổng hợp, Thẩm định quy tắc nhóm, Kiểm tra kết nối).
+- Bảng kê chi tiết từng ngày: Số lượt gọi, số token đầu vào (prompt), số token đầu ra (completion), token cache và tổng chi phí.
+
+### 15.3. Xuất file Excel đối soát
+- Tại tab Chi Phí Sử Dụng, nhấn nút **📥 Xuất Báo Cáo Excel**.
+- Hệ thống sẽ tự động tổng hợp và tải về file `.xlsx` định dạng chuẩn, phục vụ công tác thanh toán và đối soát ngân sách hàng tháng.

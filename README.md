@@ -1,6 +1,6 @@
 # ZaloCRM — Quản lý nhiều tài khoản Zalo cá nhân
 
-Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân/doanh nghiệp trên 1 giao diện web chuẩn Neo-Brutalism CQA. Chat real-time với thanh chọn tài khoản trực quan (`AccountRail`), đồng bộ tin nhắn 2 chiều từ thiết bị ngoài (`selfListen`), gắn nhãn chi nhánh & màu sắc, đường ống CRM, đặt lịch hẹn, kiểm toán nhóm định kỳ & báo cáo AI đa nhà cung cấp (Gemini, OpenAI, DeepSeek, Local Gateway), phát tin việc cần làm Zalo, REST API & Webhook.
+Hệ thống quản lý tập trung nhiều tài khoản Zalo cá nhân/doanh nghiệp trên 1 giao diện web chuẩn Neo-Brutalism CQA. Chat real-time với thanh chọn tài khoản trực quan (`AccountRail`), tin nhắn đa phương tiện 2 chiều kèm khay chờ (`StagedMediaBar`), dán ảnh clipboard (`Ctrl+V`), phóng to lightbox (`MediaLightboxDialog`), Trợ lý ảo bán hàng Copilot (Single-Inference AI, debouncer 3.0s, Smart Reply `Alt+1/2/3`, bóc tách đơn/lịch Human-in-the-Loop, cảnh báo bất thường), đồng bộ tin nhắn từ thiết bị ngoài (`selfListen`), gắn nhãn chi nhánh & 12 bảng màu nhận diện, đường ống CRM, đặt lịch hẹn, kiểm toán nhóm định kỳ & báo cáo AI đa nhà cung cấp (Gemini, OpenAI, DeepSeek, Local Gateway), theo dõi chi phí & đo lường AI telemetry (`AiCostKpiCard`, AI Usage Report, xuất Excel), phát tin việc cần làm Zalo, REST API & Webhook.
 
 ---
 
@@ -47,7 +47,7 @@ Dùng `npm run docker:up` cho cả lần đầu và cập nhật. Lệnh xác nh
 APP_URL=http://localhost:5173 npm run dev # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
 npm run build       # Build biên dịch mã nguồn Backend & Frontend
 npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
-npm test            # Chạy toàn bộ unit test (Frontend 56 tests + Backend 162 tests = 218 tests)
+npm test            # Chạy toàn bộ unit test (Frontend 85 tests + Backend 224 tests = 309 tests)
 npm run docker:dev  # Backend watch + Vite hot reload
 npm run verify:production-container  # Smoke production với database riêng
 npm run verify:development-compose   # Smoke trình duyệt + hot reload với database riêng
@@ -61,17 +61,17 @@ Docker development: mở **http://localhost:5173**; backend ở **http://localho
 
 | Thành phần | Công nghệ |
 |-----------|----------|
-| **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 / TypeScript |
+| **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 (24 Data Models) / TypeScript |
 | **Frontend** | Vue 3 / Vuetify 4 / Chart.js / Pinia |
-| **Design System** | Neo-Brutalism CQA (Zero Shadow, 1.5px Mechanical Border, Space Grotesk) |
-| **AI Engine** | Multi-Provider (Google Gemini, OpenAI, DeepSeek, Local Gateway via Ollama/vLLM) |
+| **Design System** | Neo-Brutalism CQA (Zero Shadow, 1.5px Mechanical Border, Space Grotesk, 12 Account Palettes) |
+| **AI Engine & Telemetry** | Multi-Provider (Google Gemini, OpenAI, DeepSeek, Local Gateway via Ollama/vLLM), Conversational Copilot & AI Cost Telemetry |
 | **Cơ sở dữ liệu** | PostgreSQL 16 |
 | **Real-time** | Socket.IO |
-| **Zalo Engine** | zca-js 2.x (hỗ trợ `selfListen` đồng bộ 2 chiều) |
+| **Zalo Engine** | zca-js 2.x (hỗ trợ `selfListen` đồng bộ 2 chiều & media streaming) |
 | **Triển khai** | Docker Compose / Nginx |
 
 > [!NOTE]
-> Docker production và development dùng Node.js 24 LTS. Hệ thống hỗ trợ linh hoạt các nhà cung cấp AI: Google Gemini, OpenAI, DeepSeek hoặc Custom OpenAI-Compatible Local Gateway. Cơ chế bảo vệ SSRF mặc định chặn truy cập vào IP Private/Loopback nội bộ trừ khi `ALLOW_PRIVATE_AI_GATEWAYS=true` được thiết lập.
+> Docker production và development dùng Node.js 24 LTS. Hệ thống hỗ trợ linh hoạt các nhà cung cấp AI: Google Gemini, OpenAI, DeepSeek hoặc Custom OpenAI-Compatible Local Gateway. Cơ chế bảo vệ SSRF mặc định chặn truy cập vào IP Private/Loopback nội bộ trừ khi `ALLOW_PRIVATE_AI_GATEWAYS=true` được thiết lập. Toàn bộ chi phí token được tự động đo lường theo thời gian thực và tổng hợp vào PostgreSQL.
 
 ---
 

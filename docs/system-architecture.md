@@ -50,7 +50,7 @@ graph TD
 - **Tự động khôi phục (Auto-reconnect):** Khi khởi động server, `ZaloPool` giải mã dữ liệu session (cookie, IMEI) từ DB và tự động tái lập kết nối với Zalo Server, có cơ chế giãn cách (stagger 10s) tránh rate limit.
 
 ### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
-- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 22 Data Models phân tách theo nghiệp vụ:
+- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 24 Data Models phân tách theo nghiệp vụ:
   - *Đa tổ chức & Người dùng:* `Organization`, `Team`, `User`
   - *Phiên xác thực bền vững:* `AuthSession` (lưu SHA-256 hash của refresh token, quản lý xoay vòng và family revocation)
   - *Tài khoản Zalo & Phân quyền:* `ZaloAccount` (hỗ trợ `branchTag`, `colorTag`, lưu session mã hóa AES-256-GCM), `ZaloAccountAccess` (quyền read, chat, admin)
@@ -58,6 +58,7 @@ graph TD
   - *Lịch hẹn:* `Appointment`
   - *Đơn hàng & Cấp mã tuần tự:* `Order`, `OrderCodeCounter` (cấp mã nguyên tử theo org/ngày UTC)
   - *Báo cáo Điều hành AI Digest v2:* `GroupReportConfig`, `GeneratedReport`, `AiReportJob`, `AiReportJobDispatch`, `AiReportBudgetReservation`, `AiReportResend`, `AiReportResendDispatch`
+  - *AI Telemetry & Đo lường Chi phí:* `AiUsageLog` (nhật ký giao dịch token từng tác vụ AI), `DailyAiUsageStat` (tổng hợp chi phí ngày atomic UTC+7)
   - *Vận hành & Kiểm toán:* `AppSetting` (mã hóa AES-256-GCM các secret), `DailyMessageStat`, `ActivityLog`
 - **Prisma 7 ORM:** Quản lý Schema, khởi tạo Migration có version và tương tác dữ liệu an toàn phòng chống SQL Injection. Tương thích schema được kiểm chứng lúc khởi động bằng `schemaIsCompatible()`.
 
@@ -162,6 +163,70 @@ sequenceDiagram
 - **Phòng chống Prompt Injection & Ảo giác Giá:** Khử độc và bọc kín tin nhắn khách hàng trong thẻ XML `<customer_utterance>`. Bắt buộc không tự bịa đặt giá nếu không có dữ liệu đối chiếu trong ngữ cảnh doanh nghiệp.
 - **Quy trình Phê Duyệt Human-in-the-Loop:** Dữ liệu bóc tách đơn hàng, địa chỉ giao hàng và lịch hẹn được hiển thị qua thẻ `ChatAiDraftCard.vue`. Nhân viên bấm click để mở modal điền sẵn 100% dữ liệu và chủ động xác nhận commit (tuyệt đối không tự động tạo đơn/lịch hẹn vào DB để ngăn chặn sai sót tài chính).
 - **Cảnh báo Bất thường & Leo thang Quản lý (Anomaly Escalation):** Khi phát hiện khách hàng bức xúc gay gắt, chửi bới hoặc dọa báo công an, hệ thống ghim cờ `escalationStatus: 'pending'` vào `metadata` của Contact, kích hoạt dải cảnh báo đỏ `ChatAnomalyBanner.vue` kèm kịch bản xoa dịu mẫu, phát Socket.IO sự kiện `chat:anomaly_alert` tới Owner/Admin và ghi nhật ký kiểm toán vào `ActivityLog`.
+
+### 3.1.7. Kiến Trúc Tin Nhắn Đa Phương Tiện & Streaming Ticket (Two-Way Media Messaging Architecture)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Trình duyệt (Staff)
+    participant Fastify as Fastify Backend
+    participant Staging as uploads/attachments/staged
+    participant ZaloSDK as ZaloPool (zca-js)
+    participant ZaloServer as Zalo Official Server
+    participant OrgStore as uploads/attachments/{orgId}
+
+    Client->>Fastify: POST /api/v1/media/upload (multipart, max 5 files)
+    Fastify->>Fastify: Kiểm tra metadata & so khớp Magic Bytes (image-size)
+    Fastify->>Staging: Lưu file {orgId}-{fileId}-{sanitizedName}
+    Fastify-->>Client: 200 OK { id, filename, size, url }
+    
+    Client->>Fastify: POST /api/v1/conversations/:id/messages { content, attachmentIds }
+    Fastify->>Fastify: Kiểm tra Rate Limit (weight = count * 2)
+    Fastify->>ZaloSDK: sendMessage({ msg, attachments: [stagedPaths] })
+    ZaloSDK->>Fastify: POST /api/v1/attachments/ticket { filename }
+    Fastify-->>ZaloSDK: { ticket, expiresIn: 60s }
+    ZaloSDK->>ZaloServer: Đẩy tin kèm URL stream https://crm/api/v1/attachments/:filename?ticket=...
+    ZaloServer->>Fastify: GET /api/v1/attachments/:filename?ticket=...
+    Fastify-->>ZaloServer: 200 OK (Stream binary data)
+    
+    alt Zalo gửi thành công
+        Fastify->>OrgStore: Di chuyển file từ staged sang thư mục org vĩnh viễn
+        Fastify->>Fastify: Lưu Message vào DB & phát Socket chat:message
+        Fastify-->>Client: 200 OK { message }
+    else Zalo API từ chối hoặc lỗi
+        Note over Fastify: Rollback nguyên tử: file staged giữ nguyên, không lưu Message
+        Fastify-->>Client: 400 / 500 Error
+    end
+```
+
+- **Xác thực 4 tầng & Phòng vệ Tệp (Security Defense):** Endpoint đọc stream `/api/v1/attachments/:filename` thẩm định qua 4 cơ chế: Cookie phiên media (`zalo_crm_media_session`), Vé HMAC ngắn hạn (`ticket` 60s), Bearer header hoặc Query token. Chặn triệt để Path Traversal và cô lập tenant chặt chẽ (`403 Forbidden` khi truy cập chéo org). Trả kèm CSP `default-src 'none'; sandbox` và `X-Content-Type-Options: nosniff`.
+- **Dọn dẹp tệp mồ côi (`orphan-cleanup-task.ts`):** Cron chạy định kỳ mỗi giờ (`0 * * * *`) quét thư mục `staged` và xóa sạch tệp tải lên quá 2 giờ không có tin nhắn tương ứng gắn kèm, tránh lãng phí dung lượng ổ cứng.
+
+### 3.1.8. Kiến Trúc Telemetry & Quản Lý Chi Phí AI (AI Telemetry & Cost Tracking Architecture)
+
+- **Đánh chặn Telemetry Đa Tác Vụ:** Mọi tác vụ gọi LLM (`copilot`, `executive_report`, `audit_rule`, `vision_ocr`, `test_connection`) được `ai-usage-tracker.ts` ghi nhận chính xác: token đầu vào (`inputTokens`), token đầu ra (`outputTokens`), token bộ nhớ đệm (`cachedTokens`) và thời gian thực thi (`durationMs`).
+- **Bảng Định Giá Động (`ai-pricing-catalog.ts`):** Ánh xạ giá token chi tiết theo từng mô hình (Gemini 2.5/3.6, GPT-4o, GPT-4o-mini, DeepSeek-V3, DeepSeek-R1, Custom Gateway) tính ra USD và quy đổi VNĐ theo tỷ giá định sẵn.
+- **Rollup Nguyên Tử Chống Race Condition:** Sau khi lưu bản ghi nhật ký chi tiết vào `ai_usage_logs`, hệ thống thực thi câu lệnh SQL raw:
+  ```sql
+  INSERT INTO daily_ai_usage_stats (
+    id, org_id, stat_date, task_type, provider, model,
+    request_count, input_tokens, output_tokens, cached_tokens, total_tokens,
+    cost_usd, cost_vnd, updated_at
+  ) VALUES (...)
+  ON CONFLICT (org_id, stat_date, task_type, provider, model)
+  DO UPDATE SET
+    request_count = daily_ai_usage_stats.request_count + 1,
+    input_tokens = daily_ai_usage_stats.input_tokens + EXCLUDED.input_tokens,
+    output_tokens = daily_ai_usage_stats.output_tokens + EXCLUDED.output_tokens,
+    cached_tokens = daily_ai_usage_stats.cached_tokens + EXCLUDED.cached_tokens,
+    total_tokens = daily_ai_usage_stats.total_tokens + EXCLUDED.total_tokens,
+    cost_usd = daily_ai_usage_stats.cost_usd + EXCLUDED.cost_usd,
+    cost_vnd = daily_ai_usage_stats.cost_vnd + EXCLUDED.cost_vnd,
+    updated_at = NOW();
+  ```
+  Bảo đảm tính toàn vẹn số liệu thống kê thời gian thực ngay cả khi có hàng chục lượt suy luận diễn ra đồng thời.
+- **Báo cáo & Xuất Dữ Liệu:** Cung cấp KPI cho Dashboard (`GET /api/v1/dashboard/ai-kpi`), tab báo cáo chuyên sâu (`GET /api/v1/reports/ai-usage`) và xuất file Excel (`GET /api/v1/reports/export?type=ai-usage`).
 
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.

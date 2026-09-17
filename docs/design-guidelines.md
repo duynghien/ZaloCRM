@@ -270,6 +270,47 @@ Thay vì dùng font icon nhòe nét, ZaloCRM tích hợp bộ icon vector phẳn
 
 ---
 
+### 3.7. Giao Diện Trợ Lý Hội Thoại Copilot (Conversational Copilot & Smart Reply Chips)
+
+Tích hợp trực tiếp phía trên ô soạn thảo tin nhắn (`ChatView.vue`), hoạt động theo cơ chế Single-Inference kết hợp Debounce 3.0s:
+- **Thanh Copilot Bar (`ChatCopilotBar.vue`):**
+  - Khung viền cơ học `1.5px solid var(--border-color)`, bo góc `12px`, nền `surface`.
+  - **Huy hiệu Cảm xúc & Ý định Mua hàng (Sentiment & Buying Intent Pills):**
+    - `Positive`: Nền xanh lá pastel `#DCFCE7`, chữ xanh `#15803D`, viền đen `1.5px`.
+    - `Negative`: Nền đỏ pastel `#FEE2E2`, chữ đỏ `#DC2626`, viền đen `1.5px`.
+    - `Neutral`: Nền xám pastel `#F4F4F5`, chữ xám `#52525B`, viền đen `1.5px`.
+    - Điểm ý định mua hàng (`buyingIntent`): Thang điểm 0 - 100 dạng phần trăm in đậm font Space Grotesk.
+- **Smart Reply Chips:**
+  - Tối đa 3 phương án gợi ý trả lời nhanh, kèm nhãn phím tắt trực quan (`Alt+1`, `Alt+2`, `Alt+3`).
+  - Bo góc `8px`, viền `1.5px solid var(--border-color)`, hover đổi màu nền cơ học, click 1 lần chèn nội dung vào ô soạn thảo an toàn.
+- **Thẻ Hành Động Điền Sẵn (Quick Action Draft Cards):**
+  - Khi Copilot bóc tách được thông tin đơn hàng, địa chỉ giao hàng hoặc lịch hẹn, thẻ Draft Card xuất hiện với các nút phím bấm cơ học: `[Tạo Đơn Hàng]`, `[Đặt Lịch Hẹn]`, `[Lưu Địa Chỉ]`.
+  - Thao tác mở modal tương ứng với 100% dữ liệu đã được điền sẵn, nhân viên chỉ việc kiểm tra và xác nhận (Human-in-the-loop).
+- **Banner Cảnh Báo Khiếu Nại / Bất Thường (`AnomalyAlertBanner.vue`):**
+  - Khi phát hiện khách hàng phàn nàn gay gắt hoặc có dấu hiệu tranh chấp, hiển thị Banner cảnh báo màu đỏ `#EF4444`, viền đen `2px`, kèm mẫu câu xoa dịu đề xuất và nút `[Đã Xử Lý Khiếu Nại]`.
+
+---
+
+### 3.8. Khay Chờ Media, Hộp Thoại Lightbox & Thẻ KPI Chi Phí AI
+
+- **Khay Chờ Tệp Đính Kèm (`StagedMediaBar.vue`):**
+  - Đặt phía trên ô soạn thảo tin nhắn khi có tệp trong hàng đợi (kéo thả, chọn tệp hoặc dán trực tiếp `Ctrl+V` từ clipboard).
+  - Thẻ thumbnail tệp kích thước `56x56px`, bo góc `8px`, viền cơ học `1.5px solid var(--border-color)`.
+  - Nút hủy tệp `[×]` ở góc trên phải mỗi thumbnail dạng hình tròn phẳng viền đen `1.5px`.
+  - Thanh tiến độ tải lên `v-progress-linear` phẳng, không hiệu ứng glow, chuyển xanh lục `#10B981` khi tải xong.
+- **Hộp Thoại Phóng To Ảnh (`MediaLightboxDialog.vue`):**
+  - Tuân thủ nghiêm ngặt chuẩn **100% Zero Shadow Neo-Brutalism**:
+    - Tuyệt đối không dùng `backdrop-filter: blur(...)`.
+    - Nền che phủ đặc phẳng `rgba(24, 24, 27, 0.98)` (Zinc 900 đậm).
+    - Khung ảnh có viền cơ học dứt khoát `2px solid #3F3F46`, bo góc `12px`.
+    - Thanh điều khiển và nút đóng `[Đóng]`, `[Tải về]` dạng nút cơ học bo `8px`, viền `1.5px solid #52525B`.
+- **Thẻ KPI Chi Phí AI (`AiCostKpiCard.vue`):**
+  - Khung viền `1.5px solid var(--border-color)`, bo góc `12px`, nền `surface`.
+  - Tổng chi phí hiển thị to rõ font **Space Grotesk 900** (hỗ trợ hiển thị kép USD và VNĐ).
+  - Huy hiệu phân loại mô hình (Gemini / OpenAI / DeepSeek) và tỷ lệ tăng giảm chi phí so với chu kỳ trước.
+
+---
+
 ## 4. Cấu Hình Vuetify 4 (Vuetify Setup & Token Mapping)
 
 Để đảm bảo toàn bộ components Vuetify tự động thừa hưởng phong cách Neo-Brutalism mà không phải ghi đè CSS thủ công ở từng file Vue:
