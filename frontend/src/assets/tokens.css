@@ -40,6 +40,8 @@
   --pastel-green-fg: #16A34A;
   --pastel-yellow-bg: #FEF9C3;
   --pastel-yellow-fg: #CA8A04;
+  --pastel-purple-bg: #F3E8FF;
+  --pastel-purple-fg: #7E22CE;
 }
 
 .v-theme--dark {
@@ -83,4 +85,6 @@
   --pastel-green-fg: #4ADE80;
   --pastel-yellow-bg: #422006;
   --pastel-yellow-fg: #FACC15;
+  --pastel-purple-bg: #4A1D96;
+  --pastel-purple-fg: #E9D5FF;
 }

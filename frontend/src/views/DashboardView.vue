@@ -60,6 +60,9 @@
           </div>
         </v-card>
       </v-col>
+      <v-col v-if="canViewAiCost" cols="12" sm="6" md="3">
+        <AiCostKpiCard :from="currentDateRange.from" :to="currentDateRange.to" />
+      </v-col>
     </v-row>
 
     <!-- Charts Row 1 -->
@@ -85,14 +88,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import KpiCards from '@/components/dashboard/KpiCards.vue';
 import DashboardDateFilter from '@/components/dashboard/DashboardDateFilter.vue';
 import MessageVolumeChart from '@/components/dashboard/MessageVolumeChart.vue';
 import PipelineChart from '@/components/dashboard/PipelineChart.vue';
 import SourceChart from '@/components/dashboard/SourceChart.vue';
 import AppointmentChart from '@/components/dashboard/AppointmentChart.vue';
+import AiCostKpiCard from '@/components/dashboard/AiCostKpiCard.vue';
 import { useDashboard } from '@/composables/use-dashboard';
+import { useAuthStore } from '@/stores/auth';
+
+const authStore = useAuthStore();
+const canViewAiCost = computed(() => authStore.isAdmin);
+const currentDateRange = ref<{ from?: string; to?: string }>({});
 
 const {
   kpi, messageVolume, pipeline, sources, appointments,
@@ -104,6 +113,7 @@ function formatVND(n: number) {
 }
 
 function onDateFilter(range: { from: string; to: string; preset: string }) {
+  currentDateRange.value = { from: range.from, to: range.to };
   fetchAll({ from: range.from, to: range.to });
 }
 

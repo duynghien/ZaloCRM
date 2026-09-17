@@ -36,6 +36,7 @@
       <v-tab value="messages">Tin nhắn</v-tab>
       <v-tab value="contacts">Khách hàng</v-tab>
       <v-tab value="appointments">Lịch hẹn</v-tab>
+      <v-tab v-if="canViewAiCost" value="ai-usage">Chi phí AI</v-tab>
     </v-tabs>
 
     <v-window v-model="tab">
@@ -69,13 +70,25 @@
           />
         </v-card>
       </v-window-item>
+      <v-window-item v-if="canViewAiCost" value="ai-usage">
+        <AiUsageReportTab ref="aiTabRef" :from="dateFrom" :to="dateTo" />
+      </v-window-item>
     </v-window>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { api } from '@/api';
+import { useAuthStore } from '@/stores/auth';
+import AiUsageReportTab from '@/components/reports/AiUsageReportTab.vue';
+import { transformContactReport, transformAppointmentReport } from './reports-data-transformers';
+
+const route = useRoute();
+const authStore = useAuthStore();
+const canViewAiCost = computed(() => authStore.isAdmin);
+const aiTabRef = ref<InstanceType<typeof AiUsageReportTab> | null>(null);
 
 // Date defaults: last 30 days
 const today = new Date();
@@ -85,9 +98,15 @@ const fmt = (d: Date) => d.toISOString().slice(0, 10);
 
 const dateFrom = ref(fmt(prior));
 const dateTo = ref(fmt(today));
-const tab = ref('messages');
+const tab = ref((route.query.tab as string) || 'messages');
 const loading = ref(false);
 const exporting = ref(false);
+
+watch(() => route.query.tab, (newTab) => {
+  if (typeof newTab === 'string' && newTab) {
+    tab.value = newTab;
+  }
+});
 
 const msgData = ref<{ date: string; sent: number; received: number }[]>([]);
 const contactData = ref<{ label: string; count: number }[]>([]);
@@ -110,6 +129,10 @@ const aptHeaders = [
 ];
 
 async function fetchReport() {
+  if (tab.value === 'ai-usage') {
+    aiTabRef.value?.refresh();
+    return;
+  }
   loading.value = true;
   try {
     const params = { from: dateFrom.value, to: dateTo.value };
@@ -118,31 +141,10 @@ async function fetchReport() {
       msgData.value = res.data.data || res.data;
     } else if (tab.value === 'contacts') {
       const res = await api.get('/reports/contacts', { params });
-      const raw = res.data;
-      // Combine treatmentProgress + medicationStatus distributions
-      const rows: { label: string; count: number }[] = [];
-      const days = Array.isArray(raw.newPerDay) ? raw.newPerDay : [];
-      for (const d of days) {
-        rows.push({ label: `Mới ${d.date}`, count: Number(d.count ?? 0) });
-      }
-      for (const t of (raw.treatmentProgress ?? [])) {
-        rows.push({ label: `Tiến triển: ${t.status}`, count: Number(t.count ?? 0) });
-      }
-      for (const m of (raw.medicationStatus ?? [])) {
-        rows.push({ label: `Thuốc: ${m.status}`, count: Number(m.count ?? 0) });
-      }
-      contactData.value = rows;
+      contactData.value = transformContactReport(res.data);
     } else if (tab.value === 'appointments') {
       const res = await api.get('/reports/appointments', { params });
-      const raw = res.data;
-      const rows: { label: string; count: number }[] = [];
-      for (const s of (raw.byStatus ?? [])) {
-        rows.push({ label: `Trạng thái: ${s.status}`, count: Number(s.count ?? 0) });
-      }
-      for (const t of (raw.byType ?? [])) {
-        rows.push({ label: `Loại: ${t.type ?? '—'}`, count: Number(t.count ?? 0) });
-      }
-      aptData.value = rows;
+      aptData.value = transformAppointmentReport(res.data);
     }
   } catch (err) {
     console.error('Report fetch error:', err);
@@ -161,7 +163,8 @@ async function exportExcel() {
     const url = URL.createObjectURL(res.data);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `report-${tab.value}-${dateFrom.value}-${dateTo.value}.xlsx`;
+    const prefix = tab.value === 'ai-usage' ? 'ai-usage-report' : `report-${tab.value}`;
+    a.download = `${prefix}-${dateFrom.value}-to-${dateTo.value}.xlsx`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
