@@ -3,6 +3,9 @@ import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { generateExecutiveBrief } from './report-brief-service.js';
+import { generateReportPdfFile } from './report-pdf-service.js';
+import { formatMarkdownForZalo, splitReportBySections } from './zalo-text-formatter.js';
 
 export type ReportPrefixType = 'digest' | 'audit' | 'none';
 
@@ -14,7 +17,9 @@ export interface SendZaloReportOptions {
   targetThreadId?: string;
   markdownContent: string;
   reportTitle?: string;
+  periodText?: string;
   customPrefixType?: ReportPrefixType;
+  deliveryMode?: 'dual_pdf' | 'full_text';
   executionGuard: () => Promise<void>;
   onPartSent?: (partsSent: number, totalParts: number) => Promise<void>;
 }
@@ -95,12 +100,40 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
     targetUid,
     targetThreadId,
     markdownContent,
+    reportTitle,
+    periodText,
     customPrefixType = 'digest',
+    deliveryMode,
   } = options;
-  const parts = splitReportForZalo(markdownContent, MAX_ZALO_MESSAGE_LENGTH, customPrefixType);
+
+  let parts: string[] = [];
+  let attachmentPath: string | undefined;
+  let pdfCleanup: (() => Promise<void>) | null = null;
   let partsSent = 0;
   let deliveryUncertain = false;
+
+  const isDualPdf = deliveryMode === 'dual_pdf' || (deliveryMode !== 'full_text' && customPrefixType === 'digest' && (markdownContent.includes('## 1.') || markdownContent.includes('## 🎯')));
+
   try {
+    if (isDualPdf) {
+      try {
+        const brief = generateExecutiveBrief(markdownContent);
+        const title = reportTitle || 'Báo Cáo Điều Hành';
+        const pdfFile = await generateReportPdfFile(title, markdownContent, { periodText });
+        attachmentPath = pdfFile.filePath;
+        pdfCleanup = pdfFile.cleanup;
+        parts = [brief];
+      } catch (pdfErr) {
+        logger.warn({ error: pdfErr }, '[zalo-report-sender] Failed to generate PDF, falling back to full text');
+        const cleanText = formatMarkdownForZalo(markdownContent);
+        parts = splitReportBySections(cleanText, MAX_ZALO_MESSAGE_LENGTH, (p, t) => formatPrefix(customPrefixType, p, t));
+      }
+    } else if (deliveryMode === 'full_text' || markdownContent.includes('##')) {
+      const cleanText = formatMarkdownForZalo(markdownContent);
+      parts = splitReportBySections(cleanText, MAX_ZALO_MESSAGE_LENGTH, (p, t) => formatPrefix(customPrefixType, p, t));
+    } else {
+      parts = splitReportForZalo(markdownContent, MAX_ZALO_MESSAGE_LENGTH, customPrefixType);
+    }
     if (!accountId) throw new Error('report_sender_required');
     if (typeof options.executionGuard !== 'function') throw new Error('report_execution_guard_required');
 
@@ -231,7 +264,11 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
 
       zaloRateLimiter.recordSend(accountId);
       deliveryUncertain = true;
-      await currentApi.sendMessage({ msg: parts[i] }, destId, threadType);
+      if (attachmentPath && i === parts.length - 1) {
+        await currentApi.sendMessage({ msg: parts[i], attachments: [attachmentPath] }, destId, threadType);
+      } else {
+        await currentApi.sendMessage({ msg: parts[i] }, destId, threadType);
+      }
       partsSent++;
       await options.onPartSent?.(partsSent, parts.length);
       deliveryUncertain = false;
@@ -241,6 +278,10 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
     const message = error instanceof Error ? error.message : 'Lỗi khi gửi tin qua Zalo API';
     logger.warn({ accountId, partsSent, totalParts: parts.length, deliveryUncertain }, '[zalo-report-sender] Dispatch stopped');
     return { success: false, partsSent, totalParts: parts.length, deliveryUncertain, error: message };
+  } finally {
+    if (pdfCleanup) {
+      await pdfCleanup();
+    }
   }
 }
 

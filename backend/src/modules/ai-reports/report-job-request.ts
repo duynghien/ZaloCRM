@@ -12,6 +12,7 @@ export type ReportJobRequest = {
   sendZalo: boolean; sendEmail: boolean;
   zaloDestinationType: 'self' | 'cloud' | 'uid';
   zaloTargetUid?: string;
+  zaloDeliveryMode?: 'dual_pdf' | 'full_text';
   emailRecipients: string[];
 };
 export type FrozenReportJobRequest = Omit<ReportJobRequest, 'groupTargets' | 'groupThreadIds'> & {
@@ -54,5 +55,7 @@ export function normalizeReportJobRequest(input: Record<string, unknown>): Repor
   if (sendZalo && destination === 'uid' && !input.zalo_target_uid) throw new ReportJobValidationError('zalo_target_uid is required');
   if (input.title !== undefined && (typeof input.title !== 'string' || input.title.length > 200)) throw new ReportJobValidationError('Invalid report title');
   if (input.report_type !== undefined && !['daily', 'weekly', 'on_demand'].includes(input.report_type as string)) throw new ReportJobValidationError('Invalid report type');
-  return { fromDate, toDate, groupThreadIds, ...(groupTargets ? { groupTargets } : {}), ...(input.zalo_account_id ? { senderAccountId: input.zalo_account_id as string } : {}), ...(input.title !== undefined ? { title: input.title as string } : {}), reportType: (input.report_type ?? 'on_demand') as ReportJobRequest['reportType'], sendZalo, sendEmail, zaloDestinationType: destination as ReportJobRequest['zaloDestinationType'], ...(input.zalo_target_uid ? { zaloTargetUid: input.zalo_target_uid as string } : {}), emailRecipients };
+  if (input.zalo_delivery_mode !== undefined && !['dual_pdf', 'full_text'].includes(input.zalo_delivery_mode as string)) throw new ReportJobValidationError('Invalid Zalo delivery mode');
+  const zaloDeliveryMode = input.zalo_delivery_mode === 'full_text' ? 'full_text' : 'dual_pdf';
+  return { fromDate, toDate, groupThreadIds, ...(groupTargets ? { groupTargets } : {}), ...(input.zalo_account_id ? { senderAccountId: input.zalo_account_id as string } : {}), ...(input.title !== undefined ? { title: input.title as string } : {}), reportType: (input.report_type ?? 'on_demand') as ReportJobRequest['reportType'], sendZalo, sendEmail, zaloDestinationType: destination as ReportJobRequest['zaloDestinationType'], ...(input.zalo_target_uid ? { zaloTargetUid: input.zalo_target_uid as string } : {}), zaloDeliveryMode, emailRecipients };
 }

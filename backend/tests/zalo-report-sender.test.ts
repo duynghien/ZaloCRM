@@ -266,21 +266,71 @@ describe('zalo-report-sender', () => {
       expect(result.error).toContain('report_destination_required');
     });
 
-    it('handles Zalo API failure and captures error details with deliveryUncertain state', async () => {
-      mockApi.sendMessage.mockRejectedValue(new Error('Mất kết nối mạng Zalo'));
+    it('dispatches executive report in dual_pdf mode with brief message and PDF attachment', async () => {
+      const executiveMarkdown = `# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP — TỨC THÌ
+*Thời gian: 17:00 16/09/2026 — 09:40 17/09/2026 | Số nhóm theo dõi: 1 (1 nhóm có hoạt động)*
+
+---
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI (Core Highlights)
+* Điểm 1: Hoạt động chuẩn bị đầy đủ.
+
+## 📋 5. KẾ HOẠCH & HÀNH ĐỘNG TIẾP THEO (Next Steps & Assignments)
+| # | Hành động | Người phụ trách | Thời hạn | Ưu tiên |
+|---|---|---|---|---|
+| 1 | Kiểm tra thiết bị | Quản lý | Cuối ca | 🔴 Cao |
+`;
+
+      const result = await sendReportToZalo({
+        accountId,
+        orgId,
+        destinationType: 'uid',
+        targetUid: 'user-uid-789',
+        markdownContent: executiveMarkdown,
+        reportTitle: 'Báo Cáo Điều Hành Tức Thì',
+        deliveryMode: 'dual_pdf',
+        executionGuard: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.partsSent).toBe(1);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(1);
+
+      const [callArg, targetDest, targetThread] = mockApi.sendMessage.mock.calls[0];
+      expect(targetDest).toBe('user-uid-789');
+      expect(targetThread).toBe(0);
+      expect(callArg.msg).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP');
+      expect(callArg.msg).toContain('🎯 3 ĐIỂM CỐT LÕI (CORE HIGHLIGHTS):');
+      expect(callArg.msg).toContain('📎 Bản báo cáo chi tiết đầy đủ đính kèm trong file PDF bên dưới.');
+      expect(callArg.attachments).toBeDefined();
+      expect(callArg.attachments.length).toBe(1);
+      expect(callArg.attachments[0]).toMatch(/\.pdf$/i);
+    });
+
+    it('dispatches clean plain text without attachments when deliveryMode is full_text', async () => {
+      const executiveMarkdown = `# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP
+## 🎯 1. TÓM TẮT
+* **Việc 1:** Làm xong.
+`;
 
       const result = await sendReportToZalo({
         accountId,
         orgId,
         destinationType: 'group',
         targetThreadId: 'group-thread-456',
-        markdownContent: 'Nội dung',
+        markdownContent: executiveMarkdown,
+        deliveryMode: 'full_text',
         executionGuard: vi.fn().mockResolvedValue(undefined),
       });
 
-      expect(result.success).toBe(false);
-      expect(result.deliveryUncertain).toBe(true);
-      expect(result.error).toBe('Mất kết nối mạng Zalo');
+      expect(result.success).toBe(true);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(1);
+
+      const [callArg] = mockApi.sendMessage.mock.calls[0];
+      expect(callArg.attachments).toBeUndefined();
+      expect(callArg.msg).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP');
+      expect(callArg.msg).toContain('• Việc 1: Làm xong.');
+      expect(callArg.msg).not.toContain('**');
     });
   });
 });

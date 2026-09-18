@@ -88,7 +88,9 @@ export async function runReportJob(job: Job): Promise<void> {
       const dispatchGuard = async () => { await guard(); if (!await prisma.aiReportJobDispatch.count({ where: dispatchFence() })) throw new Error('Dispatch lease lost'); };
       let result: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string };
       if (channel === 'zalo') {
-        result = await sendReportToZalo({ orgId: job.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
+        const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
+        const toStr = report.periodTo.toLocaleDateString('vi-VN');
+        result = await sendReportToZalo({ orgId: job.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
           const updated = await prisma.aiReportJobDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } });
           if (!updated.count) throw new Error('Dispatch acknowledgment lease lost');
         } });

@@ -53,10 +53,13 @@ export async function resendReport(user: User, report: GeneratedReport, body: Re
         const dispatchFence = () => ({ resendId: attempt.id, channel, status: 'claimed', leaseOwner: attempt.leaseOwner, leaseExpiresAt: { gt: new Date() } });
         const dispatchGuard = async () => { await guard(); if (!await prisma.aiReportResendDispatch.count({ where: dispatchFence() })) throw new Error('Resend dispatch lease lost'); };
         let result: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string };
-        if (channel === 'zalo') result = await sendReportToZalo({ orgId: user.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
-          if (!(await prisma.aiReportResendDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } })).count) throw new Error('Resend acknowledgment lease lost');
-        } });
-        else {
+        if (channel === 'zalo') {
+          const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
+          const toStr = report.periodTo.toLocaleDateString('vi-VN');
+          result = await sendReportToZalo({ orgId: user.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
+            if (!(await prisma.aiReportResendDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } })).count) throw new Error('Resend acknowledgment lease lost');
+          } });
+        } else {
           await dispatchGuard();
           const email = await sendReportEmail({ executionGuard: dispatchGuard, orgId: user.orgId, toEmail: request.emailRecipients, reportTitle: report.title, markdownContent: report.summaryContent });
           result = { ...email, partsSent: email.success ? 1 : 0, totalParts: 1, deliveryUncertain: !email.success };

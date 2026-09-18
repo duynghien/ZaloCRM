@@ -111,6 +111,7 @@ COPY --chown=node:node --from=production-dependencies /runtime/backend/node_modu
 COPY --chown=node:node --from=backend-builder /app/backend/dist ./backend/dist
 COPY --chown=node:node --from=backend-builder /app/backend/package.json ./backend/package.json
 COPY --chown=node:node --from=backend-builder /app/backend/prisma/migrations ./backend/prisma/migrations
+COPY --chown=node:node --from=backend-builder /app/backend/assets ./backend/assets
 COPY --chown=node:node --from=frontend-builder /app/frontend/dist ./backend/static
 USER node
 EXPOSE 3000

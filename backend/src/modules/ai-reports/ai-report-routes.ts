@@ -7,6 +7,7 @@ import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { sendReportToZalo, formatTasksForZaloMessage } from './zalo-report-sender.js';
+import { generateReportPdfBuffer } from './report-pdf-service.js';
 import type { ReportActionItem } from './report-action-item-parser.js';
 import { sendReportEmail, getOrgSmtpConfig, type SmtpConfig } from './email-service.js';
 import { getOrgAutomationSettings, type AutomationSettings } from './report-cron.js';
@@ -290,6 +291,48 @@ export async function aiReportRoutes(app: FastifyInstance) {
     }
 
     return { report };
+  });
+
+  // ── 6b. Download Report PDF ──────────────────────────────────────────────────
+  app.get('/api/v1/ai-reports/:id/pdf', async (request: FastifyRequest, reply: FastifyReply) => {
+    const user = request.user!;
+    const { id } = request.params as { id: string };
+
+    const report = await prisma.generatedReport.findFirst({
+      where: { id, orgId: user.orgId },
+      include: {
+        createdBy: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+
+    if (!report || !(await canAccessReport(user, report))) {
+      return reply.status(404).send({ error: 'Report not found' });
+    }
+
+    const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
+    const toStr = report.periodTo.toLocaleDateString('vi-VN');
+    const buffer = await generateReportPdfBuffer(report.title, report.summaryContent, {
+      authorName: report.createdBy?.fullName || undefined,
+      reportType: report.reportType,
+      periodText: `${fromStr} — ${toStr}`,
+    });
+
+    const dateSlug = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const cleanTitleSlug = report.title
+      .toLowerCase()
+      .replace(/[đ]/g, 'd')
+      .replace(/[Đ]/g, 'd')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 30) || 'bao-cao-dieu-hanh';
+
+    const filename = `${cleanTitleSlug}-${dateSlug}.pdf`;
+
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+    return reply.send(buffer);
   });
 
   // ── 7. Resend Report to Zalo or Email ───────────────────────────────────────
