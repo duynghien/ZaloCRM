@@ -65,6 +65,59 @@ describe('2. Gemini & OpenAI Provider Adapters', () => {
     });
     expect(openai.type).toBe('openai');
     expect(openai.supportsVision).toBe(true);
+
+    // DeepSeek Flash model enables vision even if DB has supportsVision: false
+    const deepseekFlash = new OpenAiCompatibleProvider({
+      type: 'deepseek',
+      apiKey: 'sk-deepseek-test',
+      model: 'deepseek-flash',
+      supportsVision: false,
+    });
+    expect(deepseekFlash.type).toBe('deepseek');
+    expect(deepseekFlash.supportsVision).toBe(true);
+  });
+
+  it('OpenAiCompatibleProvider formats image_url with base64 data URL for multimodal DeepSeek Flash', async () => {
+    const deepseekFlash = new OpenAiCompatibleProvider({
+      type: 'deepseek',
+      apiKey: 'sk-deepseek-test',
+      model: 'deepseek-flash',
+    });
+
+    let sentMessages: any = null;
+    (deepseekFlash as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockImplementation(async (params: any) => {
+            sentMessages = params.messages;
+            return {
+              choices: [{ message: { content: 'DeepSeek Vision analysis' } }],
+              usage: { prompt_tokens: 20, completion_tokens: 15 },
+            };
+          }),
+        },
+      },
+    };
+
+    const multimodalParts = [
+      { text: 'Phân tích hình ảnh này' },
+      { inlineData: { mimeType: 'image/jpeg', data: 'ZXhhbXBsZQ==' } },
+    ];
+
+    const result = await deepseekFlash.generateContent(multimodalParts, {
+      budget: { reserve: async () => ({ attemptKey: 'k', maxOutputTokens: 100 }), complete: async () => {} } as any,
+      executionGuard: async () => {},
+    });
+
+    expect(result).toBe('DeepSeek Vision analysis');
+    expect(sentMessages).toHaveLength(1);
+    const userMsg = sentMessages[0];
+    expect(Array.isArray(userMsg.content)).toBe(true);
+    expect(userMsg.content[0]).toEqual({ type: 'text', text: 'Phân tích hình ảnh này' });
+    expect(userMsg.content[1]).toEqual({
+      type: 'image_url',
+      image_url: { url: 'data:image/jpeg;base64,ZXhhbXBsZQ==' },
+    });
   });
 });
 
@@ -363,6 +416,152 @@ describe('10. OpenAI-Compatible Content String Normalization', () => {
     expect(typeof sentMessages[0].content).toBe('string');
     expect(sentMessages[0].content).toContain('Phần mở đầu báo cáo.');
     expect(sentMessages[0].content).toContain('Phần tổng hợp số liệu.');
+  });
+});
+
+describe('11. Three-Tier Failover Chain (DeepSeek -> Gemini -> OpenAI)', () => {
+  it('fails over from DeepSeek to Gemini, then from Gemini to OpenAI when first two fail', async () => {
+    const mockBudget: ReportJobBudget = {
+      reserve: vi.fn(async (_in, maxOut) => ({ attemptKey: 'attempt-tri', maxOutputTokens: maxOut })),
+      complete: vi.fn(async () => {}),
+    };
+
+    const router = new AiProviderRouter({
+      primaryProvider: 'deepseek',
+      providers: {
+        deepseek: { type: 'deepseek', apiKey: 'key-d', model: 'deepseek-flash' },
+        gemini: { type: 'gemini', apiKey: 'key-g', model: 'gemini-2.5-flash' },
+        openai: { type: 'openai', apiKey: 'key-o', model: 'gpt-4o-mini' },
+      },
+      fallbackEnabled: true,
+      fallbackChain: ['gemini', 'openai'],
+      allowSystemFallback: true,
+    });
+
+    const deepseek = router.getProvider('deepseek')!;
+    const gemini = router.getProvider('gemini')!;
+    const openai = router.getProvider('openai')!;
+
+    vi.spyOn(deepseek, 'generateContent').mockRejectedValue(new Error('DeepSeek 429 Quota Exceeded'));
+    vi.spyOn(gemini, 'generateContent').mockRejectedValue(new Error('Gemini 503 Service Unavailable'));
+    vi.spyOn(openai, 'generateContent').mockResolvedValue('Thành công từ OpenAI');
+
+    const fallbackTelemetryList: any[] = [];
+    const result = await router.generateContent('Báo cáo doanh số', {
+      budget: mockBudget,
+      executionGuard: async () => {},
+      onFallback: (t) => fallbackTelemetryList.push(t),
+    });
+
+    expect(result).toBe('Thành công từ OpenAI');
+    expect(fallbackTelemetryList.length).toBe(1);
+    expect(fallbackTelemetryList[0].isFallback).toBe(true);
+    expect(fallbackTelemetryList[0].fallbackProvider).toBe('openai');
+  });
+});
+
+describe('12. Chat Copilot Multi-Provider Failover', () => {
+  it('chatCopilotService fails over to fallback provider when primary provider fails', async () => {
+    const { chatCopilotService } = await import('../../src/modules/chat/copilot/chat-copilot-service.js');
+    const callerModule = await import('../../src/modules/chat/copilot/chat-copilot-ai-caller.js');
+    const settingsService = await import('../../src/modules/ai-reports/ai-provider-settings-service.js');
+
+    vi.spyOn(settingsService, 'getOrgAiProviderCredentials').mockResolvedValue({
+      primaryProvider: 'deepseek',
+      providers: {
+        deepseek: { type: 'deepseek', apiKey: 'key-d', model: 'deepseek-flash' },
+        gemini: { type: 'gemini', apiKey: 'key-g', model: 'gemini-2.5-flash' },
+      },
+      fallbackEnabled: true,
+      fallbackChain: ['gemini'],
+      allowSystemFallback: true,
+      monthlyBudgetVnd: 0,
+      usdToVndRate: 25400,
+    });
+
+    vi.spyOn(chatCopilotService, 'getOrgBusinessContext').mockResolvedValue('');
+
+    const calledProviders: string[] = [];
+    vi.spyOn(callerModule, 'callCopilotAiProvider').mockImplementation(async (type) => {
+      calledProviders.push(type);
+      if (type === 'deepseek') {
+        throw new Error('DeepSeek 429 Rate Limit');
+      }
+      return JSON.stringify({
+        smartReplies: [{ label: 'Tư vấn', content: 'Xin chào, tôi có thể hỗ trợ gì?', tone: 'consultative' }],
+        suggestedActions: [],
+        alerts: [],
+      });
+    });
+
+    const result = await chatCopilotService.generateCopilotAnalysis(
+      'org-failover-test',
+      'conv-failover-test',
+      [
+        {
+          id: 'msg-1',
+          senderType: 'contact',
+          content: 'Cần tư vấn đơn hàng',
+          contentType: 'text',
+          sentAt: new Date(),
+        },
+      ],
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.smartReplies).toHaveLength(1);
+    expect(calledProviders).toEqual(['deepseek', 'gemini']);
+  });
+});
+
+describe('13. Recursive Null Byte Sanitization (Postgres 22P05 Defense)', () => {
+  it('strips null bytes from strings, arrays, and nested objects', async () => {
+    const { sanitizeJsonNullBytes } = await import('../../src/modules/attachments/attachment-processor.js');
+
+    const input = {
+      filename: 'report\u0000.pdf',
+      extractedText: 'Dữ liệu quan trọng\u0000 với null byte',
+      sheetNames: ['Doanh số\u0000', 'Chi phí'],
+      nested: {
+        deepKey: 'value\u0000123',
+        array: ['a\u0000b', { sub: 'hello\u0000world' }],
+      },
+      numberVal: 42,
+      boolVal: true,
+      nullVal: null,
+    };
+
+    const sanitized = sanitizeJsonNullBytes(input);
+
+    expect(sanitized.filename).toBe('report.pdf');
+    expect(sanitized.extractedText).toBe('Dữ liệu quan trọng với null byte');
+    expect(sanitized.sheetNames).toEqual(['Doanh số', 'Chi phí']);
+    expect(sanitized.nested.deepKey).toBe('value123');
+    expect(sanitized.nested.array[0]).toBe('ab');
+    expect(sanitized.nested.array[1].sub).toBe('helloworld');
+    expect(sanitized.numberVal).toBe(42);
+    expect(sanitized.boolVal).toBe(true);
+    expect(sanitized.nullVal).toBeNull();
+  });
+
+  it('handles deeply nested structures beyond maxDepth safely with iterative fallback', async () => {
+    const { sanitizeJsonNullBytes } = await import('../../src/modules/attachments/attachment-processor.js');
+
+    // Create 25 levels deep nesting
+    let deepObj: any = { leaf: 'leaf\u0000value' };
+    for (let i = 0; i < 25; i++) {
+      deepObj = { level: i, next: deepObj };
+    }
+
+    const sanitized = sanitizeJsonNullBytes(deepObj, 0, 20);
+    expect(sanitized).toBeDefined();
+
+    // Traverse down to leaf
+    let curr = sanitized;
+    while (curr.next) {
+      curr = curr.next;
+    }
+    expect(curr.leaf).toBe('leafvalue');
   });
 });
 

@@ -11,11 +11,11 @@ describe('AI Provider Settings Helpers', () => {
   it('creates complete default settings with all 4 providers', () => {
     const defaults = createDefaultAiProviderSettings();
 
-    expect(defaults.primaryProvider).toBe('gemini');
+    expect(defaults.primaryProvider).toBe('deepseek');
     expect(defaults.isSystemDefault).toBe(true);
     expect(defaults.fallbackEnabled).toBe(true);
     expect(defaults.allowSystemFallback).toBe(true);
-    expect(defaults.fallbackChain).toEqual(['deepseek', 'openai']);
+    expect(defaults.fallbackChain).toEqual(['gemini', 'openai']);
 
     for (const provider of ALL_AI_PROVIDERS) {
       expect(defaults.providers[provider]).toBeDefined();
@@ -36,11 +36,11 @@ describe('AI Provider Settings Helpers', () => {
 
     const chainForOpenai = computeFallbackChain('openai');
     expect(chainForOpenai).not.toContain('openai');
-    expect(chainForOpenai).toEqual(['gemini', 'deepseek', 'custom']);
+    expect(chainForOpenai).toEqual(['deepseek', 'gemini', 'custom']);
 
     const chainForCustom = computeFallbackChain('custom');
     expect(chainForCustom).not.toContain('custom');
-    expect(chainForCustom).toEqual(['gemini', 'deepseek', 'openai']);
+    expect(chainForCustom).toEqual(['deepseek', 'gemini', 'openai']);
   });
 
   it('has model suggestions for all providers', () => {
@@ -80,12 +80,12 @@ describe('AI Provider Settings Helpers', () => {
     expect(merged.providers.gemini.model).toBe('gemini-2.5-flash');
     expect(merged.providers.openai.model).toBe('gpt-4o-mini');
     expect(merged.providers.custom.model).toBe('llama-3.3-70b');
-    expect(DEFAULT_AI_PROVIDERS.deepseek.model).toBe('deepseek-chat');
+    expect(DEFAULT_AI_PROVIDERS.deepseek.model).toBe('deepseek-flash');
   });
 
   describe('Primary Provider Auto-Switch and 1-Click Logic', () => {
     it('detects when current primary provider has no key configured', () => {
-      const settings = createDefaultAiProviderSettings(); // primary is gemini with empty key
+      const settings = createDefaultAiProviderSettings(); // primary is deepseek with empty key
       const currentPrimaryConfig = settings.providers[settings.primaryProvider];
       const isCurrentPrimaryUnset = !currentPrimaryConfig.apiKey && !currentPrimaryConfig.apiKeySet;
       expect(isCurrentPrimaryUnset).toBe(true);
@@ -93,7 +93,7 @@ describe('AI Provider Settings Helpers', () => {
 
     it('detects when current primary provider already has a key configured or masked', () => {
       const settings = createDefaultAiProviderSettings();
-      settings.providers.gemini.apiKeySet = true;
+      settings.providers.deepseek.apiKeySet = true;
       const currentPrimaryConfig = settings.providers[settings.primaryProvider];
       const isCurrentPrimaryUnset = !currentPrimaryConfig.apiKey && !currentPrimaryConfig.apiKeySet;
       expect(isCurrentPrimaryUnset).toBe(false);
@@ -101,13 +101,13 @@ describe('AI Provider Settings Helpers', () => {
 
     it('enables 1-click set as primary when another provider has an apiKey or apiKeySet', () => {
       const settings = createDefaultAiProviderSettings();
-      settings.primaryProvider = 'gemini';
-      settings.providers.gemini.apiKeySet = true;
+      settings.primaryProvider = 'deepseek';
+      settings.providers.deepseek.apiKeySet = true;
 
-      // Deepseek has an API key entered
-      settings.providers.deepseek.apiKey = 'sk-deepseek-123456';
+      // Gemini has an API key entered
+      settings.providers.gemini.apiKey = 'sk-gemini-123456';
 
-      const selectedTab = 'deepseek';
+      const selectedTab = 'gemini';
       const canSetAsPrimary =
         selectedTab !== settings.primaryProvider &&
         Boolean(settings.providers[selectedTab].apiKey || settings.providers[selectedTab].apiKeySet);
@@ -117,22 +117,22 @@ describe('AI Provider Settings Helpers', () => {
 
     it('auto-switches primary provider if primary is unset when user types new key on another provider', () => {
       const settings = createDefaultAiProviderSettings();
-      expect(settings.primaryProvider).toBe('gemini');
+      expect(settings.primaryProvider).toBe('deepseek');
 
-      // Primary (gemini) is unset
-      const isCurrentPrimaryUnset = !settings.providers.gemini.apiKey && !settings.providers.gemini.apiKeySet;
+      // Primary (deepseek) is unset
+      const isCurrentPrimaryUnset = !settings.providers.deepseek.apiKey && !settings.providers.deepseek.apiKeySet;
       expect(isCurrentPrimaryUnset).toBe(true);
 
-      const selectedTab = 'deepseek';
-      const newKey = 'sk-deepseek-test';
+      const selectedTab = 'gemini';
+      const newKey = 'sk-gemini-test';
 
       if (newKey && isCurrentPrimaryUnset && selectedTab !== settings.primaryProvider) {
         settings.primaryProvider = selectedTab;
         settings.fallbackChain = computeFallbackChain(selectedTab);
       }
 
-      expect(settings.primaryProvider).toBe('deepseek');
-      expect(settings.fallbackChain).toEqual(['gemini', 'openai', 'custom']);
+      expect(settings.primaryProvider).toBe('gemini');
+      expect(settings.fallbackChain).toEqual(['deepseek', 'openai', 'custom']);
     });
   });
 });

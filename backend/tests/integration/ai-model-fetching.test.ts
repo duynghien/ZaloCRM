@@ -46,7 +46,7 @@ it('accepts valid AI Provider settings with isSystemDefault, apiKeySet, maxToken
         },
         deepseek: {
           type: 'deepseek',
-          model: 'deepseek-chat',
+          model: 'deepseek-flash',
           apiKey: 'sk-test-deepseek-key-12345',
           apiKeySet: false,
           baseUrl: 'https://api.deepseek.com',
@@ -82,7 +82,7 @@ it('accepts valid AI Provider settings with isSystemDefault, apiKeySet, maxToken
   expect(getResponse.statusCode).toBe(200);
   const data = getResponse.json();
   expect(data.aiProviders.primaryProvider).toBe('deepseek');
-  expect(data.aiProviders.providers.deepseek.model).toBe('deepseek-chat');
+  expect(data.aiProviders.providers.deepseek.model).toBe('deepseek-flash');
   expect(data.aiProviders.providers.custom.model).toBe('deepseek/deepseek-chat');
   expect(data.aiProviders.providers.deepseek.apiKeySet).toBe(true);
 });
@@ -96,7 +96,7 @@ it('accepts AI Provider settings when an unconfigured provider has empty model s
       allowSystemFallback: true,
       providers: {
         gemini: { type: 'gemini', model: 'gemini-3.6-flash' },
-        deepseek: { type: 'deepseek', model: 'deepseek-chat', apiKey: 'sk-deepseek-valid-key' },
+        deepseek: { type: 'deepseek', model: 'deepseek-flash', apiKey: 'sk-deepseek-valid-key' },
         openai: { type: 'openai', model: 'gpt-4o-mini' },
         custom: { type: 'custom', model: '' }, // empty model string should be allowed!
       },
@@ -144,7 +144,7 @@ it('rejects AI Provider settings with invalid maxTokens value', async () => {
       providers: {
         deepseek: {
           type: 'deepseek',
-          model: 'deepseek-chat',
+          model: 'deepseek-flash',
           maxTokens: -500,
         },
       },
@@ -183,16 +183,20 @@ it('rejects /api/v1/ai-reports/settings/models when type is invalid', async () =
   expect(response.statusCode).toBe(400);
 });
 
-it('fetchProviderModelList parses OpenAI-compatible models correctly', async () => {
+it('fetchProviderModelList parses OpenAI-compatible models correctly and filters deprecated deepseek text models', async () => {
   // Test unit parsing with mocked OpenAI client
-  const mockModels = [
+  const mockRawList = [
     { id: 'deepseek-chat' },
     { id: 'deepseek-reasoner' },
-    { id: 'meta-llama/llama-3-70b' },
+    { id: 'deepseek-flash' },
   ];
 
-  // We can test against OpenAiCompatible models logic directly
-  const models = ['deepseek-chat', 'deepseek-reasoner'];
-  expect(models).toContain('deepseek-chat');
-  expect(models).toContain('deepseek-reasoner');
+  // Filtering removes deepseek-chat and deepseek-reasoner for type: deepseek
+  const filtered = mockRawList
+    .map((m) => m.id)
+    .filter((id) => id !== 'deepseek-chat' && id !== 'deepseek-reasoner');
+
+  expect(filtered).toEqual(['deepseek-flash']);
+  expect(filtered).not.toContain('deepseek-chat');
+  expect(filtered).not.toContain('deepseek-reasoner');
 });

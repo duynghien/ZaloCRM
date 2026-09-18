@@ -34,6 +34,17 @@ describe('ai-pricing-catalog', () => {
     expect(result.costVnd).toBe(BigInt(Math.round(0.154 * 25400)));
   });
 
+  it('calculates cost for deepseek-flash with $0.15 input, $0.003 cached, and $0.60 output', () => {
+    const result = calculateAiCost('deepseek', 'deepseek-flash', {
+      inputTokens: 2_000_000,
+      cachedTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+
+    expect(result.costUsd).toBe(0.753);
+    expect(result.costVnd).toBe(BigInt(Math.round(0.753 * DEFAULT_USD_VND_RATE)));
+  });
+
   it('calculates cost for custom self-hosted model as 0', () => {
     const result = calculateAiCost('custom', 'ollama/llama3', {
       inputTokens: 1_000_000,
