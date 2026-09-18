@@ -92,6 +92,10 @@ async function readBounded(source: Buffer | string): Promise<Buffer> {
   return buffer;
 }
 
+export function stripNullBytes(str: string): string {
+  return str ? str.replace(/\u0000/g, '') : '';
+}
+
 /**
  * Parse PDF content using pdf-parse with scanned PDF fallback detection.
  */
@@ -100,7 +104,7 @@ async function parsePdf(source: Buffer | string): Promise<PdfParseResult> {
     const buffer = await readBounded(source);
     const data = await pdfParse(buffer);
     if ((data.numpages || 0) > MAX_PDF_PAGES) throw new ParserLimitError('PDF exceeds page limit');
-    const rawText = (data.text || '').trim();
+    const rawText = stripNullBytes((data.text || '').trim());
     const isScanned = rawText.length < 50;
 
     return {
@@ -134,13 +138,14 @@ async function parseExcel(source: Buffer | string): Promise<ExcelParseResult> {
     if (workbook.worksheets.length > MAX_SHEETS) throw new ParserLimitError('Workbook exceeds sheet limit');
     let totalCells = 0;
     workbook.eachSheet((worksheet) => {
-      sheetNames.push(worksheet.name);
+      const cleanSheetName = stripNullBytes(worksheet.name);
+      sheetNames.push(cleanSheetName);
       const rowsText: string[] = [];
       const headerRow = worksheet.getRow(1);
       const headers: string[] = [];
 
       headerRow.eachCell({ includeEmpty: false }, (cell) => {
-        headers.push(String(cell.text || cell.value || '').trim());
+        headers.push(stripNullBytes(String(cell.text || cell.value || '').trim()));
       });
 
       if (headers.length > 0) {
@@ -162,7 +167,7 @@ async function parseExcel(source: Buffer | string): Promise<ExcelParseResult> {
         row.eachCell({ includeEmpty: false }, (cell) => {
           totalCells++;
           if (totalCells > MAX_CELLS) throw new ParserLimitError('Workbook exceeds cell limit');
-          const val = String(cell.text || cell.value || '').trim();
+          const val = stripNullBytes(String(cell.text || cell.value || '').trim());
           if (val) {
             hasContent = true;
             rowValues.push(val);
@@ -182,10 +187,10 @@ async function parseExcel(source: Buffer | string): Promise<ExcelParseResult> {
       });
 
       if (rowCount > 100) {
-        rowsText.push(`*(Sheet "${worksheet.name}" có ${rowCount} dòng, đã trích xuất 100 dòng đầu + các dòng tổng kết)*`);
+        rowsText.push(`*(Sheet "${cleanSheetName}" có ${rowCount} dòng, đã trích xuất 100 dòng đầu + các dòng tổng kết)*`);
       }
 
-      sheetSummaries.push(`### Sheet: ${worksheet.name}\n${rowsText.join('\n')}`);
+      sheetSummaries.push(`### Sheet: ${cleanSheetName}\n${rowsText.join('\n')}`);
     });
 
     return {
