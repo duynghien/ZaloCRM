@@ -102,6 +102,19 @@ export class AiProviderRouter implements AiProvider {
     }
 
     const visionProvider = this.getVisionProvider();
+    if (options.taskType === 'vision_fact_extraction' && primary && !primary.supportsVision && visionProvider) {
+      const visionKey = (visionProvider as any).type || 'vision_fallback';
+      const existingIdx = chain.findIndex((c) => c.provider === visionProvider);
+      if (existingIdx > 0) {
+        const [item] = chain.splice(existingIdx, 1);
+        chain.unshift(item);
+      } else if (existingIdx === -1) {
+        chain.unshift({ key: visionKey, provider: visionProvider });
+      }
+    } else if (options.taskType === 'vision_fact_extraction' && !visionProvider && (!primary || !primary.supportsVision)) {
+      throw new Error('No vision-capable AI provider configured for image fact extraction');
+    }
+
     let lastError: any = null;
 
     for (let i = 0; i < chain.length; i++) {

@@ -141,7 +141,7 @@
               <v-select v-model="generatorForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
                 label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
-              <v-radio-group v-model="generatorForm.zaloDestinationType" density="compact" hide-details>
+              <v-radio-group v-model="generatorForm.zaloDestinationType" density="compact" hide-details class="mb-2">
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
                 <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
               </v-radio-group>
@@ -151,10 +151,15 @@
                 placeholder="Nhập Zalo UID hoặc Số điện thoại người nhận"
                 density="compact"
                 variant="outlined"
-                class="mt-2"
+                class="mt-2 mb-3"
                 hint="Nhập số định danh Zalo UID (ví dụ: 1624669733262510385) hoặc Số điện thoại người nhận (hệ thống sẽ tự động tra cứu danh bạ CRM hoặc tìm kiếm qua Zalo API)."
                 persistent-hint
               />
+              <div class="text-caption font-weight-bold text-medium-emphasis mt-3 mb-1">Hình thức gửi tin Zalo:</div>
+              <v-radio-group v-model="generatorForm.zaloDeliveryMode" density="compact" hide-details>
+                <v-radio value="dual_pdf" label="Tóm tắt trọng tâm + File PDF chi tiết (Khuyên dùng)" />
+                <v-radio value="full_text" label="Toàn văn dạng chữ (Full Text)" />
+              </v-radio-group>
             </div>
 
             <v-checkbox
@@ -243,6 +248,9 @@
                   </v-btn>
                   <v-btn variant="outlined" size="small" prepend-icon="mdi-printer" @click="printReport">
                     In / PDF
+                  </v-btn>
+                  <v-btn variant="outlined" size="small" prepend-icon="mdi-file-pdf-box" :loading="Boolean(downloadingPdfIds[currentReport.id])" @click="handleDownloadPdf(currentReport.id)">
+                    Tải PDF
                   </v-btn>
                   <v-btn color="primary" size="small" prepend-icon="mdi-send-outline" :disabled="!reportCanResend(currentReport)" @click="openResendDialog(currentReport)">
                     Gửi lại
@@ -354,6 +362,24 @@
 
                     <div class="d-flex align-center gap-2">
                       <v-chip
+                        v-if="task.category === 'compliance_missing_evidence'"
+                        size="x-small"
+                        color="warning"
+                        variant="tonal"
+                        class="font-weight-bold"
+                      >
+                        🟡 Cần bổ sung chứng từ
+                      </v-chip>
+                      <v-chip
+                        v-else-if="task.category === 'anomaly_fraud'"
+                        size="x-small"
+                        color="error"
+                        variant="tonal"
+                        class="font-weight-bold"
+                      >
+                        🔴 Bất thường
+                      </v-chip>
+                      <v-chip
                         size="x-small"
                         :color="task.priority === 'high' ? 'error' : task.priority === 'low' ? 'success' : 'warning'"
                         variant="flat"
@@ -438,7 +464,8 @@
                 </div>
               </td>
               <td class="text-right">
-                <v-btn icon="mdi-eye-outline" size="small" variant="text" color="primary" @click="viewReportDetail(rep)" />
+                <v-btn icon="mdi-eye-outline" size="small" variant="text" color="primary" aria-label="Xem chi tiết" @click="viewReportDetail(rep)" />
+                <v-btn icon="mdi-file-pdf-box" size="small" variant="text" color="primary" aria-label="Tải PDF" :loading="Boolean(downloadingPdfIds[rep.id])" @click="handleDownloadPdf(rep.id)" />
                 <v-btn icon="mdi-send-outline" size="small" variant="text" color="secondary" :disabled="!reportCanResend(rep)" aria-label="Gửi lại báo cáo" @click="openResendDialog(rep)" />
               </td>
             </tr>
@@ -771,7 +798,7 @@
               <v-select v-model="resendForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
                 label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
-              <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details>
+              <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details class="mb-2">
             <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
             <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
           </v-radio-group>
@@ -781,10 +808,15 @@
             placeholder="Nhập Zalo UID hoặc Số điện thoại người nhận"
             density="compact"
             variant="outlined"
-            class="mt-2"
+            class="mt-2 mb-3"
             hint="Nhập số định danh Zalo UID hoặc Số điện thoại người nhận"
             persistent-hint
           />
+          <div class="text-caption font-weight-bold text-medium-emphasis mt-3 mb-1">Hình thức gửi tin Zalo:</div>
+          <v-radio-group v-model="resendForm.zaloDeliveryMode" density="compact" hide-details>
+            <v-radio value="dual_pdf" label="Tóm tắt trọng tâm + File PDF chi tiết (Khuyên dùng)" />
+            <v-radio value="full_text" label="Toàn văn dạng chữ (Full Text)" />
+          </v-radio-group>
         </div>
 
         <v-checkbox
@@ -1062,6 +1094,7 @@ const generatorForm = ref({
   senderAccountId: '',
   zaloDestinationType: 'self' as 'self' | 'uid',
   zaloTargetUid: '',
+  zaloDeliveryMode: 'dual_pdf' as 'dual_pdf' | 'full_text',
   sendEmail: false,
   emailRecipient: '',
 });
@@ -1259,6 +1292,7 @@ const resendForm = ref({
   senderAccountId: '',
   zaloDestinationType: 'self' as 'self' | 'uid',
   zaloTargetUid: '',
+  zaloDeliveryMode: 'dual_pdf' as 'dual_pdf' | 'full_text',
   sendEmail: false,
   emailRecipient: '',
 });
@@ -1271,6 +1305,7 @@ function openResendDialog(rep: GeneratedReportItem) {
     ? 'Lượt gửi trước có thể đã gửi một phần hoặc chưa rõ kết quả. Thử lại giữ nguyên lượt gửi; hãy đối soát người nhận trước khi tạo lượt mới.' : '';
   resendForm.value.sendZalo = rep.sentZalo;
   resendForm.value.sendEmail = rep.sentEmail;
+  resendForm.value.zaloDeliveryMode = 'dual_pdf';
   resendDialog.value = true;
 }
 
@@ -1297,6 +1332,7 @@ async function handleResendSubmit() {
       zalo_destination_type: resendForm.value.zaloDestinationType,
       zalo_target_uid: resendForm.value.sendZalo && resendForm.value.zaloDestinationType === 'uid'
         ? resendForm.value.zaloTargetUid.trim() || undefined : undefined,
+      zalo_delivery_mode: resendForm.value.zaloDeliveryMode,
       email_recipients: resendForm.value.emailRecipient ? [resendForm.value.emailRecipient] : undefined,
     };
     const key = await resendAttemptKey(report.id, payload);
@@ -1364,6 +1400,7 @@ async function handleGenerateReport() {
       zalo_destination_type: generatorForm.value.zaloDestinationType,
       zalo_target_uid: generatorForm.value.sendZalo && generatorForm.value.zaloDestinationType === 'uid'
         ? generatorForm.value.zaloTargetUid.trim() || undefined : undefined,
+      zalo_delivery_mode: generatorForm.value.zaloDeliveryMode,
       email_recipients: generatorForm.value.emailRecipient ? [generatorForm.value.emailRecipient] : undefined,
     }, crypto.randomUUID());
     activeJobId.value = res.jobId;
@@ -1428,6 +1465,22 @@ function copyMarkdown() {
 
 function printReport() {
   window.print();
+}
+
+const downloadingPdfIds = ref<Record<string, boolean>>({});
+
+async function handleDownloadPdf(reportId?: string) {
+  const id = reportId || currentReport.value?.id;
+  if (!id) return;
+  downloadingPdfIds.value[id] = true;
+  try {
+    await aiReportApi.downloadReportPdf(id, `bao-cao-${id.slice(0, 8)}.pdf`);
+    showSnackbar('Đã tải xuống file PDF báo cáo thành công!', 'success');
+  } catch (err: any) {
+    showSnackbar(err?.response?.data?.error || err?.message || 'Không thể tải file PDF', 'error');
+  } finally {
+    downloadingPdfIds.value[id] = false;
+  }
 }
 
 async function viewReportDetail(rep: GeneratedReportItem) {

@@ -120,6 +120,7 @@ export interface GenerateReportPayload {
   send_email?: boolean;
   zalo_destination_type?: 'self' | 'cloud' | 'uid';
   zalo_target_uid?: string;
+  zalo_delivery_mode?: 'dual_pdf' | 'full_text';
   email_recipients?: string[];
 }
 
@@ -129,6 +130,7 @@ export interface ResendReportPayload {
   send_email?: boolean;
   zalo_destination_type?: 'self' | 'cloud' | 'uid';
   zalo_target_uid?: string;
+  zalo_delivery_mode?: 'dual_pdf' | 'full_text';
   email_recipients?: string[];
 }
 
@@ -191,6 +193,7 @@ export interface ReportActionItem {
   assignee: string;
   deadline: string;
   priority: 'high' | 'medium' | 'low';
+  category?: 'anomaly_fraud' | 'compliance_missing_evidence' | 'operational_task';
   done: boolean;
   completedAt?: string;
   groupThreadId?: string;
@@ -360,5 +363,19 @@ export const aiReportApi = {
       headers: { 'Idempotency-Key': idempotencyKey },
     });
     return res.data;
+  },
+
+  async downloadReportPdf(id: string, defaultFilename = 'bao-cao-dieu-hanh.pdf'): Promise<void> {
+    const res = await api.get(`/ai-reports/${encodeURIComponent(id)}/pdf`, {
+      responseType: 'blob',
+    });
+    const url = window.URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', defaultFilename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
   },
 };

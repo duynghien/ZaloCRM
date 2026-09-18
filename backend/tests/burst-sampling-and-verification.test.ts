@@ -121,6 +121,74 @@ describe('Attachment Burst Sampler & Sanitization', () => {
       expect(candidates[0].contextText).toBe('Báo cáo khay hoa quả ca sáng hôm nay đã chuẩn bị xong:');
     });
 
+    it('assigns subsequent text from a message sent by the same sender within 60s after photo', () => {
+      const rawMessages = [
+        {
+          id: 'msg-photo',
+          senderUid: 'staff-01',
+          senderName: 'Đinh Hương Quỳnh',
+          sentAt: new Date('2026-09-18T07:55:00Z'),
+          contentType: 'image',
+          msgType: 'chat.photo',
+          attachments: [
+            {
+              url: 'https://photo-stal-01.zdn.vn/fruits/matcha.jpg',
+              mimeType: 'image/jpeg',
+            },
+          ],
+        },
+        {
+          id: 'msg-text',
+          senderUid: 'staff-01',
+          senderName: 'Đinh Hương Quỳnh',
+          sentAt: new Date('2026-09-18T07:55:15Z'),
+          contentType: 'text',
+          content: 'Báo cáo hủy 280gr kem matcha. Lý do không đạt',
+        },
+      ];
+
+      const candidates = extractAndDeduplicateCandidates(rawMessages, '/tmp/attachments');
+      expect(candidates.length).toBe(1);
+      expect(candidates[0].contextText).toBe('Báo cáo hủy 280gr kem matcha. Lý do không đạt');
+      expect(candidates[0].senderName).toBe('Đinh Hương Quỳnh');
+    });
+
+    it('enforces anti-interleaving: only assigns subsequent text to the single closest preceding photo', () => {
+      const rawMessages = [
+        {
+          id: 'msg-photo-1',
+          senderUid: 'staff-01',
+          senderName: 'Đinh Hương Quỳnh',
+          sentAt: new Date('2026-09-18T07:54:10Z'),
+          contentType: 'image',
+          msgType: 'chat.photo',
+          attachments: [{ url: 'https://photo-stal-01.zdn.vn/fruits/photo1.jpg', mimeType: 'image/jpeg' }],
+        },
+        {
+          id: 'msg-photo-2',
+          senderUid: 'staff-01',
+          senderName: 'Đinh Hương Quỳnh',
+          sentAt: new Date('2026-09-18T07:54:40Z'),
+          contentType: 'image',
+          msgType: 'chat.photo',
+          attachments: [{ url: 'https://photo-stal-01.zdn.vn/fruits/photo2.jpg', mimeType: 'image/jpeg' }],
+        },
+        {
+          id: 'msg-text',
+          senderUid: 'staff-01',
+          senderName: 'Đinh Hương Quỳnh',
+          sentAt: new Date('2026-09-18T07:55:00Z'),
+          contentType: 'text',
+          content: 'Báo cáo hủy 280gr kem matcha',
+        },
+      ];
+
+      const candidates = extractAndDeduplicateCandidates(rawMessages, '/tmp/attachments');
+      expect(candidates.length).toBe(2);
+      expect(candidates[0].contextText).toBe('');
+      expect(candidates[1].contextText).toBe('Báo cáo hủy 280gr kem matcha');
+    });
+
     it('handles localPath correctly and returns empty string if neither is provided', () => {
       expect(normalizeCandidateKey(undefined, '/path/to/img.jpg')).toBe(`path:${path.resolve('/path/to/img.jpg').toLowerCase()}`);
       expect(normalizeCandidateKey(undefined, undefined)).toBe('');

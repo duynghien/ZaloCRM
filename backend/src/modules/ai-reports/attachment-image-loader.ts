@@ -15,6 +15,7 @@ import {
   samplePhotoBursts,
   type ImageCandidate,
 } from './attachment-burst-sampler.js';
+import type { LoadedPhotoCandidate } from './visual-fact-types.js';
 
 export const MAX_IMAGE_FILE_SIZE = 5 * 1024 * 1024; // 5 MB per single image
 export const MAX_TOTAL_IMAGE_PAYLOAD_BYTES = 12 * 1024 * 1024; // 12 MB max payload across all images
@@ -328,3 +329,71 @@ export async function extractImagePartsFromMessages(
 
   return imageParts;
 }
+
+/**
+ * Loads representative photo candidates preserving their metadata, Buffer, and MIME types
+ * for two-step visual fact extraction.
+ */
+export async function extractLoadedPhotoCandidates(
+  rawMessages: any[],
+  maxPhotos: number = 5,
+  options: ExtractImageOptions = {},
+): Promise<LoadedPhotoCandidate[]> {
+  let uploadDir = options.uploadDir || config.uploadDir || path.resolve(process.cwd(), 'uploads');
+  let attachmentsDir = path.resolve(uploadDir, 'attachments');
+  const tenantDirName = options.orgId ? options.orgId.replace(/[^a-zA-Z0-9_-]/g, '') : 'common';
+  let tenantTargetDir = path.resolve(attachmentsDir, tenantDirName);
+
+  try {
+    if (!fs.existsSync(tenantTargetDir)) {
+      fs.mkdirSync(tenantTargetDir, { recursive: true });
+    }
+  } catch {
+    uploadDir = path.resolve(process.cwd(), 'uploads');
+    attachmentsDir = path.resolve(uploadDir, 'attachments');
+    tenantTargetDir = path.resolve(attachmentsDir, tenantDirName);
+    if (!fs.existsSync(tenantTargetDir)) {
+      fs.mkdirSync(tenantTargetDir, { recursive: true });
+    }
+  }
+
+  const uniqueCandidates = extractAndDeduplicateCandidates(rawMessages, attachmentsDir);
+  if (uniqueCandidates.length === 0) {
+    return [];
+  }
+
+  const bursts = groupCandidatesIntoBursts(uniqueCandidates);
+  const sampledBursts = samplePhotoBursts(bursts, maxPhotos);
+
+  const flatCandidates: ImageCandidate[] = [];
+  sampledBursts.forEach((sb) => {
+    sb.sampledCandidates.forEach((cand) => {
+      flatCandidates.push(cand);
+    });
+  });
+
+  const loadedResults = await runConcurrent(flatCandidates, CONCURRENCY_LIMIT, async (candidate) => {
+    return loadSingleCandidate(candidate, uploadDir, tenantTargetDir, options);
+  });
+
+  const loadedCandidates: LoadedPhotoCandidate[] = [];
+  for (let i = 0; i < flatCandidates.length; i++) {
+    const photo = loadedResults[i];
+    if (photo && photo.buffer && photo.buffer.length > 0) {
+      loadedCandidates.push({
+        candidate: flatCandidates[i],
+        part: {
+          inlineData: {
+            mimeType: photo.mimeType,
+            data: photo.buffer.toString('base64'),
+          },
+        },
+        buffer: photo.buffer,
+        mimeType: photo.mimeType,
+      });
+    }
+  }
+
+  return loadedCandidates;
+}
+

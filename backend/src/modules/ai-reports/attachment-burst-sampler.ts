@@ -31,6 +31,7 @@ export interface ImageCandidate {
   priority: number;
   sentAtMs: number;
   senderId: string;
+  senderName?: string;
   contextText: string;
 }
 
@@ -114,9 +115,17 @@ export function extractAndDeduplicateCandidates(
   let lastTextTime = 0;
   let lastTextSender = '';
 
+  interface TextEvent {
+    sentAtMs: number;
+    senderId: string;
+    content: string;
+  }
+  const textEvents: TextEvent[] = [];
+
   for (const msg of sortedMessages) {
     const msgTime = msg.sentAt ? new Date(msg.sentAt).getTime() : 0;
     const senderId = msg.senderUid || msg.senderName || msg.senderType || 'unknown';
+    const senderName = msg.senderName || senderId;
     const msgText = (msg.content || '') + ' ' + (msg.senderName || '');
     const basePriority = calculatePriority(msgText);
 
@@ -128,6 +137,11 @@ export function extractAndDeduplicateCandidates(
       currentContextText = sanitizeContextualPrecedingText(msg.content);
       lastTextTime = msgTime;
       lastTextSender = senderId;
+      textEvents.push({
+        sentAtMs: msgTime,
+        senderId,
+        content: currentContextText,
+      });
     }
 
     // Determine relevant context for any photos in this message
@@ -175,6 +189,7 @@ export function extractAndDeduplicateCandidates(
             priority: Math.max(basePriority, calculatePriority(att.title || att.name || '')),
             sentAtMs: msgTime,
             senderId,
+            senderName,
             contextText: finalContext,
           });
         }
@@ -202,6 +217,7 @@ export function extractAndDeduplicateCandidates(
                 priority: Math.max(basePriority, calculatePriority(parsed.title || parsed.description || '')),
                 sentAtMs: msgTime,
                 senderId,
+                senderName,
                 contextText: finalContext,
               });
             }
@@ -210,6 +226,35 @@ export function extractAndDeduplicateCandidates(
           // Ignore JSON parse errors
         }
       }
+    }
+  }
+
+  // Pass 2: Bidirectional lookahead context mapping ([0s, +60s]) with Anti-Interleaving
+  // For each following text message, find candidates sent by the same sender within 60s before it.
+  // Rule: ONLY associate with the closest preceding photo immediately before the text message;
+  // NEVER bridge to earlier photos.
+  for (const textEvent of textEvents) {
+    if (!textEvent.content) continue;
+    let closestCandidate: ImageCandidate | null = null;
+    let minDiff = Infinity;
+
+    for (const cand of candidates) {
+      if (cand.senderId !== textEvent.senderId) continue;
+      const diff = textEvent.sentAtMs - cand.sentAtMs;
+      if (diff >= 0 && diff <= 60_000) {
+        if (diff < minDiff) {
+          minDiff = diff;
+          closestCandidate = cand;
+        }
+      }
+    }
+
+    if (closestCandidate && !closestCandidate.contextText) {
+      closestCandidate.contextText = textEvent.content;
+      closestCandidate.priority = Math.max(
+        closestCandidate.priority,
+        calculatePriority(textEvent.content),
+      );
     }
   }
 

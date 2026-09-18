@@ -8,10 +8,41 @@ export interface ReportActionItem {
   assignee: string;
   deadline: string;
   priority: 'high' | 'medium' | 'low';
+  category?: 'anomaly_fraud' | 'compliance_missing_evidence' | 'operational_task';
   done: boolean;
   completedAt?: string;
   groupThreadId?: string;
   groupName?: string;
+}
+
+export function parseActionItemCategory(
+  taskText: string,
+): 'anomaly_fraud' | 'compliance_missing_evidence' | 'operational_task' {
+  const lower = taskText.toLowerCase();
+  if (
+    lower.includes('[nhắc nhở chứng từ]') ||
+    lower.includes('[compliance_missing_evidence]') ||
+    lower.includes('thiếu ảnh cân') ||
+    lower.includes('bổ sung ảnh cân') ||
+    lower.includes('chưa chụp cân') ||
+    lower.includes('thiếu màn hình đo') ||
+    lower.includes('thiếu ảnh chụp cùng cân') ||
+    lower.includes('chụp ảnh đặt trên cân') ||
+    lower.includes('chụp ảnh kèm cân') ||
+    lower.includes('thiếu chứng từ')
+  ) {
+    return 'compliance_missing_evidence';
+  }
+  if (
+    lower.includes('[bất thường]') ||
+    lower.includes('[anomaly_fraud]') ||
+    lower.includes('gian lận') ||
+    lower.includes('sai lệch trọng lượng') ||
+    lower.includes('sai lệch số liệu')
+  ) {
+    return 'anomaly_fraud';
+  }
+  return 'operational_task';
 }
 
 function parsePriority(raw: string): 'high' | 'medium' | 'low' {
@@ -22,7 +53,7 @@ function parsePriority(raw: string): 'high' | 'medium' | 'low' {
 }
 
 function extractSection5(markdown: string): string {
-  const section5Regex = /##\s*📋?\s*5[\.\s][^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/i;
+  const section5Regex = /##\s*[^\n\d]*5[\.\s][^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu;
   const match = markdown.match(section5Regex);
   return match ? match[1].trim() : '';
 }
@@ -88,12 +119,17 @@ export function parseActionItemsFromMarkdown(
       // Clean task numbering if included in text
       task = task.replace(/^\d+[\.\)]\s*/, '').trim();
       if (task.length > 2) {
+        const category = parseActionItemCategory(task);
+        if (category === 'compliance_missing_evidence' && priority === 'high') {
+          priority = 'medium';
+        }
         items.push({
           id: `task-${items.length + 1}`,
           task,
           assignee,
           deadline,
           priority,
+          category,
           done: false,
           groupName: defaultGroupName,
           groupThreadId: defaultGroupThreadId,
@@ -129,12 +165,17 @@ export function parseActionItemsFromMarkdown(
 
         task = task.replace(/^[🔴🟡🟢\s\-\*\d\.]+/, '').trim();
         if (task.length > 3) {
+          const category = parseActionItemCategory(task);
+          if (category === 'compliance_missing_evidence' && priority === 'high') {
+            priority = 'medium';
+          }
           items.push({
             id: `task-${items.length + 1}`,
             task,
             assignee,
             deadline,
             priority,
+            category,
             done: false,
             groupName: defaultGroupName,
             groupThreadId: defaultGroupThreadId,
