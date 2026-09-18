@@ -108,3 +108,13 @@ gantt
 - [x] **Vé Streaming HMAC-SHA256 (60s):** Cơ chế sinh ticket ngắn hạn cho phép Zalo CDN nạp dữ liệu media qua endpoint công khai có ký số mà không để lộ token xác thực người dùng.
 - [x] **Hộp Thoại Phóng To Ảnh Chuẩn CQA (`MediaLightboxDialog.vue`):** Giao diện phẳng 100% Zero Shadow, đường viền 2px cơ học dứt khoát, hỗ trợ xem ảnh nét căng và tải về tệp gốc.
 - [x] **Tác Vụ Dọn Dẹp Định Kỳ (Orphan Cleanup Task):** Cron job chạy mỗi giờ (`0 * * * *`) tự động quét và xóa sạch các tệp staged mồ côi tồn tại quá 2 giờ.
+
+---
+
+### Phase 11: DeepSeek Primary Multimodal & Chuỗi Failover Đa Tầng (ĐÃ HOÀN THÀNH)
+- [x] **DeepSeek Native Multimodal Vision (`deepseek-flash`):** Nâng cấp adapter `OpenAiCompatibleProvider` nhận diện và gửi mảng `image_url` trực tiếp dạng base64 data URL; tự động kích hoạt `supportsVision: true` khi dùng model flash kể cả khi bản ghi DB cũ lưu `false`.
+- [x] **Chuỗi Chuyển Vùng Dự Phòng Đa Tầng (3-Tier Failover Chain):** Cấu hình mặc định toàn hệ thống sang DeepSeek (Chính) -> Gemini (Dự phòng 1) -> OpenAI (Dự phòng 2); áp dụng đồng bộ cho cả AI Reports và Chat Copilot.
+- [x] **Lọc Bỏ Model Text Cũ & Bảng Giá Chi Phí Chuẩn Xác:** Loại bỏ `deepseek-chat` và `deepseek-reasoner` khỏi danh mục gợi ý và luồng refresh model, nhưng bảo lưu trong `AI_PRICING_TABLE` cho telemetry tương thích ngược. Bổ sung giá `deepseek-flash` ($0.15 input, $0.003 cached, $0.60 output).
+- [x] **Loại Trừ Deadlock Bộ Điều Phối AI (Deadlock Prevention):** Cập nhật `getVisionProvider(excludeType)` bỏ qua provider vừa gặp sự cố khi kích hoạt OCR Bridge dự phòng.
+- [x] **Vá Lỗi Unicode Null Byte (Postgres 22P05):** Hàm `sanitizeJsonNullBytes` đệ quy với chốt chặn an toàn `maxDepth = 20`, fallback duyệt lặp và try/catch error boundary bảo vệ worker xử lý tệp đính kèm.
+

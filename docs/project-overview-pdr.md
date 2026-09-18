@@ -51,11 +51,11 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
 - **Tự động nhắc lịch:** Tiến trình chạy ẩn (Cron Job) tự động kiểm tra định kỳ và gửi thông báo nhắc lịch hẹn sắp tới qua Socket.IO và Zalo.
 
 ### 3.6. Phân hệ Báo cáo Điều hành AI Đa Nhà Cung Cấp (Multi-Provider AI Digest & Failover)
-- **Kiến trúc Đa Nhà Cung Cấp (Multi-Provider Engine):** Hỗ trợ linh hoạt các nhà cung cấp: **Google Gemini** (Gemini 2.5/3.0 Flash & Pro), **OpenAI** (GPT-4o, GPT-4o-mini), **DeepSeek** (DeepSeek-V3, DeepSeek-R1) và **Custom AI Gateway** (Ollama, vLLM, OpenRouter).
-- **Tự động Chuyển Vùng Dự Phòng (Failover Chain):** Cấu hình chuỗi dự phòng thông minh (ví dụ: Gemini → OpenAI → DeepSeek). Khi nhà cung cấp chính gặp sự cố (quá tải, lỗi rate limit 429 hoặc timeout), hệ thống tự động chuyển sang provider tiếp theo trong chuỗi.
+- **Kiến trúc Đa Nhà Cung Cấp (Multi-Provider Engine):** Hỗ trợ linh hoạt các nhà cung cấp: **DeepSeek** (DeepSeek-V4.1-Flash Native Multimodal, DeepSeek-V3, DeepSeek-R1), **Google Gemini** (Gemini 2.5/3.0 Flash & Pro), **OpenAI** (GPT-4o, GPT-4o-mini) và **Custom AI Gateway** (Ollama, vLLM, OpenRouter).
+- **Tự động Chuyển Vùng Dự Phòng (Failover Chain):** Cấu hình chuỗi dự phòng thông minh (mặc định: DeepSeek → Gemini → OpenAI). Khi nhà cung cấp chính gặp sự cố (quá tải, lỗi rate limit 429 hoặc timeout), hệ thống tự động chuyển sang provider tiếp theo trong chuỗi.
 - **Single-Layer Budget Reservation:** Tái sử dụng cùng một `attemptKey` xuyên suốt chuỗi failover; token budget chỉ hoàn tất một lần duy nhất khi có provider thành công, loại bỏ hoàn toàn nguy cơ hao hụt ngân sách ảo.
 - **Dynamic Model Discovery & Connection Test:** Tự động dò tìm danh sách các mô hình khả dụng tương ứng với API Key và kiểm tra độ trễ kết nối trực tiếp từ giao diện cài đặt (`POST /api/v1/ai-reports/settings/models`, `POST /api/v1/ai-reports/settings/test-ai`).
-- **Cầu nối Thị Giác Lai (Smart Hybrid Vision Bridge):** Với các mô hình thuần văn bản (DeepSeek), hệ thống tự động điều phối hình ảnh qua provider thị giác hỗ trợ OCR để trích xuất văn bản hoặc chèn placeholder mô tả thay vì làm gián đoạn tiến trình.
+- **Cầu nối Thị Giác Lai (Smart Hybrid Vision Bridge) & Native Multimodal:** Đối với `deepseek-flash`, hỗ trợ Native Multimodal Vision trực tiếp qua base64 image data URL. Với các mô hình thuần văn bản (DeepSeek-V3), hệ thống tự động điều phối hình ảnh qua provider thị giác hỗ trợ OCR để trích xuất văn bản hoặc chèn placeholder mô tả thay vì làm gián đoạn tiến trình (đồng thời tự động loại trừ provider đang gặp sự cố để triệt tiêu nguy cơ deadlock).
 - **Multimodal Burst Sampling & Lấy mẫu ảnh thông minh:**
   - Khử trùng lặp ảnh ứng viên theo Base URL (`dedupCandidatesByBaseUrl`).
   - Lọc khử Prompt Injection đối với ngữ cảnh văn bản đi kèm trước mỗi ảnh.
