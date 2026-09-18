@@ -193,7 +193,7 @@ export async function saveOrgAiProviderSettings(orgId: string, payload: any): Pr
     }
   }
 
-  const updatedProviders: Record<string, any> = {};
+  const updatedProviders: Record<string, any> = { ...(existingData.providers || {}) };
   if (payload.providers && typeof payload.providers === 'object') {
     for (const [type, incoming] of Object.entries(payload.providers)) {
       if (!incoming || typeof incoming !== 'object') continue;

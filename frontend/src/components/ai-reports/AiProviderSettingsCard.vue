@@ -16,24 +16,28 @@
       <v-tab value="deepseek">
         <v-icon start>deepseek.svg</v-icon>
         DeepSeek
+        <v-chip v-if="settings.primaryProvider === 'deepseek'" size="x-small" color="primary" variant="flat" class="ml-1 font-weight-bold">CHÍNH</v-chip>
       </v-tab>
       <v-tab value="gemini">
         <v-icon start>gemini.svg</v-icon>
         Gemini
+        <v-chip v-if="settings.primaryProvider === 'gemini'" size="x-small" color="primary" variant="flat" class="ml-1 font-weight-bold">CHÍNH</v-chip>
       </v-tab>
       <v-tab value="openai">
         <v-icon start>openai.svg</v-icon>
         OpenAI
+        <v-chip v-if="settings.primaryProvider === 'openai'" size="x-small" color="primary" variant="flat" class="ml-1 font-weight-bold">CHÍNH</v-chip>
       </v-tab>
       <v-tab value="custom">
         <v-icon start>auto.svg</v-icon>
         Custom
+        <v-chip v-if="settings.primaryProvider === 'custom'" size="x-small" color="primary" variant="flat" class="ml-1 font-weight-bold">CHÍNH</v-chip>
       </v-tab>
     </v-tabs>
 
-    <div class="d-flex align-center gap-2 mb-3 flex-wrap">
+    <div class="d-flex align-center justify-space-between gap-2 mb-3 flex-wrap">
       <v-radio-group v-model="settings.primaryProvider" inline hide-details density="compact">
-        <span class="text-caption font-weight-bold mr-2">Đặt làm chính:</span>
+        <span class="text-caption font-weight-bold mr-2">Nhà cung cấp chính:</span>
         <v-radio label="DeepSeek" value="deepseek" density="compact" />
         <v-radio label="Gemini" value="gemini" density="compact" />
         <v-radio label="OpenAI" value="openai" density="compact" />
@@ -41,7 +45,7 @@
       </v-radio-group>
       <v-btn
         v-if="canSetAsPrimary"
-        size="x-small"
+        size="small"
         color="warning"
         variant="tonal"
         prepend-icon="mdi-lightning-bolt"
@@ -65,6 +69,8 @@
           :loading="isFetchingModels"
           :hint="modelHint"
           persistent-hint
+          @focus="onModelFocus"
+          @click="onModelFocus"
         >
           <template #append-inner>
             <v-tooltip location="top" text="Tải danh sách model từ API">
@@ -125,6 +131,17 @@
         <v-chip v-if="testResult" size="small" :color="testResult.success ? 'success' : 'error'" variant="flat">
           {{ testResult.success ? `✓ Thành công (${testResult.latencyMs}ms)` : `✗ Lỗi: ${testResult.message}` }}
         </v-chip>
+        <v-btn
+          v-if="testResult?.success && settings.primaryProvider !== selectedTab"
+          size="x-small"
+          color="warning"
+          variant="flat"
+          prepend-icon="mdi-lightning-bolt"
+          class="font-weight-bold"
+          @click="setAsPrimary(selectedTab)"
+        >
+          Đặt {{ getProviderLabel(selectedTab) }} làm chính ngay
+        </v-btn>
       </div>
 
       <v-btn
@@ -178,7 +195,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { aiReportApi, type AiProviderSettings, type TestAiResult, type AiProviderDetail } from '@/api/ai-report-api';
 import { ALL_AI_PROVIDERS, DEFAULT_AI_PROVIDERS, MODEL_SUGGESTIONS, computeFallbackChain } from '@/api/ai-report-view-helpers';
 
@@ -242,6 +259,9 @@ watch(
         settings.value.primaryProvider = selectedTab.value;
       }
     }
+    if (newKey && newKey.trim().length > 8 && !newKey.includes('••••')) {
+      fetchModels();
+    }
   }
 );
 
@@ -279,6 +299,9 @@ async function runTestConnection() {
       supportsVision: currentProvider.value.supportsVision,
     });
     testResult.value = res;
+    if (res.success) {
+      fetchModels();
+    }
   } catch (err: any) {
     testResult.value = {
       success: false,
@@ -310,12 +333,12 @@ const modelHint = computed(() => {
     return `⚠️ ${fetchModelError.value}`;
   }
   if (selectedTab.value === 'deepseek') {
-    return 'Official DeepSeek: deepseek-flash hỗ trợ Native Multimodal Vision. Nhấn 🔄 để tải từ API.';
+    return 'Official DeepSeek: deepseek-flash & deepseek-v4-pro (hỗ trợ Native Multimodal Vision). Tự động tải từ Base URL.';
   }
   if (selectedTab.value === 'custom') {
-    return 'Hỗ trợ bất kỳ OpenAI-compatible gateway nào. Nhấn 🔄 để tải model từ Base URL.';
+    return 'Hỗ trợ bất kỳ OpenAI-compatible gateway nào. Tự động tải model từ Base URL.';
   }
-  return 'Nhấn biểu tượng 🔄 để cập nhật danh sách model trực tiếp từ nhà cung cấp.';
+  return 'Danh sách mô hình tự động cập nhật từ Base URL nhà cung cấp khi chọn.';
 });
 
 async function fetchModels() {
@@ -341,8 +364,23 @@ async function fetchModels() {
   }
 }
 
-watch(selectedTab, () => {
+async function onModelFocus() {
+  if (hasApiKeyConfigured.value && !isFetchingModels.value && !dynamicModels.value[selectedTab.value]?.length) {
+    await fetchModels();
+  }
+}
+
+watch(selectedTab, (newTab) => {
   fetchModelError.value = null;
+  if (hasApiKeyConfigured.value && !dynamicModels.value[newTab]?.length) {
+    fetchModels();
+  }
+});
+
+onMounted(() => {
+  if (hasApiKeyConfigured.value) {
+    fetchModels();
+  }
 });
 </script>
 

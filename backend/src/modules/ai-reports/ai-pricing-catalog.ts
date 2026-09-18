@@ -49,6 +49,11 @@ export const AI_PRICING_TABLE: Record<string, ModelPricing> = {
     cachedInputPerMillion: 0.003,
     outputPerMillion: 0.60,
   },
+  'deepseek-v4-pro': {
+    inputPerMillion: 0.66,
+    cachedInputPerMillion: 0.022,
+    outputPerMillion: 1.98,
+  },
   'deepseek-chat': {
     inputPerMillion: 0.14,
     cachedInputPerMillion: 0.014,

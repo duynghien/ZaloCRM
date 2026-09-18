@@ -15,7 +15,7 @@ export interface FetchModelsOptions {
 
 export const DEFAULT_SUGGESTED_MODELS: Record<AiProviderType, string[]> = {
   gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-  deepseek: ['deepseek-flash'],
+  deepseek: ['deepseek-flash', 'deepseek-v4-pro'],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
   custom: ['mistral-small', 'llama-3.3-70b'],
 };

@@ -45,6 +45,18 @@ describe('ai-pricing-catalog', () => {
     expect(result.costVnd).toBe(BigInt(Math.round(0.753 * DEFAULT_USD_VND_RATE)));
   });
 
+  it('calculates cost for deepseek-v4-pro with $0.66 input, $0.022 cached, and $1.98 output', () => {
+    const result = calculateAiCost('deepseek', 'deepseek-v4-pro', {
+      inputTokens: 2_000_000,
+      cachedTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    });
+
+    // 1M uncached * 0.66 + 1M cached * 0.022 + 1M output * 1.98 = 0.66 + 0.022 + 1.98 = 2.662
+    expect(result.costUsd).toBe(2.662);
+    expect(result.costVnd).toBe(BigInt(Math.round(2.662 * DEFAULT_USD_VND_RATE)));
+  });
+
   it('calculates cost for custom self-hosted model as 0', () => {
     const result = calculateAiCost('custom', 'ollama/llama3', {
       inputTokens: 1_000_000,

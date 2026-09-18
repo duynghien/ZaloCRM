@@ -113,7 +113,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
         options.onUsage?.(usageTelemetry);
 
-        const text = completion.choices[0]?.message?.content || '';
+        const message = completion.choices[0]?.message;
+        const text = message?.content || (message as any)?.reasoning_content || '';
         if (!text) throw new Error(`Empty response received from ${this.type} API`);
 
         if (options.orgId && options.taskType) {
