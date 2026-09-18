@@ -18,6 +18,7 @@ import { normalizeReportJobRequest, ReportJobValidationError, submitReportJob } 
 import { resolveReportTargets, authorizeReportTargets, authorizeReportAccount, decodeReportTargets } from './report-target-service.js';
 import { assertReportAdmission, trackReportProducer } from './report-admission.js';
 import { resendReport } from './report-resend-service.js';
+import { abortActiveReportJob } from './report-job-worker.js';
 import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
 import {
   getOrgAiProviderSettingsDto,
@@ -217,6 +218,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
   app.post('/api/v1/ai-reports/jobs/:id/cancel', async (request: FastifyRequest, reply: FastifyReply) => {
     const job = await prisma.aiReportJob.findFirst({ where: { id: (request.params as { id: string }).id, orgId: request.user!.orgId } });
     if (!job || (job.createdById !== request.user!.id && !isOrganizationAdministrator(request.user!))) return reply.status(404).send({ error: 'Job not found' });
+    abortActiveReportJob(job.id);
     return prisma.$transaction(async tx => {
       await tx.$queryRaw`SELECT id FROM ai_report_jobs WHERE id=${job.id} FOR UPDATE`;
       const current = await tx.aiReportJob.findUniqueOrThrow({ where: { id: job.id } });

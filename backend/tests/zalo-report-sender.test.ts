@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   splitReportForZalo,
   sendReportToZalo,
+  sendMessageWithTimeout,
+  ZALO_MESSAGE_TIMEOUT_MS,
   _clearPhoneToUidCache,
 } from '../src/modules/ai-reports/zalo-report-sender.js';
 import { zaloPool } from '../src/modules/zalo/zalo-pool.js';
@@ -299,7 +301,7 @@ describe('zalo-report-sender', () => {
       const [callArg, targetDest, targetThread] = mockApi.sendMessage.mock.calls[0];
       expect(targetDest).toBe('user-uid-789');
       expect(targetThread).toBe(0);
-      expect(callArg.msg).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP');
+      expect(callArg.msg).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỨC THÌ'); // explicit reportTitle wins (SSoT)
       expect(callArg.msg).toContain('🎯 3 ĐIỂM CỐT LÕI (CORE HIGHLIGHTS):');
       expect(callArg.msg).toContain('📎 Bản báo cáo chi tiết đầy đủ đính kèm trong file PDF bên dưới.');
       expect(callArg.attachments).toBeDefined();
@@ -331,6 +333,110 @@ describe('zalo-report-sender', () => {
       expect(callArg.msg).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP');
       expect(callArg.msg).toContain('• Việc 1: Làm xong.');
       expect(callArg.msg).not.toContain('**');
+    });
+
+    it('handles Zalo sendMessage hang gracefully with timeout and deliveryUncertain', async () => {
+      // Mock sendMessage to hang indefinitely
+      mockApi.sendMessage.mockReturnValue(new Promise(() => {}));
+
+      const result = await sendReportToZalo({
+        accountId,
+        orgId,
+        destinationType: 'group',
+        targetThreadId: 'group-thread-456',
+        markdownContent: 'Báo cáo kiểm tra timeout',
+        messageTimeoutMs: 50, // Short timeout for test
+        executionGuard: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.deliveryUncertain).toBe(true);
+      expect(result.error).toContain('Quá thời gian chờ Zalo phản hồi khi gửi tin');
+    });
+  });
+
+  describe('sendMessageWithTimeout', () => {
+    it('resolves immediately when underlying sendMessage succeeds', async () => {
+      const api = { sendMessage: vi.fn().mockResolvedValue({ id: 'msg-123' }) };
+      const res = await sendMessageWithTimeout(api, { msg: 'test' }, 'dest-1', 0, 1000);
+      expect(res).toEqual({ id: 'msg-123' });
+      expect(api.sendMessage).toHaveBeenCalledWith({ msg: 'test' }, 'dest-1', 0);
+    });
+
+    it('rejects when underlying sendMessage exceeds timeoutMs', async () => {
+      const api = { sendMessage: vi.fn().mockReturnValue(new Promise(() => {})) };
+      await expect(
+        sendMessageWithTimeout(api, { msg: 'test' }, 'dest-1', 0, 30),
+      ).rejects.toThrow('Quá thời gian chờ Zalo phản hồi khi gửi tin (0s)');
+    });
+
+    it('rejects immediately when AbortSignal is already aborted', async () => {
+      const api = { sendMessage: vi.fn() };
+      const controller = new AbortController();
+      controller.abort();
+
+      await expect(
+        sendMessageWithTimeout(api, { msg: 'test' }, 'dest-1', 0, 1000, controller.signal),
+      ).rejects.toThrow('Đã hủy gửi tin Zalo');
+      expect(api.sendMessage).not.toHaveBeenCalled();
+    });
+
+    it('rejects when AbortSignal aborts while sendMessage is pending', async () => {
+      const api = { sendMessage: vi.fn().mockReturnValue(new Promise(() => {})) };
+      const controller = new AbortController();
+
+      const promise = sendMessageWithTimeout(api, { msg: 'test' }, 'dest-1', 0, 5000, controller.signal);
+      setTimeout(() => controller.abort(), 20);
+
+      await expect(promise).rejects.toThrow('Đã hủy gửi tin Zalo');
+    });
+  });
+
+  describe('Phase03: metadata propagation into generateExecutiveBrief (dual_pdf mode)', () => {
+    it('brief message contains explicit reportTitle and periodText passed via options', async () => {
+      // Create content that triggers dual_pdf mode (contains ## 🎯)
+      const reportMarkdown = `# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP — TỨC THÌ
+*Thời gian: 10:00 17/09 — 18:00 17/09 | Số nhóm: 1*
+
+---
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI (Core Highlights)
+* Công việc hoàn thành đúng tiến độ.
+
+## 📋 5. KẾ HOẠCH & HÀNH ĐỘNG TIẾP THEO (Next Steps & Assignments)
+| # | Hành động | Người phụ trách | Thời hạn | Ưu tiên |
+|---|---|---|---|---|
+| 1 | Kiểm tra cuối ca | Trưởng ca | 18:00 | 🟡 Trung bình |
+`;
+
+      let capturedMessage: any = null;
+      mockApi.sendMessage.mockImplementation(async (message: any) => {
+        capturedMessage = message;
+        return { messageId: 'msg-brief' };
+      });
+
+      const result = await sendReportToZalo({
+        accountId,
+        orgId,
+        destinationType: 'group',
+        targetThreadId: 'group-thread-meta',
+        markdownContent: reportMarkdown,
+        reportTitle: 'Báo Cáo Điều Hành Tức Thì CA CHIỀU',
+        periodText: '17:00 17/09/2026 — 13:03 18/09/2026',
+        scopeText: 'Chi nhánh Miền Nam',
+        deliveryMode: 'dual_pdf',
+        executionGuard: vi.fn().mockResolvedValue(undefined),
+      });
+
+      // Verify that the brief (first message part) contains the explicit metadata
+      expect(result.success).toBe(true);
+      expect(capturedMessage).not.toBeNull();
+      const briefMsg: string = capturedMessage?.msg || capturedMessage?.attachments?.[0] || '';
+
+      // The brief must contain the explicit reportTitle and periodText passed via options
+      expect(briefMsg).toContain('BÁO CÁO ĐIỀU HÀNH TỨC THÌ CA CHIỀU');
+      expect(briefMsg).toContain('17:00 17/09/2026 — 13:03 18/09/2026');
+      expect(briefMsg).toContain('Chi nhánh Miền Nam');
     });
   });
 });

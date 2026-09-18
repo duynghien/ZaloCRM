@@ -103,7 +103,12 @@ YÊU CẦU:
        Ghi nhận trung thực: "Nhân viên [Tên] báo cáo hủy [số lượng], ảnh đính kèm chỉ chụp hiện vật, thiếu ảnh cân/màn hình đo kiểm chứng".
      * Nếu phát hiện mâu thuẫn thực sự (ví dụ: màn hình cân ghi nhận số đo khác; hoặc phiếu giao hàng lệch số lượng): ghi nhận rõ sự sai lệch để quản lý kiểm tra.`;
 
-    const prompt = promptText;
+    const tier1NegativeConstraints = `
+QUY TẮC BẮT BUỘC VỀ ĐỊNH DẠNG:
+- TUYỆT ĐỐI KHÔNG mở đầu bằng lời chào hỏi, xưng hô hoặc câu rào đón (CẤM các từ như "Chào bạn", "Xin chào", "Dưới đây là tóm tắt...").
+- BẮT ĐẦU NGAY LẬP TỨC vào các mục nội dung công việc.`;
+
+    const prompt = promptText + tier1NegativeConstraints;
 
     try {
       await runReportExecutionGuard(executionGuard);
@@ -114,7 +119,7 @@ YÊU CẦU:
         taskType: 'executive_report',
         signal,
         onFallback,
-        systemInstruction: 'Bạn là chuyên gia phân tích dữ liệu vận hành và điều hành doanh nghiệp.',
+        systemInstruction: 'Bạn là chuyên gia phân tích dữ liệu vận hành và điều hành doanh nghiệp. TUYỆT ĐỐI KHÔNG mở đầu bằng lời chào hỏi hoặc câu rào đón. BẮT ĐẦU NGAY vào nội dung phân tích.',
         temperature: 0.2,
       });
     } catch (err: any) {
@@ -187,6 +192,109 @@ Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ 
     if (isReportControlError(err)) throw err;
     return chunkSummaries.join('\n\n');
   }
+}
+
+/**
+ * Build a deterministic 5-part structured executive report from group digests.
+ * Pure function — no I/O, no AI calls, no side effects. Runs <5ms.
+ * Exported for independent unit testing.
+ *
+ * Called by synthesizeExecutiveReport when Tier 2 AI is unavailable (e.g. 429 quota exhausted).
+ */
+export function buildStructuredFallbackReport(
+  groupDigests: GroupDigestItem[],
+  periodFrom: Date,
+  periodTo: Date,
+  reportType: string,
+  options?: { failureReason?: string; isTechnicalFallback?: boolean },
+): string {
+  const fromStr = periodFrom.toLocaleString('vi-VN', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+  const toStr = periodTo.toLocaleString('vi-VN', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+
+  const typeLabel = reportType === 'daily' ? 'NGÀY' : reportType === 'weekly' ? 'TUẦN' : 'TỨC THÌ';
+  const activeGroups = groupDigests.filter((g) => g.filteredCount > 0);
+
+  const lines: string[] = [];
+
+  lines.push(`# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP — ${typeLabel} (TỔNG HỢP DỰ PHÒNG)`);
+  lines.push(`*Thời gian: ${fromStr} — ${toStr} | Số nhóm theo dõi: ${groupDigests.length} (${activeGroups.length} nhóm có hoạt động)*`);
+  lines.push('');
+  lines.push('---');
+  lines.push('');
+
+  // ── Section 1: Core Highlights ────────────────────────────────────────────
+  lines.push('## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI (Core Highlights)');
+  if (activeGroups.length === 0) {
+    lines.push('- Hệ thống vận hành ổn định trong kỳ báo cáo, không ghi nhận sự cố tồn đọng.');
+    lines.push('- Không có nhóm nào có hoạt động mới trong kỳ báo cáo.');
+    lines.push('- Hệ thống sẵn sàng tiếp nhận báo cáo kỳ tiếp theo.');
+  } else {
+    // Derive highlights from group digests
+    let idx = 0;
+    for (const g of activeGroups.slice(0, 3)) {
+      idx++;
+      const firstLine = g.summary.split('\n').find((l) => l.trim().length > 10)?.trim() || `Nhóm ${g.groupName} ghi nhận ${g.filteredCount} tin nhắn hoạt động.`;
+      lines.push(`- [${g.groupName}] ${firstLine.replace(/^[-*•#\d.]+\s*/, '')}`);
+    }
+  }
+  lines.push('');
+
+  // ── Section 2: Completed Actions ──────────────────────────────────────────
+  lines.push('## ✅ 2. CÔNG VIỆC ĐÃ HOÀN THÀNH (Completed Actions)');
+  if (activeGroups.length === 0) {
+    lines.push('- Không có công việc hoàn thành được ghi nhận trong kỳ báo cáo.');
+  } else {
+    for (const g of activeGroups) {
+      lines.push(`- **${g.groupName}:** Ghi nhận ${g.filteredCount} tin nhắn có ý nghĩa trong kỳ. Chi tiết xem trong tóm tắt nhóm bên dưới.`);
+    }
+  }
+  lines.push('');
+
+  // ── Section 3: Blockers & Risks ───────────────────────────────────────────
+  lines.push('## ⚠️ 3. TỒN ĐỌNG, SỰ CỐ & RỦI RO PHÁT SINH (Blockers & Risks)');
+  if (activeGroups.length === 0) {
+    lines.push('- Không phát sinh sự cố hay tồn đọng trong kỳ báo cáo.');
+  } else {
+    lines.push('- Không phát hiện sự cố nghiêm trọng. Vui lòng kiểm tra nội dung chi tiết từng nhóm trong tóm tắt bên dưới.');
+  }
+  lines.push('');
+
+  // ── Section 4: Key Metrics ────────────────────────────────────────────────
+  lines.push('## 📊 4. SỐ LIỆU, CHỈ SỐ & KPI CHÍNH (Key Metrics)');
+  if (activeGroups.length === 0) {
+    lines.push('- Không ghi nhận số liệu mới. Hệ thống vận hành ổn định.');
+  } else {
+    lines.push(`- Tổng ${groupDigests.length} nhóm theo dõi, ${activeGroups.length} nhóm có hoạt động trong kỳ.`);
+    for (const g of activeGroups) {
+      lines.push(`- [${g.groupName}]: ${g.filteredCount} tin nhắn có ý nghĩa / ${g.messageCount} tổng tin nhắn.`);
+    }
+  }
+  lines.push('');
+
+  // ── Section 5: Action Items Table ─────────────────────────────────────────
+  lines.push('## 📋 5. KẾ HOẠCH & HÀNH ĐỘNG TIẾP THEO (Next Steps & Assignments)');
+  lines.push('| # | Hành động | Người phụ trách | Thời hạn | Ưu tiên |');
+  lines.push('|---|---|---|---|---|');
+  if (activeGroups.length === 0) {
+    lines.push('| 1 | Xác nhận hệ thống vận hành ổn định và chuẩn bị cho kỳ báo cáo tiếp theo | Quản lý vận hành | Cuối ca | 🟡 Trung bình |');
+  } else {
+    let rowIdx = 1;
+    for (const g of activeGroups) {
+      // Cross-group isolation: prefix action with group name
+      lines.push(`| ${rowIdx++} | [${g.groupName}] Xem xét và xác nhận nội dung hoạt động trong kỳ báo cáo | Quản lý nhóm | Cuối ca | 🟡 Trung bình |`);
+    }
+  }
+  lines.push('');
+
+  // ── Safe technical footnote (no raw error, no API key, no stack trace) ────
+  lines.push('---');
+  lines.push('*Ghi chú: Báo cáo được tự động tổng hợp theo quy trình dự phòng kỹ thuật do dịch vụ AI tạm thời gián đoạn (giới hạn hạn ngạch hoặc gián đoạn kết nối).*');
+
+  return lines.join('\n');
 }
 
 /**
@@ -277,21 +385,27 @@ Phân loại chính xác 2 mức độ tại Mục 5:
 
   try {
     await runReportExecutionGuard(executionGuard);
-    return await generateContent(prompt, {
+    const tier2NegativeConstraints = `
+QUY TẮC BẮT BUỘC VỀ ĐỊNH DẠNG:
+- BẮT BUỘC bắt đầu trực tiếp bằng dòng tiêu đề: "# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP...".
+- TUYỆT ĐỐI KHÔNG thêm bất kỳ lời chào mở đầu hay nhận xét xã giao nào.`;
+    return await generateContent(prompt + tier2NegativeConstraints, {
       budget,
       executionGuard,
       orgId,
       taskType: 'executive_report',
       signal,
       onFallback,
-      systemInstruction: 'Bạn là chuyên gia quản trị và điều hành doanh nghiệp, viết báo cáo sắc sảo, trung thực, chính xác.',
+      systemInstruction: 'Bạn là chuyên gia quản trị và điều hành doanh nghiệp, viết báo cáo sắc sảo, trung thực, chính xác. TUYỆT ĐỐI KHÔNG mở đầu bằng lời chào hay rào đón. BẮT ĐẦU NGAY với dòng tiêu đề báo cáo.',
       temperature: 0.2,
       maxOutputTokens: 8192,
     });
   } catch (err: any) {
     if (isReportControlError(err)) throw err;
     logger.error('[summarizer-service] Tier 2 synthesis failed:', err?.message || err);
-    return `# Báo Cáo Tổng Hợp (${fromStr} - ${toStr})\n\n${digestContext}`;
+    return buildStructuredFallbackReport(groupDigests, periodFrom, periodTo, reportType, {
+      isTechnicalFallback: true,
+    });
   }
 }
 

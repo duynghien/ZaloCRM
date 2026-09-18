@@ -18,10 +18,14 @@ export interface SendZaloReportOptions {
   markdownContent: string;
   reportTitle?: string;
   periodText?: string;
+  /** Explicit scope text — passed to brief and PDF for Single Source of Truth metadata. */
+  scopeText?: string;
   customPrefixType?: ReportPrefixType;
   deliveryMode?: 'dual_pdf' | 'full_text';
   executionGuard: () => Promise<void>;
   onPartSent?: (partsSent: number, totalParts: number) => Promise<void>;
+  messageTimeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface SendZaloReportResult {
@@ -30,6 +34,51 @@ export interface SendZaloReportResult {
   totalParts: number;
   deliveryUncertain: boolean;
   error?: string;
+}
+
+export const ZALO_MESSAGE_TIMEOUT_MS = 45_000;
+
+export async function sendMessageWithTimeout(
+  api: any,
+  message: any,
+  threadId: string,
+  threadType: number,
+  timeoutMs = ZALO_MESSAGE_TIMEOUT_MS,
+  signal?: AbortSignal,
+): Promise<any> {
+  if (signal?.aborted) {
+    throw new Error('Đã hủy gửi tin Zalo');
+  }
+
+  return new Promise((resolve, reject) => {
+    let timer: NodeJS.Timeout | undefined;
+    const onAbort = () => {
+      if (timer) clearTimeout(timer);
+      reject(new Error('Đã hủy gửi tin Zalo'));
+    };
+
+    if (signal) {
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    timer = setTimeout(() => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+      reject(new Error(`Quá thời gian chờ Zalo phản hồi khi gửi tin (${Math.round(timeoutMs / 1000)}s)`));
+    }, timeoutMs);
+
+    Promise.resolve()
+      .then(() => api.sendMessage(message, threadId, threadType))
+      .then((res) => {
+        if (timer) clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        resolve(res);
+      })
+      .catch((err) => {
+        if (timer) clearTimeout(timer);
+        if (signal) signal.removeEventListener('abort', onAbort);
+        reject(err);
+      });
+  });
 }
 
 const MAX_ZALO_MESSAGE_LENGTH = 2500;
@@ -102,6 +151,7 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
     markdownContent,
     reportTitle,
     periodText,
+    scopeText,
     customPrefixType = 'digest',
     deliveryMode,
   } = options;
@@ -117,9 +167,9 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
   try {
     if (isDualPdf) {
       try {
-        const brief = generateExecutiveBrief(markdownContent);
+        const brief = generateExecutiveBrief(markdownContent, { reportTitle, periodText, scopeText });
         const title = reportTitle || 'Báo Cáo Điều Hành';
-        const pdfFile = await generateReportPdfFile(title, markdownContent, { periodText });
+        const pdfFile = await generateReportPdfFile(title, markdownContent, { periodText, scopeText });
         attachmentPath = pdfFile.filePath;
         pdfCleanup = pdfFile.cleanup;
         parts = [brief];
@@ -264,10 +314,11 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
 
       zaloRateLimiter.recordSend(accountId);
       deliveryUncertain = true;
+      const timeoutMs = options.messageTimeoutMs ?? ZALO_MESSAGE_TIMEOUT_MS;
       if (attachmentPath && i === parts.length - 1) {
-        await currentApi.sendMessage({ msg: parts[i], attachments: [attachmentPath] }, destId, threadType);
+        await sendMessageWithTimeout(currentApi, { msg: parts[i], attachments: [attachmentPath] }, destId, threadType, timeoutMs, options.signal);
       } else {
-        await currentApi.sendMessage({ msg: parts[i] }, destId, threadType);
+        await sendMessageWithTimeout(currentApi, { msg: parts[i] }, destId, threadType, timeoutMs, options.signal);
       }
       partsSent++;
       await options.onPartSent?.(partsSent, parts.length);

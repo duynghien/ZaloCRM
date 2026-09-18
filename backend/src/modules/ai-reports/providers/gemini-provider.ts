@@ -125,8 +125,18 @@ export class GeminiProvider implements AiProvider {
         if (isReportControlError(err)) throw err;
         lastError = err;
         logger.warn(`[gemini-provider] Attempt ${attempt} failed for model ${this.model}: ${err?.message || err}`);
+
+        // Detect daily quota exhaustion — fail fast for immediate failover, no point in waiting
+        const errMsg = String(err?.message || '');
+        const isQuotaExhausted = /GenerateRequestsPerDayPerProjectPerModel-FreeTier|RESOURCE_EXHAUSTED/i.test(errMsg);
+        if (isQuotaExhausted) {
+          logger.warn(`[gemini-provider] Daily quota exhausted for model ${this.model}. Short-circuiting retry loop for immediate failover.`);
+          break; // Exit retry loop immediately — do not waste 3s waiting
+        }
+
+        // Transient RPM rate limit — short retry (1.5s)
         if (attempt === 1 && !options.signal?.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
+          await new Promise((resolve) => setTimeout(resolve, 1500));
         }
       }
     }

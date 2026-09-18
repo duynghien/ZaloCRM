@@ -6,6 +6,12 @@
 import { parseActionItemsFromMarkdown, type ReportActionItem } from './report-action-item-parser.js';
 
 export interface ExecutiveBriefOptions {
+  /** Explicit report title — Single Source of Truth; skips regex extraction when provided. */
+  reportTitle?: string;
+  /** Explicit period text (e.g. "17:00 17/09/2026 — 13:03 18/09/2026") — SSoT; skips regex when provided. */
+  periodText?: string;
+  /** Explicit scope text (e.g. "Toàn hệ thống") — SSoT; skips regex when provided. */
+  scopeText?: string;
   maxCorePoints?: number;
   maxUrgentTasks?: number;
   includePdfNotice?: boolean;
@@ -19,10 +25,27 @@ function cleanMarkdownText(text: string): string {
     .replace(/\*\*(.*?)\*\*/g, '$1') // bold **text**
     .replace(/\*(.*?)\*/g, '$1')     // italic *text*
     .replace(/__(.*?)__/g, '$1')     // bold __text__
-    .replace(/_(.*?)_/g, '$1')       // italic _text_
+    .replace(/_(.+?)_/g, '$1')      // italic _text_ (non-greedy, avoid false positives)
     .replace(/`([^`]+)`/g, '$1')     // inline code
     .replace(/^[#\s*>-]+/gm, '')     // leading markdown tokens
     .trim();
+}
+
+/**
+ * Remove conversational preamble (greetings, social pleasantries) from a bullet string.
+ * Non-greedy — only strips known Vietnamese corporate greeting patterns with explicit delimiters.
+ * Returns empty string if the entire bullet is a greeting; otherwise returns cleaned text.
+ */
+function cleanConversationalFiller(text: string): string {
+  // Pattern 1: Vietnamese workplace greetings at line start.
+  // NOTE: \b does NOT work for Vietnamese (non-ASCII) chars, so we use a lookahead
+  // for separator characters (comma, space, period, exclamation, dash) or end-of-string.
+  const greetingPattern = /^(?:(?:xin\s+)?chào\s+(?:bạn|anh\/chị|anh|chị|em|cả\s*nhà|mọi\s*người|mn|quý\s*vị|sếp|team)|kính\s*(?:chào|gửi)|thân\s*chào|hi\s+all|hello\s+all|dạ\s+em\s+xin\s+gửi)(?=[,!.\s\-]|$)[,!.\s\-]*/i;
+  // Pattern 2: Preamble phrases — only strip when followed by a colon delimiter (non-greedy, preserves business content).
+  const preamblePattern = /^(?:dưới đây là|sau đây là|tôi xin gửi)(?:\s+bản)?(?:\s+tóm tắt|\s+báo cáo)?[^:\n]*:\s*/i;
+
+  const cleaned = text.replace(greetingPattern, '').replace(preamblePattern, '').trim();
+  return cleaned;
 }
 
 /**
@@ -38,13 +61,13 @@ function extractBullets(sectionText: string): string[] {
     if (!trimmed) continue;
 
     // Matches lines starting with bullet markers: *, -, +, or numbers like 1.
-    const isBulletStart = /^[-*+•]|\d+[\.\)]/.test(trimmed);
+    const isBulletStart = /^[-*+•]|\d+[.\)]/.test(trimmed);
 
     if (isBulletStart) {
       if (currentBullet) {
         bullets.push(cleanMarkdownText(currentBullet));
       }
-      currentBullet = trimmed.replace(/^[-*+•\d\.\)]+\s*/, '');
+      currentBullet = trimmed.replace(/^[-*+•\d.\)]+\s*/, '');
     } else if (currentBullet) {
       currentBullet += ' ' + trimmed;
     }
@@ -58,6 +81,16 @@ function extractBullets(sectionText: string): string[] {
 }
 
 /**
+ * Safe regex for time extraction — supports Markdown bold syntax like `**Thời gian:**` or `* **Thời gian báo cáo:**`.
+ * Guards against extracting "báo cáo:" as the time value.
+ */
+const SAFE_TIME_REGEX = /(?:^\s*[*_~-]*\s*Thời gian(?:\s*báo\s*cáo)?\s*[*_~-]*\s*:\s*[*_~-]*\s*)([^\n|*]+)(?:\|\s*([^\n*]+))?/imu;
+
+function isBadTimeString(value: string): boolean {
+  return /^(báo cáo|thời gian báo cáo)[:\s]*$/i.test(value.trim()) || value.trim() === '';
+}
+
+/**
  * Generates a clean, professional Executive Brief optimized for Zalo chat.
  */
 export function generateExecutiveBrief(
@@ -65,6 +98,9 @@ export function generateExecutiveBrief(
   options: ExecutiveBriefOptions = {},
 ): string {
   const {
+    reportTitle: optionTitle,
+    periodText: optionPeriod,
+    scopeText: optionScope,
     maxCorePoints = 3,
     maxUrgentTasks = 5,
     includePdfNotice = true,
@@ -72,59 +108,95 @@ export function generateExecutiveBrief(
 
   const lines: string[] = [];
 
-  // 1. Extract Report Title & Metadata from header
-  const titleMatch = markdownContent.match(/^#\s*[^\s\w]*\s*([^\n]+)$/mu);
-  const rawTitle = titleMatch ? cleanMarkdownText(titleMatch[1]) : 'BÁO CÁO ĐIỀU HÀNH TỔNG HỢP';
-  lines.push(`📑 ${rawTitle.toUpperCase()}`);
+  // ── 1. TITLE — explicit options are Single Source of Truth ─────────────────
+  let displayTitle: string;
+  if (optionTitle) {
+    // Sanitize: strip markdown, normalize newlines (prevent header injection)
+    displayTitle = cleanMarkdownText(optionTitle).replace(/[\r\n]+/g, ' ').trim();
+  } else {
+    const titleMatch = markdownContent.match(/^#\s*[^\s\w]*\s*([^\n]+)$/mu);
+    displayTitle = titleMatch ? cleanMarkdownText(titleMatch[1]) : 'BÁO CÁO ĐIỀU HÀNH TỔNG HỢP';
+  }
+  lines.push(`📑 ${displayTitle.toUpperCase()}`);
 
-  const timeScopeMatch = markdownContent.match(/(?:[^\w\n]*Thời gian[:\s*]+)([^\n|*]+)(?:\|\s*([^\n*]+))?/iu);
-  if (timeScopeMatch) {
-    const timeText = cleanMarkdownText(timeScopeMatch[1]);
-    const scopeText = timeScopeMatch[2] ? cleanMarkdownText(timeScopeMatch[2].replace(/\*+$/, '')) : '';
-    if (timeText) {
-      lines.push(`⏰ Thời gian: ${timeText}`);
+  // ── 2. PERIOD & SCOPE — explicit options over regex ───────────────────────
+  let displayPeriod: string | undefined;
+  let displayScope: string | undefined;
+
+  if (optionPeriod) {
+    displayPeriod = cleanMarkdownText(optionPeriod).replace(/[\r\n]+/g, ' ').trim();
+  } else {
+    const timeScopeMatch = markdownContent.match(SAFE_TIME_REGEX);
+    if (timeScopeMatch) {
+      const candidate = cleanMarkdownText(timeScopeMatch[1]);
+      if (!isBadTimeString(candidate)) {
+        displayPeriod = candidate;
+      }
+      if (!optionScope && timeScopeMatch[2]) {
+        const scopeCandidate = cleanMarkdownText(timeScopeMatch[2].replace(/\*+$/, ''));
+        if (scopeCandidate) displayScope = scopeCandidate;
+      }
     }
-    if (scopeText) {
-      lines.push(`👥 Phạm vi: ${scopeText}`);
-    }
+  }
+
+  if (optionScope) {
+    displayScope = cleanMarkdownText(optionScope).replace(/[\r\n]+/g, ' ').trim();
+  }
+
+  if (displayPeriod) {
+    lines.push(`⏰ Thời gian: ${displayPeriod}`);
+  }
+  if (displayScope) {
+    lines.push(`👥 Phạm vi: ${displayScope}`);
   }
 
   lines.push('────────────────────────');
 
-  // 2. Extract Section 1: 3 Điểm cốt lõi (Core Highlights)
-  const sec1Match = markdownContent.match(/##\s*[^\n\d]*(?:1[\.\s]|TÓM TẮT|CỐT LÕI|HIGHLIGHT)[^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu);
+  // ── 3. Section 1: Core Highlights ─────────────────────────────────────────
+  const sec1Match = markdownContent.match(/##\s*[^\n\d]*(?:1[.\s]|TÓM TẮT|CỐT LÕI|HIGHLIGHT)[^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu);
   const sec1Text = sec1Match ? sec1Match[1].trim() : '';
-  let coreBullets = sec1Text ? extractBullets(sec1Text).slice(0, maxCorePoints) : [];
+
+  // Extract bullets, filter conversational filler, THEN slice — never slice before filtering
+  let rawBullets = sec1Text ? extractBullets(sec1Text) : [];
+  let filteredBullets = rawBullets
+    .map((b) => cleanConversationalFiller(b))
+    .filter((b) => b.length > 0);
+  let coreBullets = filteredBullets.slice(0, maxCorePoints);
 
   if (coreBullets.length === 0) {
-    // Check if there are general intro paragraphs or non-bullet text
+    // Attempt extraction from non-bullet paragraphs/lines
     const introLines = (sec1Text || markdownContent)
       .split('\n')
       .map((l) => l.trim())
       .filter((l) => l && !l.startsWith('#') && !l.startsWith('|') && !l.startsWith('---') && !/Thời gian:/i.test(l));
+
     if (introLines.length > 0 && !sec1Text) {
-      coreBullets = [cleanMarkdownText(introLines[0])];
+      const firstLine = cleanConversationalFiller(cleanMarkdownText(introLines[0]));
+      if (firstLine.length > 0) {
+        coreBullets = [firstLine];
+      }
+    }
+
+    if (coreBullets.length === 0) {
+      // Final fallback
+      coreBullets = ['Hệ thống ghi nhận hoạt động vận hành trong kỳ báo cáo (chi tiết trong file PDF đính kèm).'];
     }
   }
 
   lines.push('🎯 3 ĐIỂM CỐT LÕI (CORE HIGHLIGHTS):');
-  if (coreBullets.length > 0) {
-    for (const b of coreBullets) {
-      lines.push(`• ${b}`);
-    }
-  } else {
-    lines.push('• Hệ thống vận hành ổn định trong kỳ báo cáo.');
+  for (const b of coreBullets) {
+    lines.push(`• ${b}`);
   }
 
   lines.push('');
 
-  // 3. Extract Section 3: Tồn đọng, sự cố & rủi ro (Blockers & Risks) - Top 1-2 points if present
-  const sec3Match = markdownContent.match(/##\s*[^\n\d]*(?:3[\.\s]|TỒN ĐỌNG|SỰ CỐ|RỦI RO|RISK|BLOCKER)[^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu);
+  // ── 4. Section 3: Blockers & Risks (top 1-2 if present) ───────────────────
+  const sec3Match = markdownContent.match(/##\s*[^\n\d]*(?:3[.\s]|TỒN ĐỌNG|SỰ CỐ|RỦI RO|RISK|BLOCKER)[^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu);
   const sec3Text = sec3Match ? sec3Match[1].trim() : '';
   const riskBullets = sec3Text ? extractBullets(sec3Text) : [];
   const validRisks = riskBullets.filter((b) => {
     const trimmed = b.trim().toLowerCase();
-    const isNone = /^(không\s+có(\s+rủi\s+ro|\s+sự\s+cố|\s+tồn\s+đọng)?|không\s+phát\s+sinh|không|none)[\.\s]*$/i.test(trimmed);
+    const isNone = /^(không\s+có(\s+rủi\s+ro|\s+sự\s+cố|\s+tồn\s+đọng)?|không\s+phát\s+sinh|không|none)[.\s]*$/i.test(trimmed);
     return !isNone && trimmed.length > 5;
   });
 
@@ -136,7 +208,7 @@ export function generateExecutiveBrief(
     lines.push('');
   }
 
-  // 4. Extract Section 5: Action Items (Urgent / High Priority)
+  // ── 5. Section 5: Action Items ─────────────────────────────────────────────
   const actionItems: ReportActionItem[] = parseActionItemsFromMarkdown(markdownContent);
   const highPriorityTasks = actionItems.filter((t) => t.priority === 'high' && !t.done);
   const mediumPriorityTasks = actionItems.filter((t) => (t.priority === 'medium' || !t.priority) && !t.done);
@@ -168,7 +240,7 @@ export function generateExecutiveBrief(
     lines.push('✓ Không có nhiệm vụ tồn đọng cần xử lý gấp.');
   }
 
-  // 5. PDF Attachment Notice
+  // ── 6. PDF Notice ─────────────────────────────────────────────────────────
   if (includePdfNotice) {
     lines.push('────────────────────────');
     lines.push('📎 Bản báo cáo chi tiết đầy đủ đính kèm trong file PDF bên dưới.');

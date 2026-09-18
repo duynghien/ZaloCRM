@@ -332,4 +332,46 @@ ${fillerParagraphs}
     expect(buffer).toBeInstanceOf(Buffer);
     expect(buffer.length).toBeGreaterThan(1000);
   });
+
+  it('Phase03 regression: PDF metadata bar does NOT show "báo cáo:" when markdown has **Thời gian báo cáo:** syntax', async () => {
+    // This Markdown pattern triggered the bug: regex extracted " báo cáo:" as the time value
+    const buggyMarkdown = `# 📑 BÁO CÁO ĐIỀU HÀNH
+*   **Thời gian báo cáo:** Ngày 18/09/2026.
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI
+* Hệ thống vận hành ổn định.
+
+## 📋 5. KẾ HOẠCH & HÀNH ĐỘNG TIẾP THEO (Next Steps & Assignments)
+| # | Hành động | Người phụ trách | Thời hạn | Ưu tiên |
+|---|---|---|---|---|
+| 1 | Kiểm tra định kỳ | Kỹ thuật | Cuối ca | 🟡 Trung bình |
+`;
+    // When no options.periodText is provided, the safe regex should extract "Ngày 18/09/2026." not "báo cáo:"
+    const buffer = await generateReportPdfBuffer('Báo Cáo Test', buggyMarkdown);
+    expect(buffer).toBeInstanceOf(Buffer);
+    expect(buffer.length).toBeGreaterThan(1000);
+    const header = buffer.subarray(0, 5).toString('ascii');
+    expect(header).toBe('%PDF-');
+    // PDF content check: "báo cáo:" must not appear as time value in binary stream
+    const pdfText = buffer.toString('latin1');
+    // The rendered period string "báo cáo:" should not appear in the PDF
+    expect(pdfText).not.toContain('\u21d2 Th\u1eddi gian: b\u00e1o c\u00e1o:');
+  });
+
+  it('Phase03: explicit options.periodText is used as metadata bar period (SSoT)', async () => {
+    const markdownWithBrokenTime = `# 📑 BÁO CÁO
+*   **Thời gian báo cáo:** Ngày 18/09/2026.
+
+## 🎯 1. TÓM TẮT
+* Bullet nội dung.
+`;
+    // When explicit periodText is passed, it should always be used
+    const buffer = await generateReportPdfBuffer('Test Report', markdownWithBrokenTime, {
+      periodText: '17:00 17/09/2026 — 13:03 18/09/2026',
+    });
+    expect(buffer).toBeInstanceOf(Buffer);
+    expect(buffer.length).toBeGreaterThan(1000);
+    const header = buffer.subarray(0, 5).toString('ascii');
+    expect(header).toBe('%PDF-');
+  });
 });

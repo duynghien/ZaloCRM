@@ -98,7 +98,110 @@ describe('Report Brief Service', () => {
   it('handles completely blank or fallback markdown gracefully', () => {
     const brief = generateExecutiveBrief('');
     expect(brief).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP');
-    expect(brief).toContain('• Hệ thống vận hành ổn định trong kỳ báo cáo.');
+    expect(brief).toContain('• Hệ thống ghi nhận hoạt động vận hành trong kỳ báo cáo');
     expect(brief).toContain('✓ Không có nhiệm vụ tồn đọng cần xử lý gấp.');
+  });
+
+  // ── Phase 03 new cases ────────────────────────────────────────────────────
+
+  it('Case 1: explicit reportTitle and periodText override markdown regex (Single Source of Truth)', () => {
+    // Even if markdown has a different/broken header, explicit options win
+    const brokenMarkdown = `# 📑 BÁO CÁO SAI
+*Thời gian báo cáo: Ngày 18/09/2026*
+
+## 🎯 1. TÓM TẮT
+* Công việc A hoàn thành.
+`;
+    const brief = generateExecutiveBrief(brokenMarkdown, {
+      reportTitle: 'Báo Cáo Điều Hành Tức Thì',
+      periodText: '17:00 17/09/2026 — 13:03 18/09/2026',
+    });
+    // Explicit reportTitle used
+    expect(brief).toContain('📑 BÁO CÁO ĐIỀU HÀNH TỨC THÌ');
+    // Explicit periodText used — should NOT appear as "báo cáo:"
+    expect(brief).toContain('⏰ Thời gian: 17:00 17/09/2026 — 13:03 18/09/2026');
+    expect(brief).not.toContain('báo cáo:');
+  });
+
+  it('Case 1b: reportTitle with newline is normalized to single line (no header injection)', () => {
+    const brief = generateExecutiveBrief('', {
+      reportTitle: 'Tiêu đề\n⏰ Thời gian: INJECTED',
+      periodText: '10:00 — 18:00',
+    });
+    // The injected section header must not appear as a real "⏰ Thời gian:" bullet
+    const timeLines = brief.split('\n').filter((l) => l.startsWith('⏰ Thời gian:'));
+    // Only one ⏰ line should exist (from periodText), and it should be "10:00 — 18:00"
+    expect(timeLines.length).toBe(1);
+    expect(timeLines[0]).toBe('⏰ Thời gian: 10:00 — 18:00');
+  });
+
+  it('Case 2: safe time regex handles Markdown bold `**Thời gian:**` without "báo cáo:" contamination', () => {
+    const markdownWithBoldTime = `# 📑 BÁO CÁO THỬ NGHIỆM
+*   **Thời gian báo cáo:** Ngày 18/09/2026.
+
+## 🎯 1. TÓM TẮT
+* Bullet hợp lệ số 1.
+`;
+    const brief = generateExecutiveBrief(markdownWithBoldTime);
+    // Must NOT produce "báo cáo:" as the time value
+    expect(brief).not.toContain('⏰ Thời gian: báo cáo:');
+    expect(brief).not.toContain('⏰ Thời gian:  báo cáo:');
+  });
+
+  it('Case 3: conversational filler is stripped (Vietnamese corporate greetings)', () => {
+    const markdownWithGreetings = `# 📑 BÁO CÁO
+*Thời gian: 10:00 — 18:00*
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI
+* Chào cả nhà, tôi gửi báo cáo.
+* Chào bạn, hôm nay như sau:
+* Bullet nghiệp vụ hợp lệ: Doanh thu tăng 20%.
+* Bullet nghiệp vụ 2: Đơn hàng hoàn thành đúng hạn.
+`;
+    // Use maxCorePoints:4 so business bullets can be reached after greeting cleanup
+    const brief = generateExecutiveBrief(markdownWithGreetings, { maxCorePoints: 4 });
+    // Greetings must not appear in core highlights
+    expect(brief).not.toContain('Chào cả nhà');
+    expect(brief).not.toContain('Chào bạn');
+    // Business bullets must be present
+    expect(brief).toContain('Doanh thu tăng 20%');
+    expect(brief).toContain('Đơn hàng hoàn thành đúng hạn');
+  });
+
+  it('Case 4: business bullet starting with "Đây là tuần..." is NOT removed by filter', () => {
+    const markdownWithBusinessBullet = `# 📑 BÁO CÁO
+*Thời gian: 10:00 — 18:00*
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI
+* Đây là tuần đầu tiên đạt mốc 500 đơn hàng.
+* Báo cáo tóm tắt doanh thu: 50 triệu VNĐ trong tuần.
+`;
+    const brief = generateExecutiveBrief(markdownWithBusinessBullet);
+    expect(brief).toContain('Đây là tuần đầu tiên đạt mốc 500 đơn hàng');
+    expect(brief).toContain('Báo cáo tóm tắt doanh thu');
+  });
+
+  it('Case 5: filtering greetings before slice preserves enough valid core points', () => {
+    // 2 greeting bullets + 3 valid bullets; after filtering should yield 3 valid bullets (not be cut short)
+    const markdownMixed = `# 📑 BÁO CÁO
+*Thời gian: 10:00 — 18:00*
+
+## 🎯 1. TÓM TẮT 3 ĐIỂM CỐT LÕI
+* Chào bạn,
+* Xin chào cả nhà,
+* Điểm cốt lõi 1: Hệ thống vận hành ổn định.
+* Điểm cốt lõi 2: Doanh số đạt 80% kế hoạch.
+* Điểm cốt lõi 3: Không phát sinh sự cố nghiêm trọng.
+`;
+    const brief = generateExecutiveBrief(markdownMixed, { maxCorePoints: 3 });
+    // Should have 3 valid bullets, not fewer
+    const bulletLines = brief.split('\n').filter((l) => l.startsWith('•'));
+    expect(bulletLines.length).toBeGreaterThanOrEqual(3);
+    expect(brief).toContain('Điểm cốt lõi 1');
+    expect(brief).toContain('Điểm cốt lõi 2');
+    expect(brief).toContain('Điểm cốt lõi 3');
+    // Greetings must not appear
+    expect(brief).not.toContain('Chào bạn');
+    expect(brief).not.toContain('Xin chào');
   });
 });

@@ -53,7 +53,8 @@ function parsePriority(raw: string): 'high' | 'medium' | 'low' {
 }
 
 function extractSection5(markdown: string): string {
-  const section5Regex = /##\s*[^\n\d]*5[\.\s][^\n]*([\s\S]*?)(?=(?:\n##\s|\n---\s*\(|\n#\s|$))/iu;
+  // Stop at any ## heading, plain --- divider, or top-level # heading — prevents footnote bleed-through
+  const section5Regex = /##\s*[^\n\d]*5[.\s][^\n]*([\s\S]*?)(?=(?:\n##\s|\n---|\n#\s|$))/iu;
   const match = markdown.match(section5Regex);
   return match ? match[1].trim() : '';
 }
@@ -77,6 +78,8 @@ export function parseActionItemsFromMarkdown(
   // 1. Try parsing Markdown table rows
   for (const line of lines) {
     if (!line.startsWith('|')) continue;
+    // Skip technical footnote lines — they must never become CRM action items
+    if (/^[-*•]?\s*\*?Ghi chú[:\s]/i.test(line)) continue;
     const cells = line
       .split('|')
       .map((c) => c.trim())
@@ -141,6 +144,8 @@ export function parseActionItemsFromMarkdown(
   // 2. Fallback: Parse bullet points if table returned no rows
   if (items.length === 0) {
     for (const line of lines) {
+      // Skip technical footnote lines
+      if (/^[-*•]?\s*\*?Ghi chú[:\s]/i.test(line)) continue;
       const bulletMatch = line.match(/^[-*]\s+(?:\[[\sxX]\]\s+)?(?:\d+[\.\)]\s*)?([^\n]+)/);
       if (bulletMatch) {
         const fullTaskText = bulletMatch[1].trim();

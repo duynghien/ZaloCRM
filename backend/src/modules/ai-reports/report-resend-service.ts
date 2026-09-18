@@ -54,8 +54,8 @@ export async function resendReport(user: User, report: GeneratedReport, body: Re
         const dispatchGuard = async () => { await guard(); if (!await prisma.aiReportResendDispatch.count({ where: dispatchFence() })) throw new Error('Resend dispatch lease lost'); };
         let result: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string };
         if (channel === 'zalo') {
-          const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
-          const toStr = report.periodTo.toLocaleDateString('vi-VN');
+          const fromStr = report.periodFrom.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+          const toStr = report.periodTo.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
           result = await sendReportToZalo({ orgId: user.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
             if (!(await prisma.aiReportResendDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } })).count) throw new Error('Resend acknowledgment lease lost');
           } });

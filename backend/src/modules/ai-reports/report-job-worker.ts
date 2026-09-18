@@ -35,11 +35,25 @@ async function actor(job: Job, request: FrozenReportJobRequest) {
   if (!user || !await mayRunReportJob(user, request)) throw new Error('Report authorization changed');
   return user;
 }
+export function abortActiveReportJob(jobId: string): boolean {
+  const controller = activeJobControllers.get(jobId);
+  if (controller) {
+    controller.abort();
+    return true;
+  }
+  return false;
+}
+
 export async function runReportJob(job: Job): Promise<void> {
   const controller = new AbortController();
   activeJobControllers.set(job.id, controller);
   let request: FrozenReportJobRequest;
   const renewals = new Set<Promise<unknown>>();
+  const MAX_JOB_DURATION_MS = 15 * 60_000;
+  const watchdog = setTimeout(() => {
+    logger.warn(`[report-worker] Job ${job.id} exceeded maximum duration (${MAX_JOB_DURATION_MS}ms), aborting`);
+    controller.abort();
+  }, MAX_JOB_DURATION_MS);
   const renew = setInterval(() => {
     const pending = prisma.aiReportJob.updateMany({ where: fence(job), data: { leaseExpiresAt: new Date(Date.now() + leaseMs) } }).catch(error => logger.warn('[report-worker] Lease renewal failed', error));
     renewals.add(pending); void pending.finally(() => renewals.delete(pending));
@@ -88,9 +102,9 @@ export async function runReportJob(job: Job): Promise<void> {
       const dispatchGuard = async () => { await guard(); if (!await prisma.aiReportJobDispatch.count({ where: dispatchFence() })) throw new Error('Dispatch lease lost'); };
       let result: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string };
       if (channel === 'zalo') {
-        const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
-        const toStr = report.periodTo.toLocaleDateString('vi-VN');
-        result = await sendReportToZalo({ orgId: job.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, onPartSent: async (sentParts, totalParts) => {
+        const fromStr = report.periodFrom.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        const toStr = report.periodTo.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        result = await sendReportToZalo({ orgId: job.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, signal: controller.signal, onPartSent: async (sentParts, totalParts) => {
           const updated = await prisma.aiReportJobDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } });
           if (!updated.count) throw new Error('Dispatch acknowledgment lease lost');
         } });
@@ -131,6 +145,7 @@ export async function runReportJob(job: Job): Promise<void> {
     }
     logger.warn(`[report-worker] ${message}`);
   } finally {
+    clearTimeout(watchdog);
     activeJobControllers.delete(job.id);
     clearInterval(renew);
     await Promise.all(renewals);

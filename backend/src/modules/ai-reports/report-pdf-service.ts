@@ -14,7 +14,10 @@ const __dirname = path.dirname(__filename);
 export interface GeneratePdfOptions {
   authorName?: string;
   reportType?: string;
+  /** Explicit period text — Single Source of Truth; skips Markdown regex when provided. */
   periodText?: string;
+  /** Explicit scope text — Single Source of Truth; skips Markdown regex when provided. */
+  scopeText?: string;
 }
 
 export interface GeneratedPdfFile {
@@ -122,9 +125,13 @@ export async function generateReportPdfBuffer(
       day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
     });
 
-    const timeScopeMatch = markdownContent.match(/(?:[^\w\n]*Thời gian[:\s*]+)([^\n|*]+)(?:\|\s*([^\n*]+))?/iu);
-    const periodText = options.periodText || (timeScopeMatch ? cleanText(timeScopeMatch[1]) : '');
-    const scopeText = timeScopeMatch && timeScopeMatch[2] ? cleanText(timeScopeMatch[2].replace(/\*+$/, '')) : '';
+    // Safe regex: supports bold Markdown `**Thời gian:**` and guards against "báo cáo:" contamination
+    const safePdfTimeRegex = /(?:^\s*[*_~-]*\s*Thời gian(?:\s*báo\s*cáo)?\s*[*_~-]*\s*:\s*[*_~-]*\s*)([^\n|*]+)(?:\|\s*([^\n*]+))?/imu;
+    const timeScopeMatch = markdownContent.match(safePdfTimeRegex);
+    const rawPeriodFromRegex = timeScopeMatch ? cleanText(timeScopeMatch[1]) : '';
+    const isBadPdfTime = /^(báo cáo|thời gian báo cáo)[:\s]*$/i.test(rawPeriodFromRegex.trim()) || rawPeriodFromRegex.trim() === '';
+    const periodText = options.periodText || (isBadPdfTime ? '' : rawPeriodFromRegex);
+    const scopeText = options.scopeText || (timeScopeMatch && timeScopeMatch[2] ? cleanText(timeScopeMatch[2].replace(/\*+$/, '')) : '');
 
     const metadataY = 96;
     doc.rect(36, metadataY, contentWidth, 22).fill('#F1F5F9');
