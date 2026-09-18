@@ -44,6 +44,11 @@ export const AI_PRICING_TABLE: Record<string, ModelPricing> = {
     cachedInputPerMillion: 1.25,
     outputPerMillion: 10.00,
   },
+  'deepseek-flash': {
+    inputPerMillion: 0.15,
+    cachedInputPerMillion: 0.003,
+    outputPerMillion: 0.60,
+  },
   'deepseek-chat': {
     inputPerMillion: 0.14,
     cachedInputPerMillion: 0.014,
@@ -64,7 +69,7 @@ export const AI_PRICING_TABLE: Record<string, ModelPricing> = {
 const PROVIDER_FALLBACK_PRICING: Record<string, ModelPricing> = {
   gemini: AI_PRICING_TABLE['gemini-3.6-flash'],
   openai: AI_PRICING_TABLE['gpt-4o-mini'],
-  deepseek: AI_PRICING_TABLE['deepseek-chat'],
+  deepseek: AI_PRICING_TABLE['deepseek-flash'],
   custom: AI_PRICING_TABLE['custom'],
 };
 

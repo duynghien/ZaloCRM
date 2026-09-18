@@ -23,9 +23,17 @@ function maskKey(key?: string): string {
  * Returns host-level AI configuration from environment variables.
  */
 export function getSystemDefaultAiSettings(): OrgAiProviderSettings {
-  const primary = (config.aiPrimaryProvider as AiProviderType) || 'gemini';
+  const primary = (config.aiPrimaryProvider as AiProviderType) || 'deepseek';
   const providers: Partial<Record<AiProviderType, AiProviderConfig>> = {};
 
+  if (config.deepseekApiKey) {
+    providers.deepseek = {
+      type: 'deepseek',
+      apiKey: config.deepseekApiKey,
+      model: config.deepseekModel,
+      supportsVision: true,
+    };
+  }
   if (config.geminiApiKey) {
     providers.gemini = {
       type: 'gemini',
@@ -42,16 +50,8 @@ export function getSystemDefaultAiSettings(): OrgAiProviderSettings {
       supportsVision: true,
     };
   }
-  if (config.deepseekApiKey) {
-    providers.deepseek = {
-      type: 'deepseek',
-      apiKey: config.deepseekApiKey,
-      model: config.deepseekModel,
-      supportsVision: false,
-    };
-  }
 
-  const fallbackChain = (['gemini', 'openai', 'deepseek'] as AiProviderType[]).filter(
+  const fallbackChain = (['deepseek', 'gemini', 'openai'] as AiProviderType[]).filter(
     (p) => p !== primary && Boolean(providers[p]),
   );
 
@@ -120,10 +120,10 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
   const buildDefaultDto = () => {
     const system = getSystemDefaultAiSettings();
     const providersDto: Record<string, any> = {
-      gemini: { type: 'gemini', model: config.geminiModel, apiKey: '', apiKeySet: Boolean(config.geminiApiKey) },
-      openai: { type: 'openai', model: config.openaiModel, apiKey: '', apiKeySet: Boolean(config.openaiApiKey) },
-      deepseek: { type: 'deepseek', model: config.deepseekModel, apiKey: '', apiKeySet: Boolean(config.deepseekApiKey) },
-      custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', apiKeySet: false, baseUrl: '' },
+      deepseek: { type: 'deepseek', model: config.deepseekModel, apiKey: '', apiKeySet: Boolean(config.deepseekApiKey), supportsVision: true },
+      gemini: { type: 'gemini', model: config.geminiModel, apiKey: '', apiKeySet: Boolean(config.geminiApiKey), supportsVision: true },
+      openai: { type: 'openai', model: config.openaiModel, apiKey: '', apiKeySet: Boolean(config.openaiApiKey), supportsVision: true },
+      custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', apiKeySet: false, baseUrl: '', supportsVision: false },
     };
 
     return {
@@ -147,7 +147,7 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
     const saved = JSON.parse(rawJson);
     const providersDto: Record<string, any> = {};
 
-    for (const type of ['gemini', 'openai', 'deepseek', 'custom']) {
+    for (const type of ['deepseek', 'gemini', 'openai', 'custom']) {
       const cfg = saved.providers?.[type] || {};
       providersDto[type] = {
         type,
@@ -155,13 +155,16 @@ export async function getOrgAiProviderSettingsDto(orgId: string) {
         apiKey: maskKey(cfg.apiKey),
         apiKeySet: Boolean(cfg.apiKey),
         baseUrl: cfg.baseUrl || '',
-        supportsVision: cfg.supportsVision,
+        supportsVision:
+          type === 'deepseek'
+            ? Boolean(cfg.supportsVision) || /flash|vl|vision/i.test(cfg.model || config.deepseekModel)
+            : (cfg.supportsVision ?? (type === 'gemini' || type === 'openai')),
       };
     }
 
     return {
       isSystemDefault: false,
-      primaryProvider: saved.primaryProvider || config.aiPrimaryProvider || 'gemini',
+      primaryProvider: saved.primaryProvider || config.aiPrimaryProvider || 'deepseek',
       fallbackEnabled: saved.fallbackEnabled ?? true,
       fallbackChain: saved.fallbackChain || [],
       allowSystemFallback: saved.allowSystemFallback ?? true,
@@ -222,7 +225,7 @@ export async function saveOrgAiProviderSettings(orgId: string, payload: any): Pr
   }
 
   const toSave = {
-    primaryProvider: payload.primaryProvider || existingData.primaryProvider || 'gemini',
+    primaryProvider: payload.primaryProvider || existingData.primaryProvider || config.aiPrimaryProvider || 'deepseek',
     fallbackEnabled: payload.fallbackEnabled ?? existingData.fallbackEnabled ?? true,
     fallbackChain: payload.fallbackChain || existingData.fallbackChain || [],
     allowSystemFallback: payload.allowSystemFallback ?? existingData.allowSystemFallback ?? true,

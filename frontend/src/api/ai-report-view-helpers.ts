@@ -1,22 +1,22 @@
 import type { AiProviderDetail, AiProviderSettings, GeneratedReportItem, GroupItem, ResendReportPayload } from './ai-report-api';
 
-export const ALL_AI_PROVIDERS: Array<'gemini' | 'deepseek' | 'openai' | 'custom'> = [
-  'gemini',
+export const ALL_AI_PROVIDERS: Array<'deepseek' | 'gemini' | 'openai' | 'custom'> = [
   'deepseek',
+  'gemini',
   'openai',
   'custom',
 ];
 
-export const DEFAULT_AI_PROVIDERS: Record<'gemini' | 'deepseek' | 'openai' | 'custom', AiProviderDetail> = {
-  gemini: { type: 'gemini', model: 'gemini-2.5-flash', apiKey: '', baseUrl: '' },
-  deepseek: { type: 'deepseek', model: 'deepseek-chat', apiKey: '', baseUrl: '' },
-  openai: { type: 'openai', model: 'gpt-4o-mini', apiKey: '', baseUrl: '' },
-  custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', baseUrl: '' },
+export const DEFAULT_AI_PROVIDERS: Record<'deepseek' | 'gemini' | 'openai' | 'custom', AiProviderDetail> = {
+  deepseek: { type: 'deepseek', model: 'deepseek-flash', apiKey: '', baseUrl: '', supportsVision: true },
+  gemini: { type: 'gemini', model: 'gemini-2.5-flash', apiKey: '', baseUrl: '', supportsVision: true },
+  openai: { type: 'openai', model: 'gpt-4o-mini', apiKey: '', baseUrl: '', supportsVision: true },
+  custom: { type: 'custom', model: 'llama-3.3-70b', apiKey: '', baseUrl: '', supportsVision: false },
 };
 
 export const MODEL_SUGGESTIONS: Record<string, string[]> = {
+  deepseek: ['deepseek-flash'],
   gemini: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
   custom: ['mistral-small', 'llama-3.3-70b'],
 };
@@ -24,13 +24,13 @@ export const MODEL_SUGGESTIONS: Record<string, string[]> = {
 export function createDefaultAiProviderSettings(): AiProviderSettings {
   return {
     isSystemDefault: true,
-    primaryProvider: 'gemini',
+    primaryProvider: 'deepseek',
     fallbackEnabled: true,
-    fallbackChain: ['deepseek', 'openai'],
+    fallbackChain: ['gemini', 'openai'],
     allowSystemFallback: true,
     providers: {
-      gemini: { ...DEFAULT_AI_PROVIDERS.gemini },
       deepseek: { ...DEFAULT_AI_PROVIDERS.deepseek },
+      gemini: { ...DEFAULT_AI_PROVIDERS.gemini },
       openai: { ...DEFAULT_AI_PROVIDERS.openai },
       custom: { ...DEFAULT_AI_PROVIDERS.custom },
     },

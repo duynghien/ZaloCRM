@@ -32,7 +32,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
       this.supportsVision = config.supportsVision ?? (this.model.includes('4o') || this.model.includes('vision'));
     } else if (this.type === 'deepseek') {
       baseURL = config.baseUrl || 'https://api.deepseek.com';
-      this.supportsVision = false; // DeepSeek chat is text-only
+      this.supportsVision = Boolean(config.supportsVision) || (/flash|vl|vision/i.test(this.model));
     } else {
       // custom
       this.supportsVision = Boolean(config.supportsVision);
@@ -113,6 +113,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
         options.onUsage?.(usageTelemetry);
 
+        const text = completion.choices[0]?.message?.content || '';
+        if (!text) throw new Error(`Empty response received from ${this.type} API`);
+
         if (options.orgId && options.taskType) {
           recordAiUsage({
             orgId: options.orgId,
@@ -132,8 +135,6 @@ export class OpenAiCompatibleProvider implements AiProvider {
           });
         }
 
-        const text = completion.choices[0]?.message?.content || '';
-        if (!text) throw new Error(`Empty response received from ${this.type} API`);
         return text;
       } catch (err: any) {
         if (isReportControlError(err)) throw err;

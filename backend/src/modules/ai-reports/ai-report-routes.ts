@@ -515,7 +515,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
     const providerConfig = {
       type: body.type,
       apiKey,
-      model: body.model || existingProviderCfg?.model || (body.type === 'gemini' ? 'gemini-2.5-flash' : body.type === 'deepseek' ? 'deepseek-chat' : 'gpt-4o-mini'),
+      model: body.model || existingProviderCfg?.model || (body.type === 'gemini' ? 'gemini-2.5-flash' : body.type === 'deepseek' ? 'deepseek-flash' : 'gpt-4o-mini'),
       baseUrl,
       supportsVision: body.supportsVision ?? existingProviderCfg?.supportsVision,
     };

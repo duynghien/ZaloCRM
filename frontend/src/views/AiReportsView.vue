@@ -971,7 +971,7 @@ const aiProviderSettings = ref<AiProviderSettings>(createDefaultAiProviderSettin
 const isSavingAi = ref(false);
 
 const activeProviderLabel = computed(() => {
-  const p = aiProviderSettings.value.primaryProvider || 'gemini';
+  const p = aiProviderSettings.value.primaryProvider || 'deepseek';
   return p.toUpperCase();
 });
 

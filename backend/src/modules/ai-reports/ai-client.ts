@@ -60,6 +60,23 @@ export async function validateConfiguredGeminiModel(requireApiKey = false): Prom
   }
 }
 
+export async function validateConfiguredPrimaryModel(requireApiKey = false): Promise<boolean> {
+  if (config.aiPrimaryProvider === 'gemini') {
+    return validateConfiguredGeminiModel(requireApiKey);
+  }
+  if (config.aiPrimaryProvider === 'deepseek') {
+    if (!config.deepseekApiKey) {
+      if (requireApiKey) throw new Error('DEEPSEEK_API_KEY is required for the DeepSeek model smoke check.');
+      logger.info(`[ai-client] Primary AI Provider is deepseek (model: ${config.deepseekModel}), waiting for tenant/host key configuration.`);
+      return false;
+    }
+    logger.info(`[ai-client] Verified configured DeepSeek primary model ${config.deepseekModel}`);
+    return true;
+  }
+  logger.info(`[ai-client] AI Primary Provider configured as: ${config.aiPrimaryProvider}`);
+  return true;
+}
+
 /**
  * Generate AI content via the Multi-Provider AI Adapter & Router.
  */

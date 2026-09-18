@@ -16,6 +16,16 @@ import { GeminiProvider } from './gemini-provider.js';
 import { OpenAiCompatibleProvider } from './openai-compatible-provider.js';
 import { preprocessMultimodalPrompt } from './smart-hybrid-vision-bridge.js';
 
+export function sanitizeErrorReason(raw?: string): string {
+  if (!raw) return 'Primary provider error';
+  return raw
+    .replace(/https?:\/\/[^\s"'<>]+/gi, '[URL]')
+    .replace(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b/g, '[IP]')
+    .replace(/\b(sk-[a-zA-Z0-9_-]+|[a-zA-Z0-9_-]{24,})\b/g, '[REDACTED]')
+    .replace(/bearer\s+[^\s]+/gi, 'bearer [REDACTED]')
+    .slice(0, 300);
+}
+
 export class AiProviderRouter implements AiProvider {
   readonly type: AiProviderType;
   readonly supportsVision: boolean = true;
@@ -55,8 +65,13 @@ export class AiProviderRouter implements AiProvider {
     return this.providers.get(type);
   }
 
-  private getVisionProvider(): AiProvider | null {
+  getVisionProvider(excludeType?: string | string[]): AiProvider | null {
     for (const provider of this.providers.values()) {
+      if (excludeType) {
+        if (Array.isArray(excludeType) ? excludeType.includes(provider.type) : provider.type === excludeType) {
+          continue;
+        }
+      }
       if (provider.supportsVision) return provider;
     }
     return null;
@@ -126,10 +141,12 @@ export class AiProviderRouter implements AiProvider {
         await runReportExecutionGuard(options.executionGuard);
 
         // Preprocess prompt if provider does not support vision
+        const failedTypes = chain.slice(0, i).map((c) => c.provider.type);
+        const effectiveVisionProvider = this.getVisionProvider(failedTypes);
         const preprocessedPrompt = await preprocessMultimodalPrompt(
           prompt,
           provider,
-          visionProvider,
+          effectiveVisionProvider,
           options,
         );
 
@@ -148,7 +165,7 @@ export class AiProviderRouter implements AiProvider {
             fallbackProvider: provider.type,
             primaryModel: primaryCfg,
             actualModel: actualCfg,
-            errorReason: lastError?.message || 'Primary provider error',
+            errorReason: sanitizeErrorReason(lastError?.message),
           });
         }
 

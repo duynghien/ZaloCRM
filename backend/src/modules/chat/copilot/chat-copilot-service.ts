@@ -9,6 +9,7 @@ import { chatCopilotCache } from './chat-copilot-cache.js';
 import { ChatCopilotPromptBuilder } from './chat-copilot-prompt-builder.js';
 import { normalizeCopilotResult, parseRawCopilotJson } from './chat-copilot-parser.js';
 import { callCopilotAiProvider } from './chat-copilot-ai-caller.js';
+import type { AiProviderConfig, AiProviderType } from '../../ai-reports/providers/ai-provider-interface.js';
 import type {
   CopilotAnalysisResult,
   CopilotContactContext,
@@ -48,11 +49,25 @@ export class ChatCopilotService {
       if (signal?.aborted) return null;
 
       const orgSettings = await getOrgAiProviderCredentials(orgId);
+      const chain: { type: AiProviderType; cfg: AiProviderConfig }[] = [];
       const primaryType = orgSettings.primaryProvider;
-      const providerCfg = orgSettings.providers[primaryType];
+      const primaryCfg = orgSettings.providers[primaryType];
+      if (primaryCfg?.apiKey) {
+        chain.push({ type: primaryType, cfg: primaryCfg });
+      }
 
-      if (!providerCfg?.apiKey) {
-        logger.warn(`[chat-copilot] Primary AI provider ${primaryType} has no API key configured for org ${orgId}`);
+      if (orgSettings.fallbackEnabled && Array.isArray(orgSettings.fallbackChain)) {
+        for (const fbType of orgSettings.fallbackChain) {
+          if (fbType === primaryType) continue;
+          const fbCfg = orgSettings.providers[fbType];
+          if (fbCfg?.apiKey && !chain.some((c) => c.type === fbType)) {
+            chain.push({ type: fbType, cfg: fbCfg });
+          }
+        }
+      }
+
+      if (chain.length === 0) {
+        logger.warn(`[chat-copilot] No AI provider with API key configured for org ${orgId}`);
         return null;
       }
 
@@ -60,15 +75,51 @@ export class ChatCopilotService {
       const systemInstruction = ChatCopilotPromptBuilder.buildSystemInstruction(businessContext);
       const userPrompt = ChatCopilotPromptBuilder.buildUserPrompt(conversationId, messages, contact, isGroup);
 
-      const rawText = await callCopilotAiProvider(
-        primaryType,
-        providerCfg,
-        systemInstruction,
-        userPrompt,
-        { orgId, conversationId },
-        signal,
-      );
+      let rawText: string | null = null;
+      let lastError: any = null;
+
+      for (let i = 0; i < chain.length; i++) {
+        const { type, cfg } = chain[i];
+        const isFallback = i > 0;
+        try {
+          if (signal?.aborted) return null;
+          rawText = await callCopilotAiProvider(
+            type,
+            cfg,
+            systemInstruction,
+            userPrompt,
+            { orgId, conversationId },
+            signal,
+          );
+          if (isFallback) {
+            logger.warn(
+              `[chat-copilot] Fallback provider ${type} succeeded after primary failure for conv ${conversationId}`,
+            );
+          }
+          if (rawText) {
+            break;
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError' || signal?.aborted || err?.message?.includes('aborted')) {
+            return null;
+          }
+          lastError = err;
+          logger.warn(
+            `[chat-copilot] Provider ${type} failed for conv ${conversationId}: ${err?.message || err}. Attempting next provider in chain.`,
+          );
+        }
+      }
+
       if (signal?.aborted) return null;
+      if (!rawText) {
+        if (lastError) {
+          logger.error(
+            `[chat-copilot] All AI providers in failover chain failed for conversation ${conversationId}:`,
+            lastError?.message || lastError,
+          );
+        }
+        return null;
+      }
 
       const parsedJson = parseRawCopilotJson(rawText);
       if (!parsedJson) {

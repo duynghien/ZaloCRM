@@ -12,7 +12,7 @@ import { startZaloHealthCheck, stopZaloHealthCheck } from './modules/zalo/zalo-h
 import { startReportCronJobs, stopReportCronJobs } from './modules/ai-reports/report-cron.js';
 import { startReportJobWorker, stopReportJobWorker } from './modules/ai-reports/report-job-worker.js';
 import { decryptData } from './shared/utils/crypto.js';
-import { validateConfiguredGeminiModel } from './modules/ai-reports/ai-client.js';
+import { validateConfiguredGeminiModel, validateConfiguredPrimaryModel } from './modules/ai-reports/ai-client.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachments/orphan-cleanup-task.js';
 
@@ -60,11 +60,7 @@ async function bootstrap() {
   // ── Start ─────────────────────────────────────────────────────────────────
 
   try {
-    if (config.aiPrimaryProvider === 'gemini') {
-      await validateConfiguredGeminiModel();
-    } else {
-      logger.info(`[lifecycle] AI Primary Provider configured as: ${config.aiPrimaryProvider}`);
-    }
+    await validateConfiguredPrimaryModel();
     await app.listen({ port: config.port, host: config.host });
     logger.info(`Zalo CRM running on http://${config.host}:${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);

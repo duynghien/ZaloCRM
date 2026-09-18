@@ -11,7 +11,7 @@ export function getFastestCopilotModel(type: AiProviderType, config: AiProviderC
     return config.model && config.model.includes('mini') ? config.model : 'gpt-4o-mini';
   }
   if (type === 'deepseek') {
-    return 'deepseek-chat';
+    return 'deepseek-flash';
   }
   return config.model || 'gpt-4o-mini';
 }

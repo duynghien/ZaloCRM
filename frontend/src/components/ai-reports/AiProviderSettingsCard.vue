@@ -13,13 +13,13 @@
 
     <!-- Provider Selection Tabs -->
     <v-tabs v-model="selectedTab" density="compact" color="primary" class="mb-4 neo-tabs" grow>
-      <v-tab value="gemini">
-        <v-icon start>gemini.svg</v-icon>
-        Gemini
-      </v-tab>
       <v-tab value="deepseek">
         <v-icon start>deepseek.svg</v-icon>
         DeepSeek
+      </v-tab>
+      <v-tab value="gemini">
+        <v-icon start>gemini.svg</v-icon>
+        Gemini
       </v-tab>
       <v-tab value="openai">
         <v-icon start>openai.svg</v-icon>
@@ -34,8 +34,8 @@
     <div class="d-flex align-center gap-2 mb-3 flex-wrap">
       <v-radio-group v-model="settings.primaryProvider" inline hide-details density="compact">
         <span class="text-caption font-weight-bold mr-2">Đặt làm chính:</span>
-        <v-radio label="Gemini" value="gemini" density="compact" />
         <v-radio label="DeepSeek" value="deepseek" density="compact" />
+        <v-radio label="Gemini" value="gemini" density="compact" />
         <v-radio label="OpenAI" value="openai" density="compact" />
         <v-radio label="Custom" value="custom" density="compact" />
       </v-radio-group>
@@ -192,7 +192,7 @@ const emit = defineEmits<{
 
 const settings = defineModel<AiProviderSettings>({ required: true });
 
-const selectedTab = ref<'gemini' | 'openai' | 'deepseek' | 'custom'>('gemini');
+const selectedTab = ref<'deepseek' | 'gemini' | 'openai' | 'custom'>('deepseek');
 const showApiKey = ref(false);
 const isTesting = ref(false);
 const testResult = ref<TestAiResult | null>(null);
@@ -203,7 +203,7 @@ const currentProvider = computed<AiProviderDetail>(() => {
 });
 
 const currentPrimaryConfig = computed(() => {
-  const prim = settings.value?.primaryProvider || 'gemini';
+  const prim = settings.value?.primaryProvider || 'deepseek';
   return settings.value?.providers?.[prim];
 });
 
@@ -220,14 +220,14 @@ const canSetAsPrimary = computed(() => {
 
 function getProviderLabel(tab: string) {
   switch (tab) {
-    case 'gemini': return 'Gemini';
     case 'deepseek': return 'DeepSeek';
+    case 'gemini': return 'Gemini';
     case 'openai': return 'OpenAI';
     default: return 'Custom';
   }
 }
 
-function setAsPrimary(tab: 'gemini' | 'openai' | 'deepseek' | 'custom') {
+function setAsPrimary(tab: 'deepseek' | 'gemini' | 'openai' | 'custom') {
   if (settings.value) {
     settings.value.primaryProvider = tab;
   }
@@ -310,7 +310,7 @@ const modelHint = computed(() => {
     return `⚠️ ${fetchModelError.value}`;
   }
   if (selectedTab.value === 'deepseek') {
-    return 'Official DeepSeek: deepseek-chat (V3) & deepseek-reasoner (R1). Nhấn 🔄 để tải từ API.';
+    return 'Official DeepSeek: deepseek-flash hỗ trợ Native Multimodal Vision. Nhấn 🔄 để tải từ API.';
   }
   if (selectedTab.value === 'custom') {
     return 'Hỗ trợ bất kỳ OpenAI-compatible gateway nào. Nhấn 🔄 để tải model từ Base URL.';
