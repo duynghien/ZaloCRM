@@ -7,7 +7,6 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import PDFDocument from 'pdfkit';
-import { parseActionItemsFromMarkdown, type ReportActionItem } from './report-action-item-parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,6 +44,7 @@ function resolveFontPaths(): { regular: string | null; bold: string | null } {
 
 function cleanText(text: string): string {
   return text
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
     .replace(/\*\*(.*?)\*\*/g, '$1')
     .replace(/\*(.*?)\*/g, '$1')
     .replace(/__(.*?)__/g, '$1')
@@ -148,95 +148,219 @@ export async function generateReportPdfBuffer(
       const headers = rows[0];
       const dataRows = rows.slice(1);
       const isAction = isActionItemsTable(headers);
+      const headerH = 22;
+      const padV = 5;
+      const MAX_ROW_H = pageHeight - 110;
 
-      if (doc.y > pageHeight - 80) doc.addPage();
+      const clampCellText = (text: string, textWidth: number): { text: string; height: number } => {
+        doc.font(regularFont).fontSize(8.5);
+        const fullH = doc.heightOfString(text, { width: textWidth });
+        const maxAllowedH = MAX_ROW_H - padV * 2;
+        if (fullH <= maxAllowedH) {
+          return { text, height: fullH };
+        }
+        let low = 0;
+        let high = text.length;
+        let bestText = text.slice(0, 500);
+        let bestH = doc.heightOfString(bestText + ' [...]', { width: textWidth });
+        while (low <= high) {
+          const mid = Math.floor((low + high) / 2);
+          const candidate = text.slice(0, mid) + ' [...]';
+          const h = doc.heightOfString(candidate, { width: textWidth });
+          if (h <= maxAllowedH) {
+            bestText = candidate;
+            bestH = h;
+            low = mid + 1;
+          } else {
+            high = mid - 1;
+          }
+        }
+        return { text: bestText, height: bestH };
+      };
 
       if (isAction) {
-        const colStt = { x: 36, w: 26 };
-        const colTask = { x: 62, w: 260 };
-        const colAssignee = { x: 322, w: 100 };
-        const colDeadline = { x: 422, w: 85 };
-        const colPriority = { x: 507, w: 52 };
+        const colStt = { x: 36, w: 28 };
+        const colTask = { x: 64, w: 270 };
+        const colAssignee = { x: 334, w: 95 };
+        const colDeadline = { x: 429, w: 70 };
+        const colPriority = { x: 499, w: 60 };
 
-        const headerH = 20;
-        doc.rect(36, doc.y, contentWidth, headerH).fill('#1E293B');
-        doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
-        doc.text('#', colStt.x + 2, doc.y + 5, { width: colStt.w - 4, align: 'center' });
-        doc.text('Hành động', colTask.x + 6, doc.y + 5, { width: colTask.w - 12 });
-        doc.text('Người phụ trách', colAssignee.x + 4, doc.y + 5, { width: colAssignee.w - 8 });
-        doc.text('Thời hạn', colDeadline.x + 4, doc.y + 5, { width: colDeadline.w - 8 });
-        doc.text('Ưu tiên', colPriority.x + 2, doc.y + 5, { width: colPriority.w - 4, align: 'center' });
-        doc.y += headerH;
+        const sttTextWidth = colStt.w - 4; // 24pt
+        const taskTextWidth = colTask.w - 12; // 258pt
+        const assigneeTextWidth = colAssignee.w - 8; // 87pt
+        const deadlineTextWidth = colDeadline.w - 8; // 62pt
+        const priorityTextWidth = colPriority.w - 4; // 56pt
 
-        dataRows.forEach((row, idx) => {
-          const rowH = 22;
-          if (doc.y + rowH > pageHeight - 50) {
-            doc.addPage();
-            doc.rect(36, doc.y, contentWidth, headerH).fill('#1E293B');
-            doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
-            doc.text('#', colStt.x + 2, doc.y + 5, { width: colStt.w - 4, align: 'center' });
-            doc.text('Hành động', colTask.x + 6, doc.y + 5, { width: colTask.w - 12 });
-            doc.text('Người phụ trách', colAssignee.x + 4, doc.y + 5, { width: colAssignee.w - 8 });
-            doc.text('Thời hạn', colDeadline.x + 4, doc.y + 5, { width: colDeadline.w - 8 });
-            doc.text('Ưu tiên', colPriority.x + 2, doc.y + 5, { width: colPriority.w - 4, align: 'center' });
-            doc.y += headerH;
+        const hasExplicitSttCol = headers.length >= 5 || (headers.length > 0 && /#|stt|no/i.test(headers[0]));
+
+        const renderActionTableHeader = (): void => {
+          const headerY = doc.y;
+          doc.rect(36, headerY, contentWidth, headerH).fill('#1E293B');
+          doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
+          doc.text('#', colStt.x + 2, headerY + 6, { width: sttTextWidth, align: 'center' });
+          doc.text('Hành động', colTask.x + 6, headerY + 6, { width: taskTextWidth });
+          doc.text('Người phụ trách', colAssignee.x + 4, headerY + 6, { width: assigneeTextWidth });
+          doc.text('Thời hạn', colDeadline.x + 4, headerY + 6, { width: deadlineTextWidth });
+          doc.text('Ưu tiên', colPriority.x + 2, headerY + 6, { width: priorityTextWidth, align: 'center' });
+          doc.y = headerY + headerH;
+        };
+
+        const parseActionRow = (row: string[], idx: number) => {
+          let stt = '';
+          let task = '';
+          let assignee = '';
+          let deadline = '';
+          let priority = '';
+
+          if (!hasExplicitSttCol) {
+            stt = String(idx + 1);
+            if (row.length <= 4) {
+              task = row[0] || '';
+              assignee = row[1] || '';
+              deadline = row[2] || '';
+              priority = row[3] || '';
+            } else {
+              task = row.slice(0, row.length - 3).join(' | ');
+              assignee = row[row.length - 3] || '';
+              deadline = row[row.length - 2] || '';
+              priority = row[row.length - 1] || '';
+            }
+          } else {
+            stt = row[0] || String(idx + 1);
+            if (row.length <= 5) {
+              task = row[1] || '';
+              assignee = row[2] || '';
+              deadline = row[3] || '';
+              priority = row[4] || '';
+            } else {
+              task = row.slice(1, row.length - 3).join(' | ');
+              assignee = row[row.length - 3] || '';
+              deadline = row[row.length - 2] || '';
+              priority = row[row.length - 1] || '';
+            }
           }
 
-          const isEven = idx % 2 === 0;
-          doc.rect(36, doc.y, contentWidth, rowH).fill(isEven ? '#F8FAFC' : '#FFFFFF');
-          doc.rect(36, doc.y, contentWidth, rowH).stroke('#E2E8F0');
+          stt = stt || String(idx + 1);
+          assignee = assignee || 'Chưa phân công';
+          deadline = deadline || 'Trong ca';
+          priority = priority || 'medium';
 
-          doc.font(regularFont).fontSize(8.5).fillColor('#0F172A');
-          doc.text(String(idx + 1), colStt.x + 2, doc.y + 6, { width: colStt.w - 4, align: 'center' });
+          return { stt, task, assignee, deadline, priority };
+        };
 
-          const task = row[1] || '';
-          doc.text(task.length > 55 ? task.slice(0, 52) + '...' : task, colTask.x + 6, doc.y + 6, { width: colTask.w - 12 });
-          const assignee = row[2] || '';
-          doc.text(assignee.length > 18 ? assignee.slice(0, 16) + '...' : assignee, colAssignee.x + 4, doc.y + 6, { width: colAssignee.w - 8 });
-          const deadline = row[3] || '';
-          doc.text(deadline.length > 15 ? deadline.slice(0, 13) + '...' : deadline, colDeadline.x + 4, doc.y + 6, { width: colDeadline.w - 8 });
+        const computeActionRow = (row: string[], idx: number) => {
+          const parsed = parseActionRow(row, idx);
+          const taskData = clampCellText(parsed.task, taskTextWidth);
+          const assigneeData = clampCellText(parsed.assignee, assigneeTextWidth);
+          const deadlineData = clampCellText(parsed.deadline, deadlineTextWidth);
 
-          const pRaw = (row[4] || '').toLowerCase();
+          const rawRowH = Math.max(22, taskData.height + padV * 2, assigneeData.height + padV * 2, deadlineData.height + padV * 2);
+          const rowH = Math.min(rawRowH, MAX_ROW_H);
+
+          const pRaw = parsed.priority.toLowerCase();
           const pColor = pRaw.includes('cao') || pRaw.includes('high') ? '#DC2626' : pRaw.includes('thấp') || pRaw.includes('low') ? '#16A34A' : '#D97706';
           const pLabel = pRaw.includes('cao') || pRaw.includes('high') ? 'Cao' : pRaw.includes('thấp') || pRaw.includes('low') ? 'Thấp' : 'T.Bình';
-          doc.font(boldFont).fontSize(8).fillColor(pColor).text(pLabel, colPriority.x + 2, doc.y + 6, { width: colPriority.w - 4, align: 'center' });
 
-          doc.y += rowH;
+          return {
+            stt: parsed.stt,
+            task: taskData.text,
+            assignee: assigneeData.text,
+            deadline: deadlineData.text,
+            pColor,
+            pLabel,
+            rowH,
+          };
+        };
+
+        // Check orphan header before drawing table
+        if (dataRows.length > 0) {
+          const firstRow = computeActionRow(dataRows[0], 0);
+          if (doc.y + headerH + firstRow.rowH > pageHeight - 50) {
+            doc.addPage();
+          }
+        }
+        renderActionTableHeader();
+
+        dataRows.forEach((row, idx) => {
+          const rowData = computeActionRow(row, idx);
+          if (doc.y + rowData.rowH > pageHeight - 50) {
+            doc.addPage();
+            renderActionTableHeader();
+          }
+
+          const rowStartY = doc.y;
+          const isEven = idx % 2 === 0;
+
+          doc.rect(36, rowStartY, contentWidth, rowData.rowH).fill(isEven ? '#F8FAFC' : '#FFFFFF');
+          doc.rect(36, rowStartY, contentWidth, rowData.rowH).stroke('#E2E8F0');
+
+          doc.font(regularFont).fontSize(8.5).fillColor('#0F172A');
+          doc.text(rowData.stt, colStt.x + 2, rowStartY + padV, { width: sttTextWidth, align: 'center' });
+          doc.text(rowData.task, colTask.x + 6, rowStartY + padV, { width: taskTextWidth });
+          doc.text(rowData.assignee, colAssignee.x + 4, rowStartY + padV, { width: assigneeTextWidth });
+          doc.text(rowData.deadline, colDeadline.x + 4, rowStartY + padV, { width: deadlineTextWidth });
+
+          doc.font(boldFont).fontSize(8).fillColor(rowData.pColor);
+          doc.text(rowData.pLabel, colPriority.x + 2, rowStartY + padV, { width: priorityTextWidth, align: 'center' });
+
+          doc.y = rowStartY + rowData.rowH;
         });
         doc.y += 10;
       } else {
         // Generic table
         const colCount = Math.max(1, headers.length);
         const colW = contentWidth / colCount;
-        const headerH = 20;
-        doc.rect(36, doc.y, contentWidth, headerH).fill('#1E293B');
-        doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
-        headers.forEach((h, cIdx) => {
-          doc.text(h, 36 + cIdx * colW + 4, doc.y + 5, { width: colW - 8 });
-        });
-        doc.y += headerH;
+
+        const renderGenericHeader = (): void => {
+          const headerY = doc.y;
+          doc.rect(36, headerY, contentWidth, headerH).fill('#1E293B');
+          doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
+          headers.forEach((h, cIdx) => {
+            doc.text(h, 36 + cIdx * colW + 4, headerY + 6, { width: colW - 8 });
+          });
+          doc.y = headerY + headerH;
+        };
+
+        const computeGenericRow = (row: string[]) => {
+          let maxCellH = 0;
+          const processedCells = row.map((cell) => {
+            const cellData = clampCellText(cell || '', colW - 8);
+            if (cellData.height > maxCellH) {
+              maxCellH = cellData.height;
+            }
+            return cellData.text;
+          });
+          const rawRowH = Math.max(22, maxCellH + padV * 2);
+          const rowH = Math.min(rawRowH, MAX_ROW_H);
+          return { cells: processedCells, rowH };
+        };
+
+        if (dataRows.length > 0) {
+          const firstRow = computeGenericRow(dataRows[0]);
+          if (doc.y + headerH + firstRow.rowH > pageHeight - 50) {
+            doc.addPage();
+          }
+        }
+        renderGenericHeader();
 
         dataRows.forEach((row, idx) => {
-          const rowH = 20;
-          if (doc.y + rowH > pageHeight - 50) {
+          const rowData = computeGenericRow(row);
+          if (doc.y + rowData.rowH > pageHeight - 50) {
             doc.addPage();
-            doc.rect(36, doc.y, contentWidth, headerH).fill('#1E293B');
-            doc.font(boldFont).fontSize(8.5).fillColor('#FFFFFF');
-            headers.forEach((h, cIdx) => {
-              doc.text(h, 36 + cIdx * colW + 4, doc.y + 5, { width: colW - 8 });
-            });
-            doc.y += headerH;
+            renderGenericHeader();
           }
 
-          doc.rect(36, doc.y, contentWidth, rowH).fill(idx % 2 === 0 ? '#F8FAFC' : '#FFFFFF');
-          doc.rect(36, doc.y, contentWidth, rowH).stroke('#E2E8F0');
+          const rowStartY = doc.y;
+          doc.rect(36, rowStartY, contentWidth, rowData.rowH).fill(idx % 2 === 0 ? '#F8FAFC' : '#FFFFFF');
+          doc.rect(36, rowStartY, contentWidth, rowData.rowH).stroke('#E2E8F0');
+
           doc.font(regularFont).fontSize(8.5).fillColor('#0F172A');
-          row.forEach((cell, cIdx) => {
+          rowData.cells.forEach((cell, cIdx) => {
             if (cIdx < colCount) {
-              doc.text(cell, 36 + cIdx * colW + 4, doc.y + 5, { width: colW - 8 });
+              doc.text(cell, 36 + cIdx * colW + 4, rowStartY + padV, { width: colW - 8 });
             }
           });
-          doc.y += rowH;
+          doc.y = rowStartY + rowData.rowH;
         });
         doc.y += 10;
       }
@@ -255,7 +379,9 @@ export async function generateReportPdfBuffer(
       // Check table row
       if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
         if (/^\|[\s\-:|]+\|$/.test(trimmed)) continue; // skip markdown table separator
-        const cells = trimmed.slice(1, -1).split('|').map((c) => cleanText(c));
+        const escapedPlaceholder = '__ESCAPED_PIPE__';
+        const safeLine = trimmed.slice(1, -1).replace(/\\\|/g, escapedPlaceholder);
+        const cells = safeLine.split('|').map((c) => cleanText(c.replace(new RegExp(escapedPlaceholder, 'g'), '|')));
         if (!currentTable) currentTable = [];
         currentTable.push(cells);
         continue;
