@@ -311,8 +311,8 @@ export async function aiReportRoutes(app: FastifyInstance) {
       return reply.status(404).send({ error: 'Report not found' });
     }
 
-    const fromStr = report.periodFrom.toLocaleDateString('vi-VN');
-    const toStr = report.periodTo.toLocaleDateString('vi-VN');
+    const fromStr = report.periodFrom.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+    const toStr = report.periodTo.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
     const buffer = await generateReportPdfBuffer(report.title, report.summaryContent, {
       authorName: report.createdBy?.fullName || undefined,
       reportType: report.reportType,

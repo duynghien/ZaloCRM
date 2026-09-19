@@ -94,7 +94,7 @@ async function executeScheduledOrgReports(
         if (!pairs.length) continue;
         const request = normalizeReportJobRequest({
           from_date: periodFrom.toISOString(), to_date: periodTo.toISOString(), group_targets: pairs,
-          title: `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : 'Tuần'} (${periodTo.toLocaleDateString('vi-VN')})`,
+          title: `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : 'Tuần'} (${periodTo.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`,
           report_type: reportType, send_zalo: settings.sendZalo, send_email: settings.sendEmail,
           zalo_account_id: settings.senderAccountId, zalo_destination_type: settings.zaloDestinationType,
           zalo_target_uid: settings.zaloTargetUid, email_recipients: settings.emailRecipients,

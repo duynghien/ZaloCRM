@@ -102,8 +102,8 @@ export async function runReportJob(job: Job): Promise<void> {
       const dispatchGuard = async () => { await guard(); if (!await prisma.aiReportJobDispatch.count({ where: dispatchFence() })) throw new Error('Dispatch lease lost'); };
       let result: { success: boolean; partsSent: number; totalParts: number; deliveryUncertain: boolean; error?: string };
       if (channel === 'zalo') {
-        const fromStr = report.periodFrom.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
-        const toStr = report.periodTo.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        const fromStr = report.periodFrom.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+        const toStr = report.periodTo.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
         result = await sendReportToZalo({ orgId: job.orgId, accountId: request.senderAccountId!, destinationType: request.zaloDestinationType, targetUid: request.zaloTargetUid, markdownContent: report.summaryContent, reportTitle: report.title, periodText: `${fromStr} — ${toStr}`, deliveryMode: request.zaloDeliveryMode, executionGuard: dispatchGuard, signal: controller.signal, onPartSent: async (sentParts, totalParts) => {
           const updated = await prisma.aiReportJobDispatch.updateMany({ where: dispatchFence(), data: { sentParts, totalParts } });
           if (!updated.count) throw new Error('Dispatch acknowledgment lease lost');

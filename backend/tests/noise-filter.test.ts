@@ -101,4 +101,32 @@ describe('Noise Filter & Transcript Sanitization (Phase 2)', () => {
     // Second line is the text message
     expect(cleaned[1].content).toBe('Đã hoàn tất kiểm tra thiết bị nhé cả nhà.');
   });
+
+  it('formats message timestamps strictly in Asia/Ho_Chi_Minh (UTC+7) timezone regardless of ambient environment', () => {
+    // 2026-09-18T17:01:00.000Z in UTC is 00:01 in Asia/Ho_Chi_Minh (+7h)
+    // 2026-09-18T23:45:00.000Z in UTC is 06:45 in Asia/Ho_Chi_Minh (+7h)
+    const messages: MessageRecordForFilter[] = [
+      {
+        id: 'msg-night',
+        senderName: 'Hg Tiến Cường',
+        senderType: 'contact',
+        contentType: 'text',
+        content: 'Báo cáo checklist máy móc ca đêm',
+        sentAt: new Date('2026-09-18T17:01:00.000Z'),
+      },
+      {
+        id: 'msg-morning',
+        senderName: 'Lâm Quynh Anh',
+        senderType: 'contact',
+        contentType: 'text',
+        content: 'Báo cáo checklist máy móc đầu ca sáng',
+        sentAt: new Date('2026-09-18T23:45:00.000Z'),
+      },
+    ];
+
+    const cleaned = filterAndFormatMessages(messages);
+    expect(cleaned).toHaveLength(2);
+    expect(cleaned[0].time).toBe('00:01');
+    expect(cleaned[1].time).toBe('06:45');
+  });
 });

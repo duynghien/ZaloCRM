@@ -12,6 +12,7 @@ services:
       - ${ENV_FILE:-.env}
     environment:
       NODE_ENV: development
+      TZ: Asia/Ho_Chi_Minh
       APP_URL: ${DEV_APP_URL:-http://localhost:5173}
       DATABASE_URL: postgresql://${DB_USER:-crmuser}:${DB_PASSWORD}@db:5432/${DB_NAME:-zalocrm}
     depends_on:

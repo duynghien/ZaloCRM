@@ -209,9 +209,11 @@ export function buildStructuredFallbackReport(
   options?: { failureReason?: string; isTechnicalFallback?: boolean },
 ): string {
   const fromStr = periodFrom.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
   const toStr = periodTo.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
     day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
   });
 
@@ -313,6 +315,7 @@ async function synthesizeExecutiveReport(
 ): Promise<string> {
   await runReportExecutionGuard(executionGuard);
   const fromStr = periodFrom.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -320,6 +323,7 @@ async function synthesizeExecutiveReport(
     minute: '2-digit',
   });
   const toStr = periodTo.toLocaleString('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
@@ -492,7 +496,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
 
   const reportData: Prisma.GeneratedReportUncheckedCreateInput = {
     orgId, createdById: userId || null,
-    title: title || `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN')})`,
+    title: title || `Báo Cáo Điều Hành ${reportType === 'daily' ? 'Ngày' : reportType === 'weekly' ? 'Tuần' : 'Tức Thì'} (${periodTo.toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })})`,
     reportType, periodFrom, periodTo, summaryContent,
     groupThreadIds: targets.map(target => target.groupThreadId),
     sourceTargets: targets.map(target => ({ ...target })), targetSchemaVersion: 2, targetResolutionStatus: 'verified',

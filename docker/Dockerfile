@@ -88,7 +88,8 @@ JS
 COPY --from=dependencies /app/node_modules/.prisma /runtime/node_modules/.prisma
 
 FROM node:24-alpine AS base
-RUN apk add --no-cache tini
+RUN apk add --no-cache tini tzdata
+ENV TZ=Asia/Ho_Chi_Minh
 WORKDIR /app
 RUN mkdir -p /var/lib/zalo-crm/files /app/static && chown -R node:node /var/lib/zalo-crm/files /app
 ENTRYPOINT ["/sbin/tini", "--"]

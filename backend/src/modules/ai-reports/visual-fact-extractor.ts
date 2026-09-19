@@ -163,7 +163,13 @@ export function formatVerifiedFactsForPrompt(facts: VerifiedVisualFact[]): strin
 
   const formattedItems = facts.map((fact, idx) => {
     const timeStr = fact.sentAtMs
-      ? new Date(fact.sentAtMs).toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit' })
+      ? new Date(fact.sentAtMs).toLocaleString('vi-VN', {
+          timeZone: 'Asia/Ho_Chi_Minh',
+          hour: '2-digit',
+          minute: '2-digit',
+          day: '2-digit',
+          month: '2-digit',
+        })
       : 'Không rõ';
     const sender = fact.senderName || fact.senderId || 'Nhân viên';
 
