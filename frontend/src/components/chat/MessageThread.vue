@@ -106,14 +106,32 @@
               <div v-else-if="msg.attachments && msg.attachments.length > 0" class="message-attachments-container">
                 <div v-for="(att, attIdx) in msg.attachments" :key="att.filename || attIdx" class="mb-1">
                   <!-- Image attachment -->
-                  <div v-if="isImageFile(att.filename || att.originalName, att.mimeType)">
+                  <div v-if="isImageFile(att.filename || att.originalName, att.mimeType, att.url)">
                     <img
+                      v-if="!failedImages.has(getAttachmentKey(msg, att))"
                       :src="resolveAttachmentUrl(att.url)"
                       :alt="att.originalName || 'Hình ảnh'"
                       class="chat-image"
+                      loading="lazy"
+                      decoding="async"
+                      referrerpolicy="no-referrer"
                       @click="openLightbox(resolveAttachmentUrl(att.url), att.originalName || att.filename)"
-                      @error="handleImageError($event, att)"
+                      @error="handleImageError($event, att, msg)"
                     />
+                    <div v-else class="image-fallback-card pa-3 text-center border rounded">
+                      <v-icon size="24" color="grey-darken-1">mdi-image-off-outline</v-icon>
+                      <div class="text-caption mt-1 text-grey-darken-1">Ảnh không khả dụng</div>
+                      <v-btn
+                        size="x-small"
+                        variant="text"
+                        color="primary"
+                        class="mt-1"
+                        prepend-icon="mdi-reload"
+                        @click="retryLoadImage(att, msg)"
+                      >
+                        Thử lại
+                      </v-btn>
+                    </div>
                   </div>
                   <!-- Document attachment -->
                   <div v-else class="file-card">
@@ -130,13 +148,40 @@
                   </div>
                 </div>
                 <!-- Optional Caption text -->
-                <div v-if="msg.content && msg.content.trim()" class="mt-2 text-body-2" style="white-space: pre-wrap;">
-                  {{ parseDisplayContent(msg.content) }}
+                <div v-if="hasCustomCaption(msg)" class="mt-2 text-body-2" style="white-space: pre-wrap;">
+                  {{ getDisplayCaption(msg) }}
                 </div>
               </div>
               <!-- Image -->
               <div v-else-if="getImageUrl(msg)">
-                <img :src="resolveAttachmentUrl(getImageUrl(msg)!)" alt="Hình ảnh" class="chat-image" @click="openLightbox(resolveAttachmentUrl(getImageUrl(msg)!))" @error="handleImageError" />
+                <img
+                  v-if="!failedImages.has(getAttachmentKey(msg))"
+                  :src="resolveAttachmentUrl(getImageUrl(msg)!)"
+                  alt="Hình ảnh"
+                  class="chat-image"
+                  loading="lazy"
+                  decoding="async"
+                  referrerpolicy="no-referrer"
+                  @click="openLightbox(resolveAttachmentUrl(getImageUrl(msg)!))"
+                  @error="handleImageError($event, undefined, msg)"
+                />
+                <div v-else class="image-fallback-card pa-3 text-center border rounded">
+                  <v-icon size="24" color="grey-darken-1">mdi-image-off-outline</v-icon>
+                  <div class="text-caption mt-1 text-grey-darken-1">Ảnh không khả dụng</div>
+                  <v-btn
+                    size="x-small"
+                    variant="text"
+                    color="primary"
+                    class="mt-1"
+                    prepend-icon="mdi-reload"
+                    @click="retryLoadImage(undefined, msg)"
+                  >
+                    Thử lại
+                  </v-btn>
+                </div>
+                <div v-if="hasCustomCaption(msg)" class="mt-2 text-body-2" style="white-space: pre-wrap;">
+                  {{ getDisplayCaption(msg) }}
+                </div>
               </div>
               <!-- File/PDF -->
               <div v-else-if="getFileInfo(msg)" class="file-card">
@@ -402,23 +447,51 @@ function openLightbox(url: string, filename?: string) {
 }
 
 const imageRetries = new Set<string>();
+const failedImages = ref<Set<string>>(new Set());
 
-async function handleImageError(e: Event, att?: any) {
-  const target = e.target as HTMLImageElement;
-  if (!target) return;
-  const filename = att?.filename || target.src.split('/attachments/')[1]?.split('?')[0];
-  if (!filename) return;
-  if (imageRetries.has(filename)) return;
-  imageRetries.add(filename);
+function getAttachmentKey(msg: Message, att?: any): string {
+  return att?.url || att?.filename || msg.id;
+}
 
-  try {
-    const res = await api.post('/attachments/ticket', { filename });
-    if (res.data?.ticket) {
-      target.src = `/api/v1/attachments/${encodeURIComponent(filename)}?ticket=${encodeURIComponent(res.data.ticket)}`;
-    }
-  } catch (err) {
-    console.warn('[chat-image] Failed to refresh media ticket:', err);
+async function handleImageError(e: Event, att?: any, msg?: Message) {
+  const key = getAttachmentKey(msg || ({} as any), att);
+  const target = e.target as HTMLImageElement | null;
+  if (!target) {
+    failedImages.value.add(key);
+    return;
   }
+
+  const filename = att?.filename || target.src.split('/attachments/')[1]?.split('?')[0];
+  if (!filename) {
+    failedImages.value.add(key);
+    return;
+  }
+
+  // Thử lấy ticket media một lần
+  if (!imageRetries.has(filename)) {
+    imageRetries.add(filename);
+    try {
+      const res = await api.post('/attachments/ticket', { filename });
+      if (res.data?.ticket) {
+        target.src = `/api/v1/attachments/${encodeURIComponent(filename)}?ticket=${encodeURIComponent(res.data.ticket)}`;
+        return;
+      }
+    } catch (err) {
+      console.warn('[chat-image] Failed to refresh media ticket:', err);
+    }
+  }
+
+  // Nếu vẫn thất bại -> Kích hoạt fallback card
+  failedImages.value.add(key);
+}
+
+function retryLoadImage(att?: any, msg?: Message) {
+  const key = getAttachmentKey(msg || ({} as any), att);
+  const target = att?.filename || att?.url?.split('/attachments/')[1]?.split('?')[0];
+  if (target) {
+    imageRetries.delete(target);
+  }
+  failedImages.value.delete(key);
 }
 
 function onApplyReply(text: string) {
@@ -519,6 +592,57 @@ function getFileInfo(msg: Message): { name: string; size: string; href: string }
     }
   } catch {}
   return null;
+}
+
+function isImageFilenameOrPlaceholder(str: string): boolean {
+  const trimmed = str.trim();
+  if (!trimmed) return true;
+  if (trimmed === '[Hình ảnh]' || trimmed === 'Ảnh' || trimmed === '[Ảnh]') return true;
+  if (/\.(jpg|jpeg|png|webp|gif|bmp)$/i.test(trimmed)) return true;
+  return false;
+}
+
+function hasCustomCaption(msg: Message): boolean {
+  if (!msg.content || !msg.content.trim()) return false;
+  if (!msg.content.startsWith('{')) return true;
+  try {
+    const p = JSON.parse(msg.content);
+    // Nếu là tin nhắn chia sẻ web link (Link preview) -> Luôn hiển thị
+    if (msg.contentType === 'link' || (p.href && p.title && !p.href.includes('zdn.vn') && !p.href.includes('/attachments/'))) {
+      return true;
+    }
+    // Nếu là payload ảnh Zalo:
+    if (p.description && p.description.trim() && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
+      return true;
+    }
+    if (p.title && p.title.trim() && !p.title.startsWith('http') && !isImageFilenameOrPlaceholder(p.title)) {
+      return true;
+    }
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function getDisplayCaption(msg: Message): string {
+  if (!msg.content) return '';
+  if (!msg.content.startsWith('{')) return msg.content;
+  try {
+    const p = JSON.parse(msg.content);
+    // Link preview thông thường
+    if (msg.contentType === 'link' || (p.href && p.title && !p.href.includes('zdn.vn') && !p.href.includes('/attachments/'))) {
+      return p.title ? `🔗 ${p.title}` : p.href;
+    }
+    if (p.description && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
+      return p.description;
+    }
+    if (p.title && !p.title.startsWith('http') && !isImageFilenameOrPlaceholder(p.title)) {
+      return p.title;
+    }
+    return '';
+  } catch {
+    return msg.content;
+  }
 }
 
 function parseDisplayContent(content: string | null): string {

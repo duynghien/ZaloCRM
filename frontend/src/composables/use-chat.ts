@@ -257,6 +257,15 @@ export function useChat() {
       void recovery.request();
     });
 
+    socket.on('chat:message:attachments-updated', (data: { accountId: string; conversationId: string; messageId: string; attachments: any[] }) => {
+      if (data.conversationId === selectedConvId.value) {
+        const msg = messages.value.find(m => m.id === data.messageId);
+        if (msg) {
+          msg.attachments = data.attachments;
+        }
+      }
+    });
+
     socket.on('chat:deleted', (data: { accountId: string; conversationId?: string; msgId: string }) => {
       const msg = selectedConv.value?.zaloAccount?.id === data.accountId && selectedConv.value?.id === data.conversationId
         ? messages.value.find(m => m.zaloMsgId === data.msgId) : undefined;

@@ -47,9 +47,12 @@ export function getFileIconColor(filename?: string): string {
   return 'grey-darken-1';
 }
 
-export function isImageFile(filename?: string, mimeType?: string): boolean {
+export function isImageFile(filename?: string, mimeType?: string, url?: string): boolean {
   if (mimeType?.startsWith('image/')) return true;
-  if (!filename) return false;
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  return ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext);
+  const target = filename || url || '';
+  const clean = target.split('?')[0];
+  const ext = clean.split('.').pop()?.toLowerCase() || '';
+  if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return true;
+  if (url && (url.includes('photo-stal') || url.includes('/attachments/'))) return true;
+  return false;
 }
