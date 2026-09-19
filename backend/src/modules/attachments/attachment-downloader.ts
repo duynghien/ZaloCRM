@@ -40,6 +40,7 @@ export async function downloadAttachment(
     originalFilename?: string;
     headers?: Record<string, string>;
     timeoutMs?: number;
+    orgId?: string;
   },
 ): Promise<DownloadResult | null> {
   try {
@@ -55,9 +56,19 @@ export async function downloadAttachment(
     };
 
     const rawFilename = options?.originalFilename || url.split('?')[0].split('/').pop() || `attachment-${Date.now()}`;
-    const sanitizedFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 160);
-    const uniqueFilename = `${randomUUID()}-${sanitizedFilename}`;
-    const targetDir = getAttachmentsDirectory();
+    const sanitizedFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 100);
+
+    let targetDir = getAttachmentsDirectory();
+    let uniqueFilename: string;
+
+    if (options?.orgId) {
+      targetDir = path.join(targetDir, options.orgId);
+      await fs.promises.mkdir(targetDir, { recursive: true });
+      uniqueFilename = `${options.orgId}-${randomUUID()}-${sanitizedFilename}`;
+    } else {
+      uniqueFilename = `${randomUUID()}-${sanitizedFilename}`;
+    }
+
     const localPath = path.join(targetDir, uniqueFilename);
     const partialPath = `${localPath}.part`;
     let response;

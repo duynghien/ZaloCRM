@@ -216,6 +216,7 @@ model Message {
   repliedBy    User?        @relation("RepliedMessages", fields: [repliedByUserId], references: [id])
 
   @@unique([conversationId, zaloMsgId])
+  @@index([attachments], type: Gin)
   @@map("messages")
 }
 

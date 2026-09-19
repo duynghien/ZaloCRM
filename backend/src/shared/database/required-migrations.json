@@ -34,5 +34,9 @@
   {
     "name": "20260917000000_ai_usage_and_cost_tracking",
     "checksum": "cdf4ad723fb78e7ec19a9796431ad48904920ddb17f5b917c3366a78053f2d05"
+  },
+  {
+    "name": "20260919000000_messages_attachments_gin",
+    "checksum": "8c7b1822c0325c036331c8b24762dd473abc7f36af26f87dd65f68d69f59530d"
   }
 ]

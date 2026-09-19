@@ -3,6 +3,8 @@
  */
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
+import { zaloPool } from '../zalo/zalo-pool.js';
 import { downloadAttachment } from './attachment-downloader.js';
 import { extractAttachmentContent } from './attachment-parser.js';
 
@@ -109,8 +111,35 @@ export async function processMessageAttachmentsAsync(
   messageId: string,
   attachments: any[],
   attempt = 0,
+  orgId?: string,
 ): Promise<void> {
   if (!attachments || attachments.length === 0) return;
+
+  let conversationId: string | undefined;
+  let accountId: string | undefined;
+
+  if (!orgId) {
+    const msg = await prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        conversationId: true,
+        conversation: { select: { orgId: true, zaloAccountId: true } },
+      },
+    });
+    if (!orgId) orgId = msg?.conversation?.orgId;
+    conversationId = msg?.conversationId;
+    accountId = msg?.conversation?.zaloAccountId;
+  } else {
+    const msg = await prisma.message.findUnique({
+      where: { id: messageId },
+      select: {
+        conversationId: true,
+        conversation: { select: { zaloAccountId: true } },
+      },
+    });
+    conversationId = msg?.conversationId;
+    accountId = msg?.conversation?.zaloAccountId;
+  }
 
   const updatedAttachments: any[] = [];
   let hasPendingDownloads = false;
@@ -127,6 +156,7 @@ export async function processMessageAttachmentsAsync(
     if (url && !localPath) {
       const downloadRes = await downloadAttachment(url, {
         originalFilename: att.title || att.name || att.filename,
+        orgId,
       });
       if (downloadRes) {
         localPath = downloadRes.localPath;
@@ -182,6 +212,18 @@ export async function processMessageAttachmentsAsync(
       where: { id: messageId },
       data: { attachments: safeAttachments },
     });
+
+    if (accountId && conversationId) {
+      const io = zaloPool.getIO();
+      if (io) {
+        await emitAccountEvent(io, accountId, 'chat:message:attachments-updated', {
+          accountId,
+          conversationId,
+          messageId,
+          attachments: safeAttachments,
+        });
+      }
+    }
   } catch (err: any) {
     logger.error(
       `[attachment-processor] Failed to update message ${messageId} attachments in database: ${err?.message || err}`,
@@ -192,7 +234,7 @@ export async function processMessageAttachmentsAsync(
     const delay = RETRY_DELAYS_MS[attempt];
     logger.info(`[attachment-processor] Scheduling retry ${attempt + 1} for message ${messageId} in ${delay}ms`);
     setTimeout(() => {
-      processMessageAttachmentsAsync(messageId, updatedAttachments, attempt + 1).catch(() => {});
+      processMessageAttachmentsAsync(messageId, updatedAttachments, attempt + 1, orgId).catch(() => {});
     }, delay).unref();
   }
 }

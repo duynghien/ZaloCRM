@@ -98,7 +98,7 @@ export async function handleIncomingMessage(
 
     // Process attachments asynchronously in the background (fire-and-forget)
     if (msg.attachments && msg.attachments.length > 0) {
-      processMessageAttachmentsAsync(message.id, msg.attachments).catch((err) => {
+      processMessageAttachmentsAsync(message.id, msg.attachments, 0, account.orgId).catch((err) => {
         logger.warn(`[message-handler] Failed to process attachments for message ${message.id}:`, err);
       });
     }

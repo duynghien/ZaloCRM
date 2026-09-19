@@ -18,6 +18,11 @@ import {
   getExtension,
 } from './attachment-validator.js';
 import { createMediaTicket, verifyMediaTicket } from './attachment-ticket-service.js';
+import {
+  isValidAttachmentFilename,
+  verifyAttachmentOwnershipViaDb,
+  atomicMigrateLegacyAttachment,
+} from './attachment-legacy-migration.js';
 import { logger } from '../../shared/utils/logger.js';
 
 export function getAttachmentsBaseDir(): string {
@@ -187,8 +192,8 @@ export async function attachmentRoutes(app: FastifyInstance) {
     const user = request.user!;
     const { filename } = (request.body || {}) as { filename?: string };
 
-    if (!filename || typeof filename !== 'string') {
-      return reply.status(400).send({ error: 'filename is required' });
+    if (!filename || typeof filename !== 'string' || !isValidAttachmentFilename(filename)) {
+      return reply.status(400).send({ error: 'Tên tệp không hợp lệ' });
     }
 
     const safeFilename = path.basename(filename);
@@ -201,7 +206,18 @@ export async function attachmentRoutes(app: FastifyInstance) {
     const inStaged = safeFilename.startsWith(`${user.orgId}-`) && fs.existsSync(path.join(stagedDir, safeFilename));
     const inRoot = safeFilename.startsWith(`${user.orgId}-`) && fs.existsSync(path.join(baseDir, safeFilename));
 
-    if (!inOrg && !inStaged && !inRoot) {
+    let isAuthorized = inOrg || inStaged || inRoot;
+
+    // Backward compatibility check cho tệp cũ chưa có org prefix
+    const baseFile = path.join(baseDir, safeFilename);
+    if (!isAuthorized && fs.existsSync(baseFile) && fs.statSync(baseFile).isFile()) {
+      isAuthorized = await verifyAttachmentOwnershipViaDb(safeFilename, user.orgId);
+      if (isAuthorized) {
+        await atomicMigrateLegacyAttachment(baseFile, orgDir, safeFilename);
+      }
+    }
+
+    if (!isAuthorized) {
       return reply.status(404).send({ error: 'Attachment not found in your organization' });
     }
 
@@ -212,6 +228,9 @@ export async function attachmentRoutes(app: FastifyInstance) {
   // ── Protected File Streaming ──────────────────────────────────────────────
   app.get('/api/v1/attachments/:filename', async (request: FastifyRequest, reply: FastifyReply) => {
     const { filename } = request.params as { filename: string };
+    if (!isValidAttachmentFilename(filename)) {
+      return reply.status(400).send({ error: 'Tên tệp không hợp lệ' });
+    }
     const safeFilename = path.basename(filename);
 
     let authenticatedOrgId: string | null = null;
@@ -283,6 +302,18 @@ export async function attachmentRoutes(app: FastifyInstance) {
     } else if (ownLegacyPath && fs.existsSync(ownLegacyPath)) {
       resolvedPath = ownLegacyPath;
     } else {
+      const baseFile = path.join(baseDir, safeFilename);
+      if (fs.existsSync(baseFile) && fs.statSync(baseFile).isFile()) {
+        const isOwner = await verifyAttachmentOwnershipViaDb(safeFilename, authenticatedOrgId);
+        if (isOwner) {
+          resolvedPath = (await atomicMigrateLegacyAttachment(baseFile, orgDir, safeFilename)) || baseFile;
+        } else {
+          logger.warn(`[attachment-routes] Unauthorized or orphaned legacy file accessed: ${safeFilename} by org ${authenticatedOrgId}`);
+        }
+      }
+    }
+
+    if (!resolvedPath) {
       // Check if file exists under another organization or staged under another org
       // to properly distinguish 403 Forbidden from 404 Not Found
       let existsInOtherOrg = false;
@@ -319,10 +350,10 @@ export async function attachmentRoutes(app: FastifyInstance) {
     // Security Headers
     reply.header('Content-Security-Policy', "default-src 'none'; sandbox");
     reply.header('X-Content-Type-Options', 'nosniff');
+    reply.header('Cache-Control', 'private, no-transform, max-age=86400');
 
     if (isImage) {
       reply.header('Content-Disposition', 'inline');
-      reply.header('Cache-Control', 'private, max-age=86400');
       const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
       reply.type(mime);
     } else {

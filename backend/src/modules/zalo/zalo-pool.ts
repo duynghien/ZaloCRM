@@ -79,6 +79,10 @@ class ZaloAccountPool {
     this.io = io;
   }
 
+  getIO(): Server | null {
+    return this.io;
+  }
+
   private async emitForAccount(accountId: string, event: string, payload: unknown): Promise<void> {
     if (this.io) await emitAccountEvent(this.io, accountId, event, payload);
   }
