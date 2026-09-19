@@ -57,14 +57,19 @@ ZaloCRM/
 │       │   │   └── copilot/  # Conversational Copilot (Single-Inference Service, Prompt Builder, Resilient Parser, Debouncer, Anomaly Escalator, Cache)
 │       │   ├── contacts/     # Contact CRM, Pipeline, Appointment & Reminder, Self-healing contacts
 │       │   ├── orders/       # Order management, Atomic sequential code generator (ORD-YYYYMMDD-NNN)
-│       │   ├── ai-reports/   # Multi-provider router, Burst sampler, Two-tier audit, Action item broadcast, Cron, Telemetry
+│       │   ├── ai-reports/   # Multi-provider router, Burst sampler, Two-tier audit, Action item broadcast, Cron, Telemetry, Dual-PDF dispatch
 │       │   │   ├── providers/               # AI Adapters: Gemini, OpenAI, DeepSeek, Hybrid Vision Bridge
 │       │   │   ├── attachment-burst-sampler.ts # Khử trùng URL, prompt injection sanitization, pool 4 worker
 │       │   │   ├── attachment-image-loader.ts  # Nạp ảnh đa phương thức, kiểm soát trần 12MB, chống traversal
 │       │   │   ├── report-action-item-parser.ts# Trích xuất nhiệm vụ hành động (Section 5 Action Items)
+│       │   │   ├── report-brief-service.ts     # Sinh bản tin tóm tắt điều hành & kiểm toán tuân thủ (SSoT telemetry)
+│       │   │   ├── report-pdf-service.ts       # Sinh tệp PDF báo cáo điều hành & kiểm toán A4 Neo-Brutalism
+│       │   │   ├── zalo-report-sender.ts       # Điều phối gửi báo cáo qua Zalo (Dual-PDF, pacing rate limit, fallback)
 │       │   │   ├── ai-provider-settings-service.ts # Quản lý và mã hóa cấu hình đa nhà cung cấp AI
 │       │   │   ├── ai-gateway-validator.ts     # Kiểm tra bảo mật URL AI Gateway, phòng chống SSRF
 │       │   │   ├── ai-audit-rule-service.ts    # Nghiệp vụ quy tắc giám sát nhóm tự động
+│       │   │   ├── ai-audit-prompt-builder.ts  # Xây dựng prompt kiểm toán chống prompt injection (<chat_transcript>)
+│       │   │   ├── ai-audit-evaluator-helpers.ts # Parser an toàn, Error Boundary, tính scan window & whitelist nhân sự
 │       │   │   ├── ai-audit-evaluator.ts       # Động cơ đánh giá tuân thủ kịch bản nhóm
 │       │   │   ├── audit-rule-cron-runner.ts   # Bộ chạy cron theo phút với khóa advisory lock
 │       │   │   ├── ai-usage-tracker.ts         # Ghi nhận và tổng hợp token usage, chi phí USD/VND theo thời gian thực
