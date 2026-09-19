@@ -4,6 +4,8 @@ import {
   resolveAuditPersonnel,
   buildDeterministicReminderMessage,
   parseEvaluationOutput,
+  isValidAuditJson,
+  AuditEvaluationParseError,
 } from '../src/modules/ai-reports/ai-audit-evaluator-helpers.js';
 import { buildAuditPrompt } from '../src/modules/ai-reports/ai-audit-prompt-builder.js';
 import { evaluateAuditRule } from '../src/modules/ai-reports/ai-audit-evaluator.js';
@@ -203,6 +205,48 @@ describe('ai-audit-evaluator and helpers', () => {
       expect(msg).toContain('100% nhân sự (5/5)');
       expect(msg).toContain('Cảm ơn tinh thần trách nhiệm');
     });
+
+    it('filters missingNames against personnel whitelist to prevent prompt injection defamation', () => {
+      const msg = buildDeterministicReminderMessage(
+        {
+          totalExpected: 3,
+          completedCount: 1,
+          missingCount: 2,
+          missingNames: ['Trần Thị B', 'Kẻ Xấu Độc Hại Tiêm Nhiễm'],
+        },
+        'Nhóm Kinh Doanh',
+        '10:00',
+        ['Nguyễn Văn A', 'Trần Thị B', 'Lê Văn C'],
+      );
+
+      expect(msg).toContain('- Trần Thị B');
+      // Injected name not in personnel whitelist must be excluded
+      expect(msg).not.toContain('Kẻ Xấu Độc Hại Tiêm Nhiễm');
+    });
+  });
+
+  describe('isValidAuditJson', () => {
+    it('returns true for valid audit JSON', () => {
+      const valid = JSON.stringify({
+        telemetry: {
+          totalExpected: 2,
+          compliantNames: ['A'],
+          missingNames: ['B'],
+        },
+        supervisoryReportMarkdown: '## 🟢 ĐÃ HOÀN THÀNH',
+      });
+      expect(isValidAuditJson(valid)).toBe(true);
+    });
+
+    it('returns true for valid audit JSON wrapped in markdown code fence', () => {
+      const valid = '```json\n{"telemetry":{"totalExpected":1,"compliantNames":[],"missingNames":[]},"supervisoryReportMarkdown":"Report"}\n```';
+      expect(isValidAuditJson(valid)).toBe(true);
+    });
+
+    it('returns false for plain markdown without telemetry JSON', () => {
+      expect(isValidAuditJson('# Báo cáo giám sát không có JSON')).toBe(false);
+      expect(isValidAuditJson('{"otherKey": 123}')).toBe(false);
+    });
   });
 
   describe('parseEvaluationOutput', () => {
@@ -229,11 +273,9 @@ describe('ai-audit-evaluator and helpers', () => {
       expect(res.supervisoryReportMarkdown).toBe('# BÁO CÁO GIÁM SÁT');
     });
 
-    it('falls back gracefully when output is raw markdown', () => {
+    it('throws AuditEvaluationParseError when output is raw markdown (never returns unparsed text as report)', () => {
       const raw = '# Báo cáo trực tiếp không có JSON';
-      const res = parseEvaluationOutput(raw);
-      expect(res.telemetry.totalExpected).toBe(0);
-      expect(res.supervisoryReportMarkdown).toBe(raw);
+      expect(() => parseEvaluationOutput(raw)).toThrow(AuditEvaluationParseError);
     });
   });
 
@@ -272,6 +314,17 @@ describe('ai-audit-evaluator and helpers', () => {
           sentAt: new Date(),
         },
       ] as any);
+
+      // Mock cached personnel so whitelist includes both employees
+      vi.mocked(prisma.appSetting.findUnique).mockResolvedValue({
+        id: 's-cached-members',
+        orgId,
+        settingKey: 'cached_group_members:group-source-1',
+        valuePlain: JSON.stringify(['Nguyễn Văn A', 'Trần Thị B']),
+        valueEncrypted: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
 
       vi.mocked(prisma.aiReportJob.create).mockResolvedValue({
         id: 'job-lease-123',
@@ -340,12 +393,16 @@ describe('ai-audit-evaluator and helpers', () => {
       );
 
       // Check Dual-Dispatch
-      // Channel 1: Supervisory report to group-dest-2
+      // Channel 1: Supervisory report to group-dest-2 with full metadata
       expect(zaloSender.sendReportToZalo).toHaveBeenCalledWith(
         expect.objectContaining({
           destinationType: 'group',
           targetThreadId: 'group-dest-2',
           customPrefixType: 'audit',
+          reportTitle: 'Đánh Giá Tuân Thủ: Nhóm Vận Hành',
+          periodText: expect.stringContaining('10:00'),
+          scopeText: 'Nhóm Vận Hành',
+          auditTelemetry: expect.objectContaining({ totalExpected: 2 }),
         }),
       );
       // Channel 2: Operational reminder to source group-source-1
@@ -354,6 +411,59 @@ describe('ai-audit-evaluator and helpers', () => {
           destinationType: 'group',
           targetThreadId: 'group-source-1',
           customPrefixType: 'none',
+        }),
+      );
+    });
+
+    it('catches AuditEvaluationParseError with error boundary, sends fallback report to Channel 1 and BLOCKS Channel 2', async () => {
+      vi.mocked(prisma.conversation.findFirst).mockResolvedValue({
+        id: 'conv-source-1',
+        contact: { fullName: 'Nhóm Vận Hành' },
+      } as any);
+      vi.mocked(prisma.message.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.aiReportJob.create).mockResolvedValue({ id: 'job-err', status: 'running' } as any);
+      vi.mocked(prisma.aiReportJob.findFirst).mockResolvedValue({ id: 'job-err', status: 'running' } as any);
+      vi.mocked(prisma.aiReportJob.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.$queryRaw).mockResolvedValue([{ leaseExpiresAt: new Date(Date.now() + 60000) }] as any);
+      vi.mocked(prisma.aiReportBudgetReservation.aggregate).mockResolvedValue({ _sum: { inputTokens: 0, outputTokens: 0 } } as any);
+      vi.mocked(prisma.aiReportBudgetReservation.create).mockResolvedValue({} as any);
+      vi.mocked(prisma.aiReportBudgetReservation.updateMany).mockResolvedValue({ count: 1 } as any);
+
+      // AI returns unparseable text
+      vi.mocked(aiClient.generateContent).mockResolvedValue('Plain text without JSON');
+
+      vi.mocked(prisma.generatedReport.create).mockResolvedValue({ id: 'rep-fallback-123' } as any);
+      vi.mocked(zaloSender.sendReportToZalo).mockResolvedValue({
+        success: true,
+        partsSent: 1,
+        totalParts: 1,
+        deliveryUncertain: false,
+      });
+
+      const result = await evaluateAuditRule(orgId, mockRule, null);
+
+      expect(result.reportId).toBe('rep-fallback-123');
+      expect(result.lastRunStatus).toBe('success');
+      expect(result.supervisoryReportMarkdown).toContain('BÁO CÁO SỰ CỐ KỸ THUẬT');
+      // Channel 2 must be strictly blocked!
+      expect(result.operationalReminderMessage).toBeUndefined();
+
+      // GeneratedReport must record structuredData parseError: true
+      expect(prisma.generatedReport.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            structuredData: { parseError: true },
+          }),
+        }),
+      );
+
+      // Channel 1 sent, Channel 2 NOT sent
+      expect(zaloSender.sendReportToZalo).toHaveBeenCalledTimes(1);
+      expect(zaloSender.sendReportToZalo).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destinationType: 'group',
+          targetThreadId: 'group-dest-2',
+          customPrefixType: 'audit',
         }),
       );
     });

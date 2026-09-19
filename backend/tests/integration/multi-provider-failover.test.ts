@@ -565,3 +565,175 @@ describe('13. Recursive Null Byte Sanitization (Postgres 22P05 Defense)', () => 
   });
 });
 
+describe('14. CoT Token Exhaustion Safeguard & Output Validation Failover', () => {
+  it('throws IncompleteAiGenerationError immediately when finish_reason === "length" (empty content)', async () => {
+    const { IncompleteAiGenerationError } = await import('../../src/modules/ai-reports/providers/ai-provider-interface.js');
+    const deepseek = new OpenAiCompatibleProvider({
+      type: 'deepseek',
+      apiKey: 'sk-deepseek-test',
+      model: 'deepseek-chat',
+    });
+
+    let attempts = 0;
+    (deepseek as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockImplementation(async () => {
+            attempts++;
+            return {
+              choices: [{
+                finish_reason: 'length',
+                message: { content: '', reasoning_content: 'I need more tokens to finish reasoning...' },
+              }],
+              usage: { prompt_tokens: 100, completion_tokens: 4096 },
+            };
+          }),
+        },
+      },
+    };
+
+    const dummyBudget: any = {
+      reserve: vi.fn().mockResolvedValue({ attemptKey: 'k', maxOutputTokens: 4096 }),
+      complete: vi.fn(),
+    };
+
+    const start = Date.now();
+    await expect(
+      deepseek.generateContent('Prompt', {
+        budget: dummyBudget,
+        executionGuard: async () => {},
+      }),
+    ).rejects.toThrow(IncompleteAiGenerationError);
+
+    // Fail-fast: must not sleep 3000ms and must exit on attempt 1
+    expect(Date.now() - start).toBeLessThan(1000);
+    expect(attempts).toBe(1);
+  });
+
+  it('throws IncompleteAiGenerationError when finish_reason === "length" even with partial content', async () => {
+    const { IncompleteAiGenerationError } = await import('../../src/modules/ai-reports/providers/ai-provider-interface.js');
+    const deepseek = new OpenAiCompatibleProvider({
+      type: 'deepseek',
+      apiKey: 'sk-deepseek-test',
+      model: 'deepseek-chat',
+    });
+
+    (deepseek as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [{
+              finish_reason: 'length',
+              message: { content: '{"telemetry": {"totalExpected": 10' },
+            }],
+            usage: { prompt_tokens: 50, completion_tokens: 4096 },
+          }),
+        },
+      },
+    };
+
+    const dummyBudget: any = {
+      reserve: vi.fn().mockResolvedValue({ attemptKey: 'k', maxOutputTokens: 4096 }),
+      complete: vi.fn(),
+    };
+
+    await expect(
+      deepseek.generateContent('Prompt', {
+        budget: dummyBudget,
+        executionGuard: async () => {},
+      }),
+    ).rejects.toThrow(IncompleteAiGenerationError);
+  });
+
+  it('AiProviderRouter fails over from DeepSeek to Gemini on IncompleteAiGenerationError', async () => {
+    const router = new AiProviderRouter({
+      primaryProvider: 'deepseek',
+      providers: {
+        deepseek: { type: 'deepseek', apiKey: 'key-ds', model: 'deepseek-chat' },
+        gemini: { type: 'gemini', apiKey: 'key-gemini', model: 'gemini-2.5-flash' },
+      },
+      fallbackEnabled: true,
+      fallbackChain: ['gemini'],
+      allowSystemFallback: false,
+    });
+
+    const dsProvider = router.getProvider('deepseek');
+    (dsProvider as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [{
+              finish_reason: 'length',
+              message: { content: '', reasoning_content: 'CoT thinking...' },
+            }],
+            usage: { prompt_tokens: 20, completion_tokens: 4096 },
+          }),
+        },
+      },
+    };
+
+    const geminiProvider = router.getProvider('gemini');
+    (geminiProvider as any).generateContent = vi.fn().mockResolvedValue('{"status":"ok_from_gemini"}');
+
+    const dummyBudget: any = {
+      reserve: vi.fn().mockResolvedValue({ attemptKey: 'att-1', maxOutputTokens: 4096 }),
+      complete: vi.fn(),
+    };
+
+    const fallbackEvents: any[] = [];
+    const result = await router.generateContent('Prompt', {
+      budget: dummyBudget,
+      executionGuard: async () => {},
+      onFallback: (t) => fallbackEvents.push(t),
+    });
+
+    expect(result).toBe('{"status":"ok_from_gemini"}');
+    expect(fallbackEvents).toHaveLength(1);
+    expect(fallbackEvents[0].fallbackProvider).toBe('gemini');
+  });
+
+  it('AiProviderRouter fails over when validateOutput callback rejects provider output', async () => {
+    const router = new AiProviderRouter({
+      primaryProvider: 'deepseek',
+      providers: {
+        deepseek: { type: 'deepseek', apiKey: 'key-ds', model: 'deepseek-chat' },
+        gemini: { type: 'gemini', apiKey: 'key-gemini', model: 'gemini-2.5-flash' },
+      },
+      fallbackEnabled: true,
+      fallbackChain: ['gemini'],
+      allowSystemFallback: false,
+    });
+
+    const dsProvider = router.getProvider('deepseek');
+    (dsProvider as any).client = {
+      chat: {
+        completions: {
+          create: vi.fn().mockResolvedValue({
+            choices: [{
+              finish_reason: 'stop',
+              message: { content: 'Plain markdown without JSON' },
+            }],
+            usage: { prompt_tokens: 20, completion_tokens: 50 },
+          }),
+        },
+      },
+    };
+
+    const geminiProvider = router.getProvider('gemini');
+    (geminiProvider as any).generateContent = vi.fn().mockResolvedValue('{"telemetry":{"totalExpected":1}}');
+
+    const dummyBudget: any = {
+      reserve: vi.fn().mockResolvedValue({ attemptKey: 'att-2', maxOutputTokens: 4096 }),
+      complete: vi.fn(),
+    };
+
+    const result = await router.generateContent('Prompt', {
+      budget: dummyBudget,
+      executionGuard: async () => {},
+      validateOutput: (text) => text.includes('"telemetry"'),
+    });
+
+    expect(result).toBe('{"telemetry":{"totalExpected":1}}');
+  });
+});
+

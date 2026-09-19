@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateExecutiveBrief } from '../src/modules/ai-reports/report-brief-service.js';
+import { generateExecutiveBrief, generateAuditBrief } from '../src/modules/ai-reports/report-brief-service.js';
 
 describe('Report Brief Service', () => {
   const sampleMarkdown = `# 📑 BÁO CÁO ĐIỀU HÀNH TỔNG HỢP — TỨC THÌ
@@ -203,5 +203,74 @@ describe('Report Brief Service', () => {
     // Greetings must not appear
     expect(brief).not.toContain('Chào bạn');
     expect(brief).not.toContain('Xin chào');
+  });
+
+  describe('generateAuditBrief', () => {
+    const auditMarkdown = `# 📋 BÁO CÁO GIÁM SÁT TUÂN THỦ: Homey Co-working
+## 🟢 ĐÃ HOÀN THÀNH (ĐẠT CHUẨN)
+- Nguyễn Văn A: nộp báo cáo lúc 09:30
+
+## 🟡 CHƯA GHI NHẬN (CẦN ĐỐI CHIẾU)
+- Trần Thị B: chưa gửi báo cáo
+
+## 🔴 BẤT THƯỜNG / NỘP MUỘN / CHẤT LƯỢNG KÉM
+- Lê Văn C: gửi ảnh bị mờ
+
+## 💡 KHUYẾN NGHỊ QUẢN TRỊ
+- Nhắc nhở nhân sự chụp lại hóa đơn rõ nét.
+- Thiết lập chốt kiểm tra phụ lúc 14:00.
+`;
+
+    it('generates a clean audit brief using telemetry as Single Source of Truth', () => {
+      const telemetry = {
+        totalExpected: 3,
+        completedCount: 1,
+        missingCount: 1,
+        anomaliesCount: 1,
+        compliantNames: ['Nguyễn Văn A'],
+        missingNames: ['Trần Thị B'],
+        anomaliesList: ['Lê Văn C gửi ảnh mờ không thể đối soát'],
+      };
+
+      const brief = generateAuditBrief(auditMarkdown, {
+        reportTitle: 'Đánh Giá Tuân Thủ: Homey Co-working',
+        periodText: '10:00 (Giám sát Homey Co-working)',
+        scopeText: 'Homey Co-working',
+        telemetry,
+      });
+
+      expect(brief).toContain('📑 ĐÁNH GIÁ TUÂN THỦ: HOMEY CO-WORKING');
+      expect(brief).toContain('⏰ Thời gian chốt: 10:00 (Giám sát Homey Co-working)');
+      expect(brief).toContain('📊 Tỷ lệ nộp: 1/3 (33%)');
+      expect(brief).toContain('🟢 Đã hoàn thành (1): Nguyễn Văn A');
+      expect(brief).toContain('🟡 Chưa ghi nhận (1): Trần Thị B');
+      expect(brief).toContain('🔴 Bất thường / Vi phạm (1):');
+      expect(brief).toContain('• Lê Văn C gửi ảnh mờ không thể đối soát');
+      expect(brief).toContain('💡 Khuyến nghị quản trị:');
+      expect(brief).toContain('• Nhắc nhở nhân sự chụp lại hóa đơn rõ nét.');
+      expect(brief).toContain('📎 Chi tiết đầy đủ xem trong tệp PDF đính kèm.');
+    });
+
+    it('handles 100% compliance in audit brief correctly', () => {
+      const telemetry = {
+        totalExpected: 2,
+        completedCount: 2,
+        missingCount: 0,
+        anomaliesCount: 0,
+        compliantNames: ['A', 'B'],
+        missingNames: [],
+        anomaliesList: [],
+      };
+
+      const brief = generateAuditBrief(auditMarkdown, {
+        scopeText: 'Nhóm Vận Hành',
+        telemetry,
+      });
+
+      expect(brief).toContain('📊 Tỷ lệ nộp: 2/2 (100%)');
+      expect(brief).toContain('🟢 Đã hoàn thành (2): A, B');
+      expect(brief).toContain('🟡 Chưa ghi nhận: Không có (100% đạt chuẩn)');
+      expect(brief).not.toContain('🔴 Bất thường / Vi phạm');
+    });
   });
 });

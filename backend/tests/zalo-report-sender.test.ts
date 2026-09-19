@@ -439,4 +439,80 @@ describe('zalo-report-sender', () => {
       expect(briefMsg).toContain('Chi nhánh Miền Nam');
     });
   });
+
+  describe('Phase 04: Audit Dual-PDF and attachment upload fallback', () => {
+    const auditMarkdown = `# 📋 ĐÁNH GIÁ TUÂN THỦ: HOMEY CO-WORKING
+## 🟢 ĐÃ HOÀN THÀNH (ĐẠT CHUẨN)
+- Nguyễn Văn A: nộp báo cáo lúc 09:30
+
+## 🟡 CHƯA GHI NHẬN (CẦN ĐỐI CHIẾU)
+- Trần Thị B: chưa gửi báo cáo
+`;
+
+    it('triggers Dual-PDF for customPrefixType === "audit" and attaches PDF to single brief message', async () => {
+      let sentPayload: any = null;
+      mockApi.sendMessage.mockImplementation(async (payload: any) => {
+        sentPayload = payload;
+        return { messageId: 'msg-audit-1' };
+      });
+
+      const result = await sendReportToZalo({
+        accountId,
+        orgId,
+        destinationType: 'group',
+        targetThreadId: 'group-supervisory',
+        markdownContent: auditMarkdown,
+        customPrefixType: 'audit',
+        reportTitle: 'Đánh Giá Tuân Thủ: Homey Co-working',
+        periodText: '10:00 (Giám sát Homey Co-working)',
+        scopeText: 'Homey Co-working',
+        auditTelemetry: {
+          totalExpected: 2,
+          completedCount: 1,
+          missingCount: 1,
+          anomaliesCount: 0,
+          compliantNames: ['Nguyễn Văn A'],
+          missingNames: ['Trần Thị B'],
+          anomaliesList: [],
+        },
+        executionGuard: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.partsSent).toBe(1);
+      expect(sentPayload).not.toBeNull();
+      expect(sentPayload.msg).toContain('ĐÁNH GIÁ TUÂN THỦ: HOMEY CO-WORKING');
+      expect(sentPayload.msg).toContain('Tỷ lệ nộp: 1/2 (50%)');
+      expect(sentPayload.attachments).toBeDefined();
+      expect(sentPayload.attachments.length).toBe(1);
+      expect(sentPayload.attachments[0]).toContain('.pdf');
+    });
+
+    it('falls back to text brief without attachment when attachment upload fails', async () => {
+      // First attempt with attachment fails (e.g. Zalo upload server error)
+      mockApi.sendMessage
+        .mockRejectedValueOnce(new Error('Zalo upload failed: 502 Bad Gateway'))
+        .mockResolvedValueOnce({ messageId: 'msg-fallback' });
+
+      const result = await sendReportToZalo({
+        accountId,
+        orgId,
+        destinationType: 'group',
+        targetThreadId: 'group-supervisory',
+        markdownContent: auditMarkdown,
+        customPrefixType: 'audit',
+        reportTitle: 'Đánh Giá Tuân Thủ: Homey Co-working',
+        periodText: '10:00',
+        executionGuard: vi.fn().mockResolvedValue(undefined),
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockApi.sendMessage).toHaveBeenCalledTimes(2);
+
+      // The second call must be the text-only fallback with warning notice
+      const secondCall = mockApi.sendMessage.mock.calls[1][0];
+      expect(secondCall.attachments).toBeUndefined();
+      expect(secondCall.msg).toContain('Tệp PDF đính kèm không thể gửi do sự cố đường truyền Zalo');
+    });
+  });
 });

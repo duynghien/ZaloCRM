@@ -374,4 +374,53 @@ ${fillerParagraphs}
     const header = buffer.subarray(0, 5).toString('ascii');
     expect(header).toBe('%PDF-');
   });
+
+  it('Phase04: renders specialized audit banner when reportType is audit_rule', async () => {
+    const auditMarkdown = `# 📋 ĐÁNH GIÁ TUÂN THỦ: HOMEY CO-WORKING
+## 🟢 ĐÃ HOÀN THÀNH (ĐẠT CHUẨN)
+- Nguyễn Văn A: nộp báo cáo lúc 09:30
+
+## 🟡 CHƯA GHI NHẬN (CẦN ĐỐI CHIẾU)
+- Trần Thị B: chưa gửi báo cáo
+
+## 🔴 BẤT THƯỜNG / NỘP MUỘN / CHẤT LƯỢNG KÉM
+- Lê Văn C: gửi ảnh bị mờ
+
+## 💡 KHUYẾN NGHỊ QUẢN TRỊ
+- Cần đôn đốc nộp đúng hạn.
+`;
+
+    const buffer = await generateReportPdfBuffer('Đánh Giá Tuân Thủ: Homey Co-working', auditMarkdown, {
+      reportType: 'audit_rule',
+      periodText: '10:00 (Giám sát Homey Co-working)',
+      scopeText: 'Homey Co-working',
+    });
+
+    expect(buffer).toBeInstanceOf(Buffer);
+    expect(buffer.length).toBeGreaterThan(1000);
+    const header = buffer.subarray(0, 5).toString('ascii');
+    expect(header).toBe('%PDF-');
+  });
+
+  it('Phase04: truncates audit PDF at 10 pages maximum with explanatory note', async () => {
+    // Generate long markdown content spanning > 15 pages
+    let hugeMarkdown = `# 📋 BÁO CÁO KIỂM TOÁN DÀI\n`;
+    for (let i = 1; i <= 300; i++) {
+      hugeMarkdown += `\n## 🟢 MỤC KIỂM TOÁN SỐ ${i}\n`;
+      hugeMarkdown += `- Chi tiết kiểm toán cho mục ${i} với nội dung dài dòng và nhiều đoạn văn bản kiểm tra đối soát quy trình nhân sự.\n`;
+      hugeMarkdown += `- Ghi chú thêm: xác nhận chữ ký và đối chiếu chứng từ kèm theo lúc 10:00.\n`;
+      hugeMarkdown += `> Trích dẫn: dữ liệu hệ thống ghi nhận tại mốc ${i}.\n`;
+    }
+
+    const buffer = await generateReportPdfBuffer('Báo Cáo Kiểm Toán Dài', hugeMarkdown, {
+      reportType: 'audit_rule',
+    });
+
+    const pdfString = buffer.toString('latin1');
+    const pages = pdfString.match(/\/Type\s*\/Page\b/g);
+
+    // Must be capped at exactly 10 pages
+    expect(pages?.length).toBeLessThanOrEqual(10);
+    expect(buffer.length).toBeGreaterThan(1000);
+  });
 });
