@@ -36,7 +36,7 @@ async function setup(content = 'archived report') {
   };
   vi.spyOn(Zalo.prototype, 'login').mockResolvedValue(api);
   await pool.reconnect(account.id, { cookie: [], imei: 'test-imei', userAgent: 'test-agent' });
-  const body = { send_zalo: true, zalo_account_id: account.id, zalo_destination_type: 'uid', zalo_target_uid: 'recipient' };
+  const body = { send_zalo: true, zalo_account_id: account.id, zalo_destination_type: 'uid', zalo_target_uid: 'recipient', zalo_delivery_mode: 'full_text' };
   return { org, user, account, sourceGrant, report, api, body, key: randomUUID() };
 }
 
@@ -116,4 +116,13 @@ it('email adapter checks current source access immediately before sendMail', asy
   });
   expect(result).toMatchObject({ success: false, error: 'source_access_revoked' });
   expect(sendMail).not.toHaveBeenCalled();
+});
+
+it('rejects resend when sender account is disconnected', async () => {
+  const s = await setup();
+  await fixture.prisma.zaloAccount.update({ where: { id: s.account.id }, data: { status: 'disconnected' } });
+  await expect(resendReport(s.user, s.report, s.body, randomUUID())).rejects.toMatchObject({
+    statusCode: 400,
+    message: expect.stringContaining('mất kết nối'),
+  });
 });

@@ -18,6 +18,15 @@ export async function resendReport(user: User, report: GeneratedReport, body: Re
   const snapshot = { reportId: report.id, targets, request };
   const authorize = async () => {
     if (!await authorizeReportTargets(user.orgId, targets, user, 'chat') || request.sendZalo && (!request.senderAccountId || !await authorizeReportAccount(user.orgId, request.senderAccountId, user, 'chat'))) throw new ReportJobValidationError('Report source or sender inaccessible', 404);
+    if (request.sendZalo && request.senderAccountId) {
+      const sender = await prisma.zaloAccount.findFirst({
+        where: { id: request.senderAccountId, orgId: user.orgId, status: 'connected' },
+        select: { id: true },
+      });
+      if (!sender) {
+        throw new ReportJobValidationError('Tài khoản Zalo gửi báo cáo đang mất kết nối. Vui lòng kết nối lại tài khoản trước khi gửi.', 400);
+      }
+    }
   };
   return trackReportProducer(async () => {
     await authorize();

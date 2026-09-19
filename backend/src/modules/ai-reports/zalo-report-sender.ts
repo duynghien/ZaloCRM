@@ -331,9 +331,14 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
         if (i % 3 === 0) {
           await sleep(BURST_PACING_MS);
         }
+        await options.executionGuard();
+        const currentAccount = await prisma.zaloAccount.findFirst({
+          where: { id: accountId, orgId, status: 'connected' },
+          select: { zaloUid: true },
+        });
+        if (!currentAccount) throw new Error('report_sender_unavailable');
       }
 
-      await options.executionGuard();
       const currentApi = zaloPool.getApi(accountId);
       if (!currentApi) throw new Error('report_sender_unavailable');
 

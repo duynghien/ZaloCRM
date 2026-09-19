@@ -141,6 +141,15 @@
               <v-select v-model="generatorForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
                 label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
+              <v-alert
+                v-if="generatorForm.senderAccountId && !isSenderAccountConnected(generatorForm.senderAccountId)"
+                type="warning"
+                density="compact"
+                variant="tonal"
+                class="mb-3"
+              >
+                Tài khoản Zalo này hiện đang mất kết nối (Chưa kết nối). Vui lòng quét lại mã QR trong mục Quản lý tài khoản Zalo trước khi gửi.
+              </v-alert>
               <v-radio-group v-model="generatorForm.zaloDestinationType" density="compact" hide-details class="mb-2">
                 <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
                 <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
@@ -190,7 +199,7 @@
               style="border: 1.5px solid var(--border-color);"
               elevation="0"
               :loading="isGenerating"
-              :disabled="isGenerating || selectedGroupIds.length === 0 || selectedGroupIds.length > 20 || (generatorForm.sendZalo && !generatorForm.senderAccountId)"
+              :disabled="isGenerating || selectedGroupIds.length === 0 || selectedGroupIds.length > 20 || (generatorForm.sendZalo && (!generatorForm.senderAccountId || !isSenderAccountConnected(generatorForm.senderAccountId)))"
               @click="handleGenerateReport"
             >
               <v-icon start>mdi-lightning-bolt</v-icon>
@@ -798,6 +807,15 @@
               <v-select v-model="resendForm.senderAccountId" :items="senderOptions" item-title="label" item-value="id"
                 label="Tài khoản Zalo gửi báo cáo" placeholder="Chọn tài khoản gửi" density="compact" variant="outlined"
                 hint="Chọn rõ tài khoản gửi; tài khoản này có thể khác nguồn tổng hợp." persistent-hint class="mb-3" />
+              <v-alert
+                v-if="resendForm.senderAccountId && !isSenderAccountConnected(resendForm.senderAccountId)"
+                type="warning"
+                density="compact"
+                variant="tonal"
+                class="mb-3"
+              >
+                Tài khoản Zalo này hiện đang mất kết nối (Chưa kết nối). Vui lòng quét lại mã QR trong mục Quản lý tài khoản Zalo trước khi gửi.
+              </v-alert>
               <v-radio-group v-model="resendForm.zaloDestinationType" density="compact" hide-details class="mb-2">
             <v-radio label="Cloud của tôi (Self-conversation)" value="self" />
             <v-radio label="Nhập Zalo UID hoặc Số điện thoại" value="uid" />
@@ -843,7 +861,7 @@
         </v-btn>
         <div class="d-flex justify-end gap-2 mt-4">
           <v-btn variant="text" @click="resendDialog = false">Hủy</v-btn>
-          <v-btn color="primary" :loading="isResending" :disabled="isResending || (resendForm.sendZalo && !resendForm.senderAccountId) || (!resendForm.sendZalo && !resendForm.sendEmail)" @click="handleResendSubmit">Gửi ngay</v-btn>
+          <v-btn color="primary" :loading="isResending" :disabled="isResending || (resendForm.sendZalo && (!resendForm.senderAccountId || !isSenderAccountConnected(resendForm.senderAccountId))) || (!resendForm.sendZalo && !resendForm.sendEmail)" @click="handleResendSubmit">Gửi ngay</v-btn>
         </div>
       </v-card>
     </v-dialog>
@@ -962,9 +980,28 @@ import {
 const activeTab = ref('generate');
 const deliveryError = ref('');
 const senderAccounts = ref<Awaited<ReturnType<typeof aiReportApi.getSenderAccounts>>>([]);
-const senderOptions = computed(() => senderAccounts.value.map(account => ({ id: account.id,
+const senderOptions = computed(() => senderAccounts.value.map(account => ({
+  id: account.id,
   label: `${account.displayName || 'Tài khoản Zalo'} (${account.zaloUid || account.id}) — ${account.status === 'connected' ? 'Đã kết nối' : 'Chưa kết nối'}`,
+  connected: account.status === 'connected',
 })));
+
+function isSenderAccountConnected(accountId?: string | null): boolean {
+  if (!accountId) return false;
+  const acc = senderAccounts.value.find(a => a.id === accountId);
+  return acc?.status === 'connected';
+}
+
+function formatDeliveryError(rawError?: string | null): string {
+  if (!rawError) return '';
+  if (rawError.includes('report_sender_unavailable') || rawError.includes('Sender unavailable') || rawError.includes('mất kết nối')) {
+    return 'Tài khoản Zalo gửi báo cáo đang mất kết nối hoặc phiên đăng nhập đã hết hạn. Vui lòng vào Quản lý tài khoản Zalo để quét lại mã QR.';
+  }
+  if (rawError.includes('Không thể xác định Cloud của tôi') || rawError.includes('send2me_id')) {
+    return 'Không thể xác định Cloud của tôi (send2me_id). Vui lòng kết nối lại tài khoản Zalo để làm mới phiên làm việc.';
+  }
+  return rawError;
+}
 
 // AI Provider settings state
 const aiProviderSettings = ref<AiProviderSettings>(createDefaultAiProviderSettings());
@@ -1323,6 +1360,11 @@ async function handleResendSubmit() {
   if (resendForm.value.sendZalo && !resendForm.value.senderAccountId) {
     showSnackbar('Vui lòng chọn tài khoản Zalo gửi báo cáo', 'warning'); return;
   }
+  if (resendForm.value.sendZalo && !isSenderAccountConnected(resendForm.value.senderAccountId)) {
+    showSnackbar('Tài khoản Zalo gửi báo cáo đang mất kết nối. Vui lòng kết nối lại tài khoản.', 'warning');
+    deliveryError.value = 'Tài khoản Zalo gửi báo cáo đang mất kết nối hoặc phiên đăng nhập đã hết hạn. Vui lòng vào Quản lý tài khoản Zalo để quét lại mã QR.';
+    return;
+  }
   isResending.value = true;
   try {
     const payload: ResendReportPayload = {
@@ -1339,7 +1381,13 @@ async function handleResendSubmit() {
     markResendAttemptUncertain(report.id);
     const result = await aiReportApi.resendReport(report.id, payload, key);
     if (!result.success || result.zalo?.deliveryUncertain || result.zalo?.success === false || result.email?.success === false) {
-      deliveryError.value = `Báo cáo có thể đã gửi một phần hoặc chưa xác nhận kết quả. ${result.zalo?.error || result.email?.error || ''} Hãy kiểm tra người nhận trước khi tạo lượt gửi mới.`;
+      const err = result.zalo?.error || result.email?.error || '';
+      const friendly = formatDeliveryError(err);
+      if (err.includes('report_sender_unavailable') || friendly.includes('Tài khoản Zalo gửi')) {
+        deliveryError.value = friendly;
+      } else {
+        deliveryError.value = `Báo cáo có thể đã gửi một phần hoặc chưa xác nhận kết quả. ${friendly} Hãy kiểm tra người nhận trước khi tạo lượt gửi mới.`;
+      }
       return;
     }
     completeResendAttempt(report.id);
@@ -1349,7 +1397,13 @@ async function handleResendSubmit() {
     showSnackbar('Đã gửi lại báo cáo thành công!', 'success');
     loadReports();
   } catch (err: any) {
-    deliveryError.value = `${err?.response?.data?.error || err?.message || 'Chưa xác nhận được kết quả gửi lại.'} Khi thử lại cùng lựa chọn, hệ thống kiểm tra lượt gửi hiện tại để tránh gửi trùng.`;
+    const errMsg = err?.response?.data?.error || err?.message || 'Chưa xác nhận được kết quả gửi lại.';
+    const friendly = formatDeliveryError(errMsg);
+    if (friendly.includes('Tài khoản Zalo gửi')) {
+      deliveryError.value = friendly;
+    } else {
+      deliveryError.value = `${friendly} Khi thử lại cùng lựa chọn, hệ thống kiểm tra lượt gửi hiện tại để tránh gửi trùng.`;
+    }
   } finally {
     resendRequiresReconciliation.value = resendNeedsReconciliation(report.id);
     isResending.value = false;
@@ -1376,6 +1430,10 @@ async function handleGenerateReport() {
   }
   if (generatorForm.value.sendZalo && !generatorForm.value.senderAccountId) {
     showSnackbar('Vui lòng chọn tài khoản Zalo gửi báo cáo', 'warning'); return;
+  }
+  if (generatorForm.value.sendZalo && !isSenderAccountConnected(generatorForm.value.senderAccountId)) {
+    showSnackbar('Tài khoản Zalo gửi báo cáo đang mất kết nối. Vui lòng kết nối lại tài khoản trước khi tạo báo cáo.', 'warning');
+    return;
   }
   if (!generatorForm.value.fromDate || !generatorForm.value.toDate) {
     showSnackbar('Vui lòng chọn đầy đủ thời gian bắt đầu và kết thúc', 'warning');
@@ -1439,7 +1497,8 @@ async function waitForReportJob(jobId: string) {
           loggerError('Get generated report after delivery failure', getReportErr);
         }
       }
-      deliveryError.value = job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo. Phần đã gửi trước khi hủy không thể thu hồi.' : 'Tạo báo cáo thất bại');
+      const rawError = job.errorMessage || (job.status === 'cancelled' ? 'Đã hủy tạo báo cáo. Phần đã gửi trước khi hủy không thể thu hồi.' : 'Tạo báo cáo thất bại');
+      deliveryError.value = formatDeliveryError(rawError);
       showSnackbar(job.resultReportId ? 'Báo cáo đã tổng hợp thành công nhưng chưa thể gửi qua kênh phát hành. Bạn có thể xem nội dung và bấm Gửi lại.' : deliveryError.value, job.resultReportId ? 'warning' : 'error');
       return;
     }

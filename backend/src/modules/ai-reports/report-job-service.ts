@@ -22,7 +22,18 @@ export async function mayRunReportJob(user: User, request: FrozenReportJobReques
 async function freeze(orgId: string, user: User | null, request: ReportJobRequest): Promise<FrozenReportJobRequest> {
   // Scheduled identity is server supplied and cannot come from the public DTO.
   const targets = await resolveReportTargets(orgId, request.groupTargets ? { groupTargets: request.groupTargets } : { groupThreadIds: request.groupThreadIds }, user, request.sendZalo || request.sendEmail ? 'chat' : 'read');
-  if (request.sendZalo && (!request.senderAccountId || !await authorizeReportAccount(orgId, request.senderAccountId, user, 'chat'))) throw new ReportJobValidationError('Sender unavailable or inaccessible', 404);
+  if (request.sendZalo) {
+    if (!request.senderAccountId || !await authorizeReportAccount(orgId, request.senderAccountId, user, 'chat')) {
+      throw new ReportJobValidationError('Sender unavailable or inaccessible', 404);
+    }
+    const sender = await prisma.zaloAccount.findFirst({
+      where: { id: request.senderAccountId, orgId, status: 'connected' },
+      select: { id: true },
+    });
+    if (!sender) {
+      throw new ReportJobValidationError('Tài khoản Zalo gửi báo cáo đang mất kết nối. Vui lòng kết nối lại tài khoản trước khi tạo báo cáo.', 400);
+    }
+  }
   const { groupTargets: _pairs, groupThreadIds: _ids, ...fields } = request;
   return { ...fields, schemaVersion: 2, origin: user ? 'on_demand' : 'scheduled', targets };
 }

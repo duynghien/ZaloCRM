@@ -23,7 +23,7 @@ async function seed() {
   const org = await db.organization.create({ data: { name: 'Lifecycle' } });
   const person = (role: string) => db.user.create({ data: { orgId: org.id, role, email: `${randomUUID()}@test.invalid`, fullName: role, passwordHash: 'unused' } });
   const owner = await person('owner'); const member = await person('member');
-  const account = await db.zaloAccount.create({ data: { orgId: org.id, ownerUserId: owner.id } });
+  const account = await db.zaloAccount.create({ data: { orgId: org.id, ownerUserId: owner.id, status: 'connected' } });
   const group = await db.conversation.create({ data: { orgId: org.id, zaloAccountId: account.id, externalThreadId: 'shared', threadType: 'group' } });
   await db.zaloAccountAccess.create({ data: { zaloAccountId: account.id, userId: member.id, permission: 'chat' } });
   const body = { from_date: '2026-09-01', to_date: '2026-09-02', group_targets: [{ zalo_account_id: account.id, group_thread_id: 'shared' }], title: 'Lifecycle report' };
@@ -203,6 +203,16 @@ describe('persisted report job lifecycle', () => {
       release(); await running;
       expect(await fixture.prisma.aiReportJob.findUniqueOrThrow({ where: { id: job.id } })).toMatchObject({ status: 'cancelled', resultReportId: report.id, leaseOwner: null });
     } finally { release(); await running; spy.mockRestore(); }
+  });
+
+  it('rejects report job submission when sender account is disconnected', async () => {
+    const s = await seed();
+    const disconnected = await fixture.prisma.zaloAccount.create({ data: { orgId: s.org.id, ownerUserId: s.owner.id, status: 'disconnected' } });
+    await fixture.prisma.zaloAccountAccess.create({ data: { zaloAccountId: disconnected.id, userId: s.member.id, permission: 'chat' } });
+    await expect(service.submitReportJob(s.org.id, s.member.id, randomUUID(), { ...s.request, sendZalo: true, senderAccountId: disconnected.id })).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('mất kết nối'),
+    });
   });
 
 });

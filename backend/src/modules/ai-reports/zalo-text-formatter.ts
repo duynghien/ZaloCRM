@@ -186,7 +186,18 @@ export function splitReportBySections(
             currentChunk += (currentChunk ? '\n' : '') + line;
           } else {
             if (currentChunk.trim()) chunks.push(currentChunk.trim());
-            currentChunk = line;
+            if (line.length <= maxLen) {
+              currentChunk = line;
+            } else {
+              for (let i = 0; i < line.length; i += maxLen) {
+                const sub = line.slice(i, i + maxLen);
+                if (i + maxLen < line.length) {
+                  chunks.push(sub);
+                } else {
+                  currentChunk = sub;
+                }
+              }
+            }
           }
         }
       }
