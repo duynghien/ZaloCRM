@@ -197,7 +197,8 @@ sequenceDiagram
     end
 ```
 
-- **Xác thực 4 tầng & Phòng vệ Tệp (Security Defense):** Endpoint đọc stream `/api/v1/attachments/:filename` thẩm định qua 4 cơ chế: Cookie phiên media (`zalo_crm_media_session`), Vé HMAC ngắn hạn (`ticket` 60s), Bearer header hoặc Query token. Chặn triệt để Path Traversal và cô lập tenant chặt chẽ (`403 Forbidden` khi truy cập chéo org). Trả kèm CSP `default-src 'none'; sandbox` và `X-Content-Type-Options: nosniff`.
+- **Xác thực 4 tầng & Phòng vệ Tệp (Security Defense):** Endpoint đọc stream `/api/v1/attachments/:filename` thẩm định qua 4 cơ chế: Cookie phiên media (`zalo_crm_media_session`), Vé HMAC ngắn hạn (`ticket` 60s), Bearer header hoặc Query token. Chặn triệt để Path Traversal (`isValidAttachmentFilename`, chặn `..`, `/`, `\`, `.`, `staged`), kiểm tra `isFile()` chống lỗi `EISDIR` sập luồng, và cô lập tenant chặt chẽ (`403 Forbidden` khi truy cập chéo org). Trả kèm header `Cache-Control: private, no-transform, max-age=86400`, CSP `default-src 'none'; sandbox` và `X-Content-Type-Options: nosniff`.
+- **Tương thích ngược & Di chuyển nguyên tử (Atomic Legacy Migration):** Các tệp cũ trên đĩa server chưa có tiền tố `orgId-` được đối soát quyền sở hữu chính xác qua toán tử chứa JSONB `m.attachments @> jsonb` kết hợp chỉ mục GIN trên cột `attachments` của bảng `messages`. Khi xác minh thuộc về tenant hợp lệ, tệp được di chuyển nguyên tử (`.part` -> `rename`) vào `orgDir` và dọn sạch file gốc tại `baseDir` bằng `unlink`, chống phình dung lượng đĩa và loại trừ race condition.
 - **Dọn dẹp tệp mồ côi (`orphan-cleanup-task.ts`):** Cron chạy định kỳ mỗi giờ (`0 * * * *`) quét thư mục `staged` và xóa sạch tệp tải lên quá 2 giờ không có tin nhắn tương ứng gắn kèm, tránh lãng phí dung lượng ổ cứng.
 
 ### 3.1.8. Kiến Trúc Telemetry & Quản Lý Chi Phí AI (AI Telemetry & Cost Tracking Architecture)
