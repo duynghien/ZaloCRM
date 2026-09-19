@@ -156,6 +156,11 @@ export class AiProviderRouter implements AiProvider {
           maxOutputTokens,
         });
 
+        // Validate output structure if caller provided a validator (e.g. isValidAuditJson)
+        if (options.validateOutput && !options.validateOutput(result)) {
+          throw new Error(`Đầu ra từ provider ${key} không thỏa mãn cấu trúc dữ liệu yêu cầu`);
+        }
+
         if (isFallback) {
           const primaryCfg = (primary as any)?.model || this.primaryProviderKey;
           const actualCfg = (provider as any)?.model || key;

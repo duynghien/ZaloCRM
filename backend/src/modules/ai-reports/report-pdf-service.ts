@@ -58,6 +58,13 @@ function cleanText(text: string): string {
 
 function getSectionColor(title: string): string {
   const upper = title.toUpperCase();
+  // Audit-specific section headings (priority before numbers)
+  if (/ĐÃ HOÀN THÀNH|🟢/.test(title) || /COMPLIANT/.test(upper)) return '#15803D';
+  if (/CHƯA GHI NHẬN|🟡/.test(title) || /CẦN ĐỐI CHIẾU/.test(upper)) return '#B45309';
+  if (/BẤT THƯỜNG|🔴/.test(title) || /NỘP MUỘN|CHẤT LƯỢNG KÉM|VI PHẠM/.test(upper)) return '#DC2626';
+  if (/KHUYẾN NGHỊ|💡/.test(title) || /ĐỀ XUẤT/.test(upper)) return '#0369A1';
+
+  // Executive report sections
   if (/1[\.\s]|TÓM TẮT|CỐT LÕI|HIGHLIGHT/.test(upper)) return '#0369A1';
   if (/2[\.\s]|HOÀN THÀNH|COMPLETED/.test(upper)) return '#15803D';
   if (/3[\.\s]|TỒN ĐỌNG|SỰ CỐ|RỦI RO|RISK|BLOCKER/.test(upper)) return '#B45309';
@@ -113,8 +120,12 @@ export async function generateReportPdfBuffer(
     // ── 1. HEADER BANNER ──────────────────────────────────────────────
     doc.rect(36, 36, contentWidth, 54).fill('#0F172A'); // Dark slate Neo-Brutalism header
 
+    const bannerSubtitle = options.reportType === 'audit_rule'
+      ? 'ZALOCRM  •  HỆ THỐNG GIÁM SÁT & KIỂM TOÁN TUÂN THỦ'
+      : 'ZALOCRM  •  HỆ THỐNG ĐIỀU HÀNH & BÁO CÁO TỔNG HỢP';
+
     doc.font(boldFont).fontSize(10).fillColor('#38BDF8')
-      .text('ZALOCRM  •  HỆ THỐNG ĐIỀU HÀNH & BÁO CÁO TỔNG HỢP', 48, 46, { width: contentWidth - 24 });
+      .text(bannerSubtitle, 48, 46, { width: contentWidth - 24 });
 
     const cleanTitle = cleanText(reportTitle) || 'Báo Cáo Điều Hành Tổng Hợp';
     doc.font(boldFont).fontSize(14).fillColor('#FFFFFF')
@@ -142,6 +153,27 @@ export async function generateReportPdfBuffer(
     doc.y = metadataY + 30;
 
     // ── 3. ROBUST MARKDOWN DOCUMENT RENDERING ──────────────────────────
+    const MAX_PAGES = options.reportType === 'audit_rule' ? 10 : Infinity;
+    let isTruncated = false;
+
+    const origAddPage = doc.addPage.bind(doc);
+    doc.addPage = function (...args: any[]) {
+      if (doc.bufferedPageRange().count >= MAX_PAGES) {
+        isTruncated = true;
+        return this;
+      }
+      return origAddPage(...args);
+    };
+
+    const safeAddPage = (): boolean => {
+      if (doc.bufferedPageRange().count >= MAX_PAGES) {
+        isTruncated = true;
+        return false;
+      }
+      doc.addPage();
+      return true;
+    };
+
     let currentTable: string[][] | null = null;
 
     const flushTable = () => {
@@ -284,15 +316,22 @@ export async function generateReportPdfBuffer(
         if (dataRows.length > 0) {
           const firstRow = computeActionRow(dataRows[0], 0);
           if (doc.y + headerH + firstRow.rowH > pageHeight - 50) {
-            doc.addPage();
+            if (!safeAddPage()) {
+              isTruncated = true;
+              return;
+            }
           }
         }
         renderActionTableHeader();
 
         dataRows.forEach((row, idx) => {
+          if (isTruncated) return;
           const rowData = computeActionRow(row, idx);
           if (doc.y + rowData.rowH > pageHeight - 50) {
-            doc.addPage();
+            if (!safeAddPage()) {
+              isTruncated = true;
+              return;
+            }
             renderActionTableHeader();
           }
 
@@ -346,15 +385,22 @@ export async function generateReportPdfBuffer(
         if (dataRows.length > 0) {
           const firstRow = computeGenericRow(dataRows[0]);
           if (doc.y + headerH + firstRow.rowH > pageHeight - 50) {
-            doc.addPage();
+            if (!safeAddPage()) {
+              isTruncated = true;
+              return;
+            }
           }
         }
         renderGenericHeader();
 
         dataRows.forEach((row, idx) => {
+          if (isTruncated) return;
           const rowData = computeGenericRow(row);
           if (doc.y + rowData.rowH > pageHeight - 50) {
-            doc.addPage();
+            if (!safeAddPage()) {
+              isTruncated = true;
+              return;
+            }
             renderGenericHeader();
           }
 
@@ -377,6 +423,7 @@ export async function generateReportPdfBuffer(
     const lines = markdownContent.split('\n');
 
     for (let i = 0; i < lines.length; i++) {
+      if (isTruncated) break;
       const rawLine = lines[i];
       const trimmed = rawLine.trim();
       if (!trimmed) {
@@ -415,7 +462,12 @@ export async function generateReportPdfBuffer(
       // Heading (##, ###, ####)
       const headingMatch = trimmed.match(/^(#{2,4})\s+(.+)$/);
       if (headingMatch) {
-        if (doc.y > pageHeight - 80) doc.addPage();
+        if (doc.y > pageHeight - 80) {
+          if (!safeAddPage()) {
+            isTruncated = true;
+            break;
+          }
+        }
         const level = headingMatch[1].length;
         const text = cleanText(headingMatch[2]);
         const color = getSectionColor(text);
@@ -429,7 +481,12 @@ export async function generateReportPdfBuffer(
       // Bullet item
       const bulletMatch = trimmed.match(/^([-*+•]|\d+[\.\)])\s+(.+)$/);
       if (bulletMatch) {
-        if (doc.y > pageHeight - 50) doc.addPage();
+        if (doc.y > pageHeight - 50) {
+          if (!safeAddPage()) {
+            isTruncated = true;
+            break;
+          }
+        }
         const isIndented = rawLine.startsWith('  ') || rawLine.startsWith('\t');
         const text = cleanText(bulletMatch[2]);
         const indent = isIndented ? 56 : 44;
@@ -442,7 +499,12 @@ export async function generateReportPdfBuffer(
 
       // Blockquote
       if (trimmed.startsWith('>')) {
-        if (doc.y > pageHeight - 50) doc.addPage();
+        if (doc.y > pageHeight - 50) {
+          if (!safeAddPage()) {
+            isTruncated = true;
+            break;
+          }
+        }
         const text = cleanText(trimmed.replace(/^>\s*/, ''));
         doc.rect(36, doc.y, 3, 14).fill('#94A3B8');
         doc.font(regularFont).fontSize(9).fillColor('#475569')
@@ -452,7 +514,12 @@ export async function generateReportPdfBuffer(
       }
 
       // Regular paragraph / text
-      if (doc.y > pageHeight - 50) doc.addPage();
+      if (doc.y > pageHeight - 50) {
+        if (!safeAddPage()) {
+          isTruncated = true;
+          break;
+        }
+      }
       const text = cleanText(trimmed);
       if (text) {
         doc.font(regularFont).fontSize(9).fillColor('#334155')
@@ -461,6 +528,13 @@ export async function generateReportPdfBuffer(
       }
     }
     flushTable();
+
+    if (isTruncated) {
+      doc.switchToPage(doc.bufferedPageRange().count - 1);
+      doc.page.margins.bottom = 0;
+      doc.font(boldFont).fontSize(8.5).fillColor('#DC2626')
+        .text('(Báo cáo đầy đủ vượt quá 10 trang — vui lòng liên hệ quản trị viên để xem bản hoàn chỉnh)', 44, pageHeight - 50, { width: contentWidth - 16, lineBreak: false });
+    }
 
     // ── 4. PAGE NUMBERING FOOTER ─────────────────────────────────────
     const range = doc.bufferedPageRange();

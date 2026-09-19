@@ -47,6 +47,13 @@ export interface UsageTelemetry {
   totalTokens: number;
 }
 
+export class IncompleteAiGenerationError extends Error {
+  constructor(message = 'Mô hình AI cạn kiệt token trong pha suy luận/sinh văn bản (finish_reason: length).') {
+    super(message);
+    this.name = 'IncompleteAiGenerationError';
+  }
+}
+
 export interface GenerateOptions {
   budget: ReportJobBudget;
   attemptKey?: string;
@@ -59,6 +66,8 @@ export interface GenerateOptions {
   taskType?: string;
   onUsage?: (usage: UsageTelemetry) => void;
   onFallback?: (telemetry: FallbackTelemetry) => void;
+  /** Router-level output validation — if provided and returns false, Router treats the result as a failure and fails over. */
+  validateOutput?: (text: string) => boolean;
 }
 
 export interface TestConnectionResult {

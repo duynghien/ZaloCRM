@@ -12,6 +12,7 @@ import type {
   GenerateOptions,
   TestConnectionResult,
 } from './ai-provider-interface.js';
+import { IncompleteAiGenerationError } from './ai-provider-interface.js';
 import { estimateTokensHeuristic } from './token-budget-estimator.js';
 import { recordAiUsage } from '../ai-usage-tracker.js';
 
@@ -113,9 +114,15 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
         options.onUsage?.(usageTelemetry);
 
+        // GUARD: Check finish_reason BEFORE extracting content — treats CoT token exhaustion
+        // as a hard failure regardless of whether content is empty or partially generated.
+        if (completion.choices[0]?.finish_reason === 'length') {
+          throw new IncompleteAiGenerationError();
+        }
+
         const message = completion.choices[0]?.message;
-        const text = message?.content || (message as any)?.reasoning_content || '';
-        if (!text) throw new Error(`Empty response received from ${this.type} API`);
+        const text = message?.content || '';
+        if (!text.trim()) throw new Error(`Empty response received from ${this.type} API`);
 
         if (options.orgId && options.taskType) {
           recordAiUsage({
@@ -138,7 +145,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
         return text;
       } catch (err: any) {
-        if (isReportControlError(err)) throw err;
+        if (isReportControlError(err) || err instanceof IncompleteAiGenerationError) {
+          throw err; // Fail-fast: exit immediately for Router failover, no 3s sleep, no attempt 2
+        }
         lastError = err;
         logger.warn(`[openai-provider:${this.type}] Attempt ${attempt} failed for model ${this.model}: ${err?.message || err}`);
         if (attempt === 1 && !options.signal?.aborted) {

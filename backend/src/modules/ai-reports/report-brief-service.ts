@@ -248,3 +248,102 @@ export function generateExecutiveBrief(
 
   return lines.join('\n');
 }
+
+export interface AuditBriefOptions {
+  reportTitle?: string;
+  periodText?: string;
+  scopeText?: string;
+  telemetry?: import('./ai-audit-evaluator-helpers.js').AuditTelemetry;
+  includePdfNotice?: boolean;
+}
+
+/**
+ * Generates a clean, professional Audit Brief (Bản tin tóm tắt kiểm toán) optimized for Zalo chat.
+ * Uses AuditTelemetry as Single Source of Truth for submission statistics.
+ */
+export function generateAuditBrief(
+  markdownContent: string,
+  options: AuditBriefOptions = {},
+): string {
+  const {
+    reportTitle: optionTitle,
+    periodText: optionPeriod,
+    scopeText: optionScope,
+    telemetry,
+    includePdfNotice = true,
+  } = options;
+
+  const lines: string[] = [];
+
+  // 1. Title
+  let displayTitle: string;
+  if (optionTitle) {
+    const cleaned = cleanMarkdownText(optionTitle).replace(/[\r\n]+/g, ' ').trim();
+    displayTitle = cleaned.startsWith('📑') ? cleaned : `📑 ${cleaned.toUpperCase()}`;
+  } else if (optionScope) {
+    displayTitle = `📑 ĐÁNH GIÁ TUÂN THỦ: ${cleanMarkdownText(optionScope).toUpperCase()}`;
+  } else {
+    displayTitle = '📑 ĐÁNH GIÁ TUÂN THỦ';
+  }
+  lines.push(displayTitle);
+
+  // 2. Period
+  if (optionPeriod) {
+    const cleanPeriod = cleanMarkdownText(optionPeriod).replace(/[\r\n]+/g, ' ').trim();
+    lines.push(`⏰ Thời gian chốt: ${cleanPeriod}`);
+  }
+
+  // 3. Telemetry (Single Source of Truth)
+  if (telemetry) {
+    const total = telemetry.totalExpected || 0;
+    const completed = telemetry.completedCount || 0;
+    const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+    lines.push(`📊 Tỷ lệ nộp: ${completed}/${total} (${pct}%)`);
+    lines.push('────────────────────────');
+
+    // 🟢 Compliant
+    if (telemetry.compliantNames && telemetry.compliantNames.length > 0) {
+      lines.push(`🟢 Đã hoàn thành (${telemetry.compliantNames.length}): ${telemetry.compliantNames.join(', ')}`);
+    } else {
+      lines.push('🟢 Đã hoàn thành: Chưa ghi nhận');
+    }
+
+    // 🟡 Missing
+    if (telemetry.missingNames && telemetry.missingNames.length > 0) {
+      lines.push(`🟡 Chưa ghi nhận (${telemetry.missingNames.length}): ${telemetry.missingNames.join(', ')}`);
+    } else {
+      lines.push('🟡 Chưa ghi nhận: Không có (100% đạt chuẩn)');
+    }
+
+    // 🔴 Anomalies
+    if (telemetry.anomaliesList && telemetry.anomaliesList.length > 0) {
+      lines.push('');
+      lines.push(`🔴 Bất thường / Vi phạm (${telemetry.anomaliesList.length}):`);
+      for (const anom of telemetry.anomaliesList.slice(0, 3)) {
+        lines.push(`• ${cleanConversationalFiller(cleanMarkdownText(anom))}`);
+      }
+    }
+  } else {
+    lines.push('────────────────────────');
+  }
+
+  // 4. Recommendations
+  const recMatch = markdownContent.match(/##\s*[^\n]*(?:KHUYẾN NGHỊ|ĐỀ XUẤT|QUẢN TRỊ)[^\n]*([\s\S]*?)(?=(?:\n##|\n---\s*\(|\n#|$))/iu);
+  const recText = recMatch ? recMatch[1].trim() : '';
+  const recBullets = recText ? extractBullets(recText) : [];
+  if (recBullets.length > 0) {
+    lines.push('');
+    lines.push('💡 Khuyến nghị quản trị:');
+    for (const b of recBullets.slice(0, 2)) {
+      lines.push(`• ${cleanConversationalFiller(b)}`);
+    }
+  }
+
+  // 5. PDF Notice
+  if (includePdfNotice) {
+    lines.push('────────────────────────');
+    lines.push('📎 Chi tiết đầy đủ xem trong tệp PDF đính kèm.');
+  }
+
+  return lines.join('\n');
+}

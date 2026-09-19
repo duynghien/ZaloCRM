@@ -3,9 +3,10 @@ import { zaloPool } from '../zalo/zalo-pool.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { generateExecutiveBrief } from './report-brief-service.js';
+import { generateExecutiveBrief, generateAuditBrief } from './report-brief-service.js';
 import { generateReportPdfFile } from './report-pdf-service.js';
 import { formatMarkdownForZalo, splitReportBySections } from './zalo-text-formatter.js';
+import type { AuditTelemetry } from './ai-audit-evaluator-helpers.js';
 
 export type ReportPrefixType = 'digest' | 'audit' | 'none';
 
@@ -20,6 +21,7 @@ export interface SendZaloReportOptions {
   periodText?: string;
   /** Explicit scope text — passed to brief and PDF for Single Source of Truth metadata. */
   scopeText?: string;
+  auditTelemetry?: AuditTelemetry;
   customPrefixType?: ReportPrefixType;
   deliveryMode?: 'dual_pdf' | 'full_text';
   executionGuard: () => Promise<void>;
@@ -162,27 +164,57 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
   let partsSent = 0;
   let deliveryUncertain = false;
 
-  const isDualPdf = deliveryMode === 'dual_pdf' || (deliveryMode !== 'full_text' && customPrefixType === 'digest' && (markdownContent.includes('## 1.') || markdownContent.includes('## 🎯')));
+  const isDualPdf = deliveryMode === 'dual_pdf' || (
+    deliveryMode !== 'full_text' && (
+      customPrefixType === 'audit' ||
+      (customPrefixType === 'digest' && (markdownContent.includes('## 1.') || markdownContent.includes('## 🎯')))
+    )
+  );
 
   try {
     if (isDualPdf) {
+      let brief = '';
       try {
-        const brief = generateExecutiveBrief(markdownContent, { reportTitle, periodText, scopeText });
-        const title = reportTitle || 'Báo Cáo Điều Hành';
-        const pdfFile = await generateReportPdfFile(title, markdownContent, { periodText, scopeText });
+        if (customPrefixType === 'audit') {
+          brief = generateAuditBrief(markdownContent, {
+            reportTitle,
+            periodText,
+            scopeText,
+            telemetry: options.auditTelemetry,
+          });
+        } else {
+          brief = generateExecutiveBrief(markdownContent, { reportTitle, periodText, scopeText });
+        }
+        const title = reportTitle || (customPrefixType === 'audit' ? 'Đánh Giá Tuân Thủ' : 'Báo Cáo Điều Hành');
+        const pdfFile = await generateReportPdfFile(title, markdownContent, {
+          periodText,
+          scopeText,
+          reportType: customPrefixType === 'audit' ? 'audit_rule' : undefined,
+        });
         attachmentPath = pdfFile.filePath;
         pdfCleanup = pdfFile.cleanup;
         parts = [brief];
       } catch (pdfErr) {
-        logger.warn({ error: pdfErr }, '[zalo-report-sender] Failed to generate PDF, falling back to full text');
-        const cleanText = formatMarkdownForZalo(markdownContent);
-        parts = splitReportBySections(cleanText, MAX_ZALO_MESSAGE_LENGTH, (p, t) => formatPrefix(customPrefixType, p, t));
+        logger.warn({ error: pdfErr }, '[zalo-report-sender] Failed to generate PDF');
+        if (customPrefixType === 'audit') {
+          // Single brief message with notice, never split to 12 chunks
+          parts = [brief ? `${brief}\n\n(⚠️ Tệp PDF đính kèm tạm thời chưa thể tạo do sự cố kỹ thuật)` : '⚠️ Lỗi tạo báo cáo kiểm toán'];
+          attachmentPath = undefined;
+        } else {
+          const cleanText = formatMarkdownForZalo(markdownContent);
+          parts = splitReportBySections(cleanText, MAX_ZALO_MESSAGE_LENGTH, (p, t) => formatPrefix(customPrefixType, p, t));
+        }
       }
     } else if (deliveryMode === 'full_text' || markdownContent.includes('##')) {
       const cleanText = formatMarkdownForZalo(markdownContent);
       parts = splitReportBySections(cleanText, MAX_ZALO_MESSAGE_LENGTH, (p, t) => formatPrefix(customPrefixType, p, t));
     } else {
       parts = splitReportForZalo(markdownContent, MAX_ZALO_MESSAGE_LENGTH, customPrefixType);
+    }
+
+    // Max chunks guard: for audit reports, never send more than 1 message
+    if (customPrefixType === 'audit' && parts.length > 1) {
+      parts = [parts[0]];
     }
     if (!accountId) throw new Error('report_sender_required');
     if (typeof options.executionGuard !== 'function') throw new Error('report_execution_guard_required');
@@ -316,7 +348,17 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
       deliveryUncertain = true;
       const timeoutMs = options.messageTimeoutMs ?? ZALO_MESSAGE_TIMEOUT_MS;
       if (attachmentPath && i === parts.length - 1) {
-        await sendMessageWithTimeout(currentApi, { msg: parts[i], attachments: [attachmentPath] }, destId, threadType, timeoutMs, options.signal);
+        try {
+          await sendMessageWithTimeout(currentApi, { msg: parts[i], attachments: [attachmentPath] }, destId, threadType, timeoutMs, options.signal);
+        } catch (attachErr: any) {
+          if (customPrefixType === 'audit') {
+            logger.warn({ err: attachErr?.message }, '[zalo-report-sender] Failed to send attachment, falling back to text brief');
+            const fallbackMsg = parts[i] + '\n\n(⚠️ Tệp PDF đính kèm không thể gửi do sự cố đường truyền Zalo)';
+            await sendMessageWithTimeout(currentApi, { msg: fallbackMsg }, destId, threadType, timeoutMs, options.signal);
+          } else {
+            throw attachErr;
+          }
+        }
       } else {
         await sendMessageWithTimeout(currentApi, { msg: parts[i] }, destId, threadType, timeoutMs, options.signal);
       }

@@ -26,6 +26,8 @@ export interface GenerateContentOptions {
   maxOutputTokens?: number;
   onUsage?: (usage: any) => void;
   onFallback?: (telemetry: FallbackTelemetry) => void;
+  /** Router-level output validation — if provided and returns false, Router treats the result as a failure and fails over. */
+  validateOutput?: (text: string) => boolean;
 }
 
 let genAIInstance: GoogleGenAI | null = null;
@@ -103,5 +105,6 @@ export async function generateContent(
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
     onFallback: options.onFallback,
+    validateOutput: options.validateOutput,
   });
 }
