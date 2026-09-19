@@ -8,36 +8,41 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from './auth-middleware.js';
 import { checkSetupStatus, createSession, getProfile, login, revokeSession, revokeUserSessions, rotateSession, setup, validatePassword } from './auth-service.js';
 
-function isSecureCookie(): boolean {
+function isSecureCookie(request?: FastifyRequest): boolean {
+  if (request) {
+    const proto = request.protocol || (request.headers['x-forwarded-proto'] as string);
+    if (proto === 'https') return true;
+    if (proto === 'http') return false;
+  }
   return config.isProduction && config.appUrl.startsWith('https://');
 }
 
-function cookieOptions(expiresAt?: Date) {
-  return { httpOnly: true, secure: isSecureCookie(), sameSite: 'lax' as const, path: '/api/v1/auth', ...(expiresAt ? { expires: expiresAt } : {}) };
+function cookieOptions(request?: FastifyRequest, expiresAt?: Date) {
+  return { httpOnly: true, secure: isSecureCookie(request), sameSite: 'lax' as const, path: '/api/v1/auth', ...(expiresAt ? { expires: expiresAt } : {}) };
 }
 
-function mediaCookieOptions(expiresAt?: Date) {
-  return { httpOnly: true, secure: isSecureCookie(), sameSite: 'lax' as const, path: '/api/v1/attachments', ...(expiresAt ? { expires: expiresAt } : {}) };
+function mediaCookieOptions(request?: FastifyRequest, expiresAt?: Date) {
+  return { httpOnly: true, secure: isSecureCookie(request), sameSite: 'lax' as const, path: '/api/v1/attachments', ...(expiresAt ? { expires: expiresAt } : {}) };
 }
 
-function clearSessionCookies(reply: FastifyReply): void {
-  reply.clearCookie(config.refreshCookieName, cookieOptions());
-  reply.clearCookie(config.csrfCookieName, { secure: isSecureCookie(), sameSite: 'lax', path: '/' });
-  reply.clearCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaCookieOptions());
+function clearSessionCookies(reply: FastifyReply, request?: FastifyRequest): void {
+  reply.clearCookie(config.refreshCookieName, cookieOptions(request));
+  reply.clearCookie(config.csrfCookieName, { secure: isSecureCookie(request), sameSite: 'lax', path: '/' });
+  reply.clearCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaCookieOptions(request));
 }
 
-function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id: string; orgId: string; role: string }, refreshToken: string, expiresAt: Date): string {
+function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id: string; orgId: string; role: string }, refreshToken: string, expiresAt: Date, request?: FastifyRequest): string {
   const csrfToken = randomBytes(32).toString('base64url');
-  reply.setCookie(config.refreshCookieName, refreshToken, cookieOptions(expiresAt));
+  reply.setCookie(config.refreshCookieName, refreshToken, cookieOptions(request, expiresAt));
   // The SPA reads this non-secret double-submit value from any protected route.
   // The refresh credential itself remains HttpOnly and limited to auth endpoints.
-  reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: isSecureCookie(), sameSite: 'lax', path: '/', expires: expiresAt });
+  reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: isSecureCookie(request), sameSite: 'lax', path: '/', expires: expiresAt });
 
   const mediaToken = app.jwt.sign(
     { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
     { expiresIn: '7d' },
   );
-  reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(expiresAt));
+  reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(request, expiresAt));
 
   return csrfToken;
 }
@@ -46,7 +51,23 @@ function assertBrowserRequest(request: FastifyRequest): void {
   const origin = request.headers.origin;
   const referer = request.headers.referer;
   const requestOrigin = origin || (referer ? new URL(referer).origin : '');
-  if (!requestOrigin || requestOrigin !== config.appOrigin) throw Object.assign(new Error('Invalid request origin'), { statusCode: 403 });
+  if (!requestOrigin) throw Object.assign(new Error('Invalid request origin'), { statusCode: 403 });
+
+  let isAllowedOrigin = requestOrigin === config.appOrigin;
+  if (!isAllowedOrigin) {
+    try {
+      const parsed = new URL(requestOrigin);
+      const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+      const hostHeader = request.headers.host;
+      const hostOrigin = hostHeader ? `${request.protocol}://${hostHeader}` : '';
+      if (isLoopback || (hostOrigin && requestOrigin === hostOrigin)) {
+        isAllowedOrigin = true;
+      }
+    } catch {}
+  }
+
+  if (!isAllowedOrigin) throw Object.assign(new Error('Invalid request origin'), { statusCode: 403 });
+
   const csrfCookie = request.cookies[config.csrfCookieName];
   const csrfHeader = request.headers['x-csrf-token'];
   if (!csrfCookie || typeof csrfHeader !== 'string' || csrfCookie !== csrfHeader) throw Object.assign(new Error('Invalid CSRF token'), { statusCode: 403 });
@@ -64,7 +85,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!orgName || !fullName || !email || !password) return reply.status(400).send({ error: 'Missing required fields' });
     const user = await setup(orgName, fullName, email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, request);
     return { token: tokens.accessToken, user };
   });
 
@@ -73,7 +94,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!email || !password) return reply.status(400).send({ error: 'Missing email or password' });
     const user = await login(email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, request);
     return { token: tokens.accessToken, user };
   });
 
@@ -83,10 +104,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const refreshToken = request.cookies[config.refreshCookieName];
       if (!refreshToken) return reply.status(401).send({ error: 'Missing refresh session' });
       const { tokens, identity } = await rotateSession(app, refreshToken);
-      setSessionCookies(reply, app, identity, tokens.refreshToken, tokens.expiresAt);
+      setSessionCookies(reply, app, identity, tokens.refreshToken, tokens.expiresAt, request);
       return { token: tokens.accessToken, user: identity };
     } catch (error) {
-      clearSessionCookies(reply);
+      clearSessionCookies(reply, request);
       throw error;
     }
   });
@@ -95,14 +116,14 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     assertBrowserRequest(request);
     const sessionId = currentSessionId(request);
     if (sessionId) await revokeSession(sessionId, 'logout');
-    clearSessionCookies(reply);
+    clearSessionCookies(reply, request);
     return { success: true };
   });
 
   app.post('/api/v1/auth/logout-all', { preHandler: authMiddleware }, async (request, reply) => {
     assertBrowserRequest(request);
     await revokeUserSessions(request.user.id, 'logout_all');
-    clearSessionCookies(reply);
+    clearSessionCookies(reply, request);
     return { success: true };
   });
 
@@ -115,7 +136,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return reply.status(401).send({ error: 'Current password is invalid' });
     await prisma.user.update({ where: { id: request.user.id }, data: { passwordHash: await bcrypt.hash(newPassword, 12) } });
     await revokeUserSessions(request.user.id, 'password_changed');
-    clearSessionCookies(reply);
+    clearSessionCookies(reply, request);
     return { success: true };
   });
 
@@ -127,7 +148,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
         { expiresIn: '7d' },
       );
-      reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions());
+      reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(request));
     }
     return getProfile(request.user.id);
   });

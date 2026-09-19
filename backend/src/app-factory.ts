@@ -43,6 +43,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function createApp(options: { https?: { key: Buffer; cert: Buffer }; staticRoot?: string } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
+    trustProxy: true,
     routerOptions: {
       maxParamLength: 1000,
     },
@@ -51,7 +52,20 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   // ── Plugins ──────────────────────────────────────────────────────────────
 
   await app.register(cors, {
-    origin: config.isProduction ? config.appOrigin : true,
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      try {
+        const parsed = new URL(origin);
+        const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
+        const isAppOrigin = origin === config.appOrigin;
+        if (isAppOrigin || isLoopback) {
+          return cb(null, true);
+        }
+        return cb(null, false);
+      } catch {
+        return cb(null, false);
+      }
+    },
     credentials: true,
   });
 

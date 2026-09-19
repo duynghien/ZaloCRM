@@ -150,4 +150,33 @@ describe('auth and settings security over real HTTP handlers and PostgreSQL', ()
       await fixture.prisma.$executeRawUnsafe('DROP FUNCTION reject_fixture_secret_update()');
     }
   });
+
+  it('accepts loopback/appOrigin in CORS and assertBrowserRequest while rejecting external untrusted origins', async () => {
+    const user = await seed();
+    const signed = await login(user);
+
+    // Loopback origin is allowed
+    const loopbackRes = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/refresh',
+      cookies: signed.cookies,
+      headers: {
+        origin: 'http://localhost:3080',
+        'x-csrf-token': signed.cookies.zalo_crm_csrf,
+      },
+    });
+    expect(loopbackRes.statusCode).toBe(200);
+
+    // Foreign origin is rejected
+    const foreignRes = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/refresh',
+      cookies: signed.cookies,
+      headers: {
+        origin: 'https://evil-attacker.com',
+        'x-csrf-token': signed.cookies.zalo_crm_csrf,
+      },
+    });
+    expect(foreignRes.statusCode).toBe(403);
+  });
 });

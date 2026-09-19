@@ -13,7 +13,9 @@ const refreshApi = axios.create({
   withCredentials: true,
 });
 
-const accessToken = ref('');
+const TOKEN_STORAGE_KEY = 'zalo_crm_token';
+const initialToken = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) || '' : '';
+const accessToken = ref(initialToken);
 let refreshPromise: Promise<string> | null = null;
 let isRedirecting = false;
 
@@ -28,6 +30,11 @@ export function getAccessToken(): string {
 export function setAccessToken(token: string): void {
   accessToken.value = token;
   if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: token }));
   }
 }
@@ -35,6 +42,7 @@ export function setAccessToken(token: string): void {
 export function clearAccessToken(): void {
   accessToken.value = '';
   if (typeof window !== 'undefined') {
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: '' }));
   }
 }
