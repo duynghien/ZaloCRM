@@ -17,6 +17,7 @@ import { boundedPositiveInt, boundedString } from '../../shared/http/request-bou
 import { emitWebhook } from '../api/webhook-service.js';
 import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
 import { getAttachmentsBaseDir, getOrgAttachmentsDir } from '../attachments/attachment-routes.js';
+import { resolveByEntity } from '../notifications/notification-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -339,6 +340,8 @@ export async function chatRoutes(app: FastifyInstance) {
         where: { id },
         data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
       });
+
+      void resolveByEntity(user.orgId, 'conversation', id).catch(() => {});
 
       chatTurnDebouncer.handleMessageTurn({
         conversationId: id,

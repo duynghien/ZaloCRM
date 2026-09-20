@@ -8,9 +8,10 @@
  */
 import { createRequire } from 'module';
 import type { Server } from 'socket.io';
-import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
+import { emitAccountEvent, emitOrganizationEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { createNotification, resolveByEntity } from '../notifications/notification-service.js';
 import { config } from '../../config/index.js';
 import { encryptData, decryptData } from '../../shared/utils/crypto.js';
 import { attachZaloListener, type UserInfoCacheEntry } from './zalo-listener-factory.js';
@@ -229,6 +230,7 @@ class ZaloAccountPool {
 
         if (orgId) {
           emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+          void resolveByEntity(orgId, 'zalo_account', accountId).catch(() => {});
         }
       } catch (err) {
         const instance = this.instances.get(accountId);
@@ -309,6 +311,7 @@ class ZaloAccountPool {
 
         if (orgId) {
           emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
+          void resolveByEntity(orgId, 'zalo_account', accountId).catch(() => {});
         }
       } catch (err) {
         const instance = this.instances.get(accountId);
@@ -370,6 +373,30 @@ class ZaloAccountPool {
           void this.emitForAccount(id, 'zalo:status-changed', { accountId: id, status: 'qr_pending' });
           void this.emitForAccount(id, 'zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
           this.disconnectHistory.delete(key);
+
+          // Create persistent notification for circuit breaker disconnect
+          if (orgId) {
+            void createNotification({
+              orgId,
+              userId: null,
+              type: 'error',
+              category: 'zalo_account',
+              title: `Tài khoản Zalo mất kết nối`,
+              detail: `Tài khoản "${inst.displayName || id}" mất kết nối liên tục, cần quét mã QR lại`,
+              actionUrl: '/zalo-accounts',
+              priority: 'high',
+              entityType: 'zalo_account',
+              entityId: id,
+              dedupKey: `zalo_dc_${id}`,
+            }).then((notification: any) => {
+              if (this.io) {
+                void emitOrganizationEvent(this.io, orgId, 'notification:new', notification);
+              }
+            }).catch((err: any) => {
+              logger.error(`[zalo-pool] Failed to create circuit breaker notification for ${id}:`, err);
+            });
+          }
+
           return; // DON'T reconnect
         }
 

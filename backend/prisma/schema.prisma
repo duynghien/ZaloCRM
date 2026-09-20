@@ -30,6 +30,7 @@ model Organization {
   reportResends      AiReportResend[]
   aiUsageLogs        AiUsageLog[]
   dailyAiStats       DailyAiUsageStat[]
+  notifications      Notification[]
 
   @@map("organizations")
 }
@@ -73,6 +74,7 @@ model User {
   reportJobs       AiReportJob[]       @relation("CreatedReportJobs")
   authSessions     AuthSession[]
   aiUsageLogs      AiUsageLog[]
+  notifications    Notification[]
 
   @@map("users")
 }
@@ -552,3 +554,33 @@ model DailyAiUsageStat {
   @@map("daily_ai_usage_stats")
 }
 
+// Persistent notification with read-state tracking (Team-Acknowledged model for org-wide alerts)
+model Notification {
+  id          String    @id @default(uuid())
+  orgId       String    @map("org_id")
+  userId      String?   @map("user_id")
+  targetRole  String?   @map("target_role") // 'owner' | 'admin' | 'manager' (null = all members)
+  entityType  String?   @map("entity_type") // 'conversation' | 'zalo_account' | 'appointment'
+  entityId    String?   @map("entity_id")   // ID for automatic resolution hooks
+  dedupKey    String?   @map("dedup_key")   // Concurrency-safe deduplication key
+  type        String    // 'info' | 'warning' | 'error' | 'success' | 'ai_alert'
+  category    String    // 'appointment' | 'chat_sla' | 'zalo_account' | 'copilot' | 'system'
+  title       String
+  detail      String
+  actionUrl   String?   @map("action_url")
+  priority    String    @default("medium") // 'low' | 'medium' | 'high' | 'urgent'
+  isRead      Boolean   @default(false) @map("is_read")
+  readAt      DateTime? @map("read_at")
+  metadata    Json?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([id, orgId])
+  @@unique([orgId, dedupKey])
+  @@index([orgId, userId, isRead, createdAt])
+  @@index([orgId, isRead, createdAt])
+  @@index([entityType, entityId])
+  @@map("notifications")
+}

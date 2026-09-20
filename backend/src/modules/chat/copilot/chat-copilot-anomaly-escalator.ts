@@ -6,6 +6,7 @@ import { prisma } from '../../../shared/database/prisma-client.js';
 import { logger } from '../../../shared/utils/logger.js';
 import { emitAccountEvent, emitManagerEvent } from '../../../shared/realtime/socket-event-delivery.js';
 import type { CopilotAnomalyAlert } from './chat-copilot-types.js';
+import { createNotification } from '../../notifications/notification-service.js';
 
 export interface EscalateAnomalyParams {
   io: Server;
@@ -45,9 +46,25 @@ export async function escalateChatAnomaly(params: EscalateAnomalyParams): Promis
       },
     });
 
+    const notification = await createNotification({
+      orgId,
+      userId: null,
+      targetRole: 'manager',
+      type: 'ai_alert',
+      category: 'copilot',
+      title: `Cảnh báo AI: ${alert.severity === 'critical' ? 'Nghiêm trọng' : 'Bất thường'}`,
+      detail: alert.reason || 'Phát hiện hội thoại bất thường cần xử lý',
+      actionUrl: `/chat?conversation=${conversationId}`,
+      priority: alert.severity === 'critical' ? 'urgent' : 'high',
+      entityType: 'conversation',
+      entityId: conversationId,
+      dedupKey: `anomaly_${conversationId}`,
+    });
+
     const alertPayload = { conversationId, accountId, ...alert };
     await emitAccountEvent(io, accountId, 'chat:anomaly_alert', alertPayload);
     await emitManagerEvent(io, orgId, 'chat:anomaly_alert', alertPayload);
+    await emitManagerEvent(io, orgId, 'notification:new', notification);
   } catch (err: any) {
     logger.error(`[chat-copilot-anomaly-escalator] Escalation error for conv ${conversationId}:`, err?.message || err);
   }

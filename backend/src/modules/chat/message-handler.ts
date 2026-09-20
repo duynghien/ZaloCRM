@@ -10,6 +10,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
 import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
+import { resolveByEntity } from '../notifications/notification-service.js';
 export { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
 
 export interface IncomingMessage {
@@ -104,11 +105,14 @@ export async function handleIncomingMessage(
     }
 
     // Track first outbound contact date — set once when agent sends first message
-    if (msg.isSelf && contactId) {
-      prisma.contact.updateMany({
-        where: { id: contactId, firstContactDate: null },
-        data: { firstContactDate: new Date(msg.timestamp) },
-      }).catch(() => {});
+    if (msg.isSelf) {
+      if (contactId) {
+        prisma.contact.updateMany({
+          where: { id: contactId, firstContactDate: null },
+          data: { firstContactDate: new Date(msg.timestamp) },
+        }).catch(() => {});
+      }
+      void resolveByEntity(account.orgId, 'conversation', conversation.id).catch(() => {});
     }
 
     // Emit webhook for message event (fire-and-forget)

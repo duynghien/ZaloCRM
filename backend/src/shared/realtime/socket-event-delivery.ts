@@ -170,3 +170,14 @@ export async function emitManagerEvent(io: Server, orgId: string, event: string,
   }));
 }
 
+export async function emitUserEvent(io: Server, userId: string, event: string, payload: unknown): Promise<void> {
+  const candidates = io.sockets.adapter.rooms.get(`user:${userId}`) ?? new Set<string>();
+  await Promise.all([...candidates].map(async (id) => {
+    const socket = io.sockets.sockets.get(id);
+    if (!socket) return;
+    try {
+      const user = await currentSocketIdentity(socket);
+      if (user.id === userId && socketSessionIsCurrent(socket)) socket.emit(event, payload);
+    } catch { logger.warn('[realtime] User event denied after recipient validation failure'); }
+  }));
+}

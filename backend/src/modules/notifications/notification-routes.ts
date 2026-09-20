@@ -1,112 +1,78 @@
-/**
- * Notification routes — computed on-the-fly notifications for the authenticated user.
- * Sources: unreplied conversations, today/tomorrow appointments, disconnected Zalo accounts.
- */
 import type { FastifyInstance } from 'fastify';
-import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
+import { getNotifications, markAsRead, markAllAsRead, deleteNotification } from './notification-service.js';
 
-interface NotificationItem {
-  id: string;
-  type: string;
-  title: string;
-  detail: string;
-  priority: string;
-  createdAt: string;
+interface GetNotificationsQuery {
+  page?: string | number;
+  limit?: string | number;
+  unreadOnly?: string | boolean;
+  category?: string;
 }
 
 export async function notificationRoutes(app: FastifyInstance) {
+  // Apply auth middleware to all routes in this module
   app.addHook('preHandler', authMiddleware);
 
-  app.get('/api/v1/notifications', async (request) => {
-    const user = request.user!;
-    const notifications: NotificationItem[] = [];
+  // GET /api/v1/notifications
+  app.get<{ Querystring: GetNotificationsQuery }>('/api/v1/notifications', async (request, reply) => {
+    const { user } = request;
+    const query = request.query;
 
-    // 1. Unreplied conversations > 30 min
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60000);
-    const unreplied = await prisma.conversation.count({
-      where: { orgId: user.orgId, isReplied: false, lastMessageAt: { lt: thirtyMinAgo } },
+    const page = Math.max(1, parseInt(String(query.page || '1'), 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(String(query.limit || '20'), 10) || 20));
+    const unreadOnly = query.unreadOnly === 'true' || query.unreadOnly === true;
+    const category = query.category;
+
+    const result = await getNotifications(user!.orgId, user!.id, user!.role, {
+      page,
+      limit,
+      unreadOnly,
+      category,
     });
-    if (unreplied > 0) {
-      notifications.push({
-        id: 'unreplied',
-        type: 'warning',
-        priority: 'high',
-        title: `${unreplied} cuộc trò chuyện chưa trả lời`,
-        detail: 'Có tin nhắn chưa phản hồi quá 30 phút',
-        createdAt: new Date().toISOString(),
-      });
+
+    return reply.send({
+      notifications: result.notifications,
+      total: result.total,
+      unreadCount: result.unreadCount,
+      page,
+      limit,
+    });
+  });
+
+  // PATCH /api/v1/notifications/:id/read
+  app.patch<{ Params: { id: string } }>('/api/v1/notifications/:id/read', async (request, reply) => {
+    const { user } = request;
+    const { id } = request.params;
+
+    const notification = await markAsRead(id, user!.orgId, user!.id, user!.role);
+    
+    if (!notification) {
+      return reply.status(404).send({ error: 'Notification not found or access denied' });
     }
 
-    // 2. Today's appointments
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const todayEnd = new Date(todayStart);
-    todayEnd.setDate(todayEnd.getDate() + 1);
+    return reply.send({ success: true, notification });
+  });
 
-    const todayApts = await prisma.appointment.findMany({
-      where: {
-        orgId: user.orgId,
-        appointmentDate: { gte: todayStart, lt: todayEnd },
-        status: 'scheduled',
-      },
-      include: { contact: { select: { fullName: true } } },
-      take: 5,
-    });
-    for (const apt of todayApts) {
-      notifications.push({
-        id: `apt-${apt.id}`,
-        type: 'info',
-        priority: 'medium',
-        title: `Lịch hẹn: ${apt.contact?.fullName || 'KH'}`,
-        detail: `${apt.appointmentTime || ''} - ${apt.notes || 'Tái khám'}`,
-        createdAt: apt.appointmentDate.toISOString(),
-      });
+  // POST /api/v1/notifications/mark-all-read
+  app.post('/api/v1/notifications/mark-all-read', async (request, reply) => {
+    const { user } = request;
+
+    const result = await markAllAsRead(user!.orgId, user!.id);
+
+    return reply.send({ success: true, count: result.count });
+  });
+
+  // DELETE /api/v1/notifications/:id
+  app.delete<{ Params: { id: string } }>('/api/v1/notifications/:id', async (request, reply) => {
+    const { user } = request;
+    const { id } = request.params;
+
+    const success = await deleteNotification(id, user!.orgId, user!.id, user!.role);
+    
+    if (!success) {
+      return reply.status(404).send({ error: 'Notification not found or access denied' });
     }
 
-    // 3. Tomorrow's appointments
-    const tomorrowStart = new Date(todayEnd);
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setDate(tomorrowEnd.getDate() + 1);
-
-    const tmrApts = await prisma.appointment.count({
-      where: {
-        orgId: user.orgId,
-        appointmentDate: { gte: tomorrowStart, lt: tomorrowEnd },
-        status: 'scheduled',
-      },
-    });
-    if (tmrApts > 0) {
-      notifications.push({
-        id: 'tmr-apts',
-        type: 'info',
-        priority: 'low',
-        title: `${tmrApts} lịch hẹn ngày mai`,
-        detail: 'Chuẩn bị cho ngày mai',
-        createdAt: new Date().toISOString(),
-      });
-    }
-
-    // 4. Disconnected Zalo accounts
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { orgId: user.orgId },
-      select: { id: true, displayName: true },
-    });
-    for (const acc of accounts) {
-      const status = zaloPool.getStatus(acc.id);
-      if (status !== 'connected') {
-        notifications.push({
-          id: `zalo-${acc.id}`,
-          type: 'error',
-          priority: 'high',
-          title: `Zalo "${acc.displayName}" mất kết nối`,
-          detail: `Trạng thái: ${status}`,
-          createdAt: new Date().toISOString(),
-        });
-      }
-    }
-
-    return { notifications };
+    return reply.send({ success: true });
   });
 }

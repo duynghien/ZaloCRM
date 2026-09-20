@@ -16,6 +16,8 @@ import { validateConfiguredGeminiModel, validateConfiguredPrimaryModel } from '.
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachments/orphan-cleanup-task.js';
 import { recoverPendingAttachmentDownloads } from './modules/attachments/attachment-processor.js';
+import { startNotificationCleanupTask, stopNotificationCleanupTask } from './modules/notifications/notification-service.js';
+import { startChatSlaMonitor, stopChatSlaMonitor } from './modules/chat/chat-sla-monitor.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -36,6 +38,8 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
         stopReportJobWorker(),
         stopAppointmentReminder(),
         stopOrphanCleanupTask(),
+        stopNotificationCleanupTask(),
+        stopChatSlaMonitor(),
       ]);
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();
@@ -71,6 +75,8 @@ async function bootstrap() {
     startReportCronJobs();
     startReportJobWorker();
     startOrphanCleanupTask();
+    startNotificationCleanupTask();
+    startChatSlaMonitor(app.io);
     void recoverPendingAttachmentDownloads();
   } catch (err) {
     logger.error('Failed to start server:', err);

@@ -50,6 +50,7 @@ export function initializeSocketServer(app: FastifyInstance): Server {
     authenticating.delete(socket);
     if (closed || socket.data.sessionInvalidated || Date.now() >= socket.data.accessExpiresAt) { socket.disconnect(true); return; }
     void socket.join(`org:${socket.data.user.orgId}`);
+    void socket.join(`user:${socket.data.user.id}`);
     const expire = () => {
       const remaining = socket.data.accessExpiresAt - Date.now();
       if (remaining <= 0) { socket.data.sessionInvalidated = true; socket.disconnect(true); return; }
