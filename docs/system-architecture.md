@@ -228,6 +228,40 @@ sequenceDiagram
   Bảo đảm tính toàn vẹn số liệu thống kê thời gian thực ngay cả khi có hàng chục lượt suy luận diễn ra đồng thời.
 - **Báo cáo & Xuất Dữ Liệu:** Cung cấp KPI cho Dashboard (`GET /api/v1/dashboard/ai-kpi`), tab báo cáo chuyên sâu (`GET /api/v1/reports/ai-usage`) và xuất file Excel (`GET /api/v1/reports/export?type=ai-usage`).
 
+### 3.1.9. Hệ Thống Thông Báo Thời Gian Thực Đa Tầng (Hybrid Real-Time Notification Engine)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant EP as Event Producers (Appointments, Zalo, SLA, Copilot)
+    participant NS as NotificationService
+    participant DB as PostgreSQL (notifications)
+    participant WS as Socket.IO Server
+    actor User as Client (Pinia Store / NotificationBell)
+
+    EP->>NS: createNotification(data) [dedupKey, priority, targetRole]
+    NS->>DB: Upsert / Insert notification (isRead: false)
+    NS->>WS: Delivery routing (User, Manager, or Org)
+    alt User-targeted alert
+        WS->>User: emitUserEvent('notification:new', payload)
+    else Manager-only alert (Copilot anomaly)
+        WS->>User: emitManagerEvent('notification:new', payload)
+    else Org-wide alert (Zalo disconnect, SLA)
+        WS->>User: emitOrganizationEvent('notification:new', payload)
+    end
+    User->>User: Pinia store updates unreadCount & reactive UI
+    User->>NS: PATCH /api/v1/notifications/:id/read
+    NS->>DB: Update isRead = true, readAt = NOW()
+    NS->>WS: emitUserEvent('notification:read') or emitOrganizationEvent
+    WS->>User: Sync read state across all open browser tabs
+```
+
+- **Data Persistence & Isolation:** Bảng `notifications` lưu trữ trạng thái đọc theo từng bản ghi. Hỗ trợ 2 phạm vi: cá nhân (`userId != null`) và toàn tổ chức (`userId == null`). Đánh chỉ mục hiệu năng cao `[orgId, userId, isRead, createdAt]` và `[orgId, isRead, createdAt]` đạt tốc độ truy vấn < 5ms.
+- **Team-Acknowledged Model:** Với thông báo chung của tổ chức, việc 1 nhân viên bấm đọc sẽ giải quyết thông báo cho toàn đội ngũ để tránh trùng lặp thao tác. Ngược lại, hành động "Đánh dấu tất cả đã đọc" cá nhân chỉ tác động lên các thông báo cá nhân, bảo vệ các cảnh báo hệ thống của tổ chức.
+- **Real-Time Delivery & Cross-Tab Synchronization:** Socket.IO tự động tham gia phòng `user:${userId}` trên kết nối. Khi người dùng đọc thông báo tại Tab 1, sự kiện `notification:read` được phát tới socket giúp Tab 2 đồng bộ tức thì mà không cần F5.
+- **Tự động giải quyết thông báo (Auto-Resolution):** Khi nhân viên phản hồi cuộc trò chuyện, `resolveByEntity(orgId, 'conversation', convId)` tự động đánh dấu đã đọc các cảnh báo Chat SLA liên quan. Khi tài khoản Zalo kết nối lại, cảnh báo mất kết nối cũng tự động được giải quyết.
+- **Vòng đời an toàn (TTL Cleanup & SLA Cron):** Tiến trình dọn dẹp thông báo cũ > 30 ngày và cron kiểm tra SLA 5 phút một lần được quản lý chặt chẽ trong lifecycle của `app.ts`, hỗ trợ graceful shutdown hoàn toàn không gây rò rỉ tiến trình.
+
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
 2. Hệ thống gọi `encryptData(sessionData, ENCRYPTION_KEY)` mã hóa chuỗi JSON thành binary bằng thuật toán `AES-256-GCM` với IV ngẫu nhiên và Auth Tag.

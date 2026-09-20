@@ -90,7 +90,9 @@ ZaloCRM/
 │       │   │   ├── dashboard-ai-kpi-handler.ts # API tổng hợp chi phí AI hôm nay vs hôm qua
 │       │   │   ├── report-ai-usage-handler.ts  # API báo cáo chi tiết sử dụng AI theo ngày, task type, model
 │       │   │   └── ai-report-sheet-builder.ts  # Builder trang tính Excel xuất dữ liệu chi phí AI
-│       │   ├── notifications/# Quản lý thông báo hệ thống
+│       │   ├── notifications/# Hybrid Real-Time Notification Engine (Service, Routes, TTL cleanup)
+│       │   │   ├── notification-service.ts     # CRUD, deduplication, isolation, TTL cleanup
+│       │   │   └── notification-routes.ts      # REST endpoints (GET, PATCH, POST mark-all-read, DELETE)
 │       │   ├── search/       # Global multi-entity full-text search
 │       │   └── api/          # Public REST API (X-API-Key) & Webhook subscriptions
 │       └── shared/           # Thư viện dùng chung
@@ -332,9 +334,12 @@ DELETE /api/v1/ai-reports/rules/:id           # Xóa quy tắc giám sát (Owner
 POST   /api/v1/ai-reports/rules/:id/run-now   # Kích hoạt đánh giá tức thì (Run Now, Owner/Admin)
 ```
 
-### 4.12. Thông Báo & Tìm Kiếm Toàn Hệ Thống
+### 4.12. Thông Báo (Hybrid Real-Time Notifications) & Tìm Kiếm
 ```
-GET    /api/v1/notifications                  # Danh sách thông báo hệ thống của người dùng
+GET    /api/v1/notifications                  # Danh sách thông báo phân trang, cô lập người dùng, kèm unreadCount
+PATCH  /api/v1/notifications/:id/read         # Đánh dấu 1 thông báo đã đọc (Team-Acknowledged cho org-wide)
+POST   /api/v1/notifications/mark-all-read    # Đánh dấu tất cả thông báo cá nhân đã đọc
+DELETE /api/v1/notifications/:id              # Xóa thông báo (Owner/Admin hoặc chủ sở hữu)
 GET    /api/v1/search                         # Tìm kiếm toàn văn trên Contacts, Messages, Appointments
 ```
 
@@ -410,6 +415,13 @@ POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách
   - JWT access token lưu trong RAM client (15 phút). Refresh token opaque lưu SHA-256 digest trong DB (`auth_sessions`), xoay vòng khi refresh.
   - Đổi mật khẩu, vai trò hoặc khóa tài khoản vô hiệu hóa toàn bộ session và ngắt kết nối socket ngay lập tức.
   - Hàng đợi sự kiện Socket.IO giới hạn 100 sự kiện/account; tràn hàng đợi phát tín hiệu `realtime:resync-required` để client tái đồng bộ qua REST API.
+
+- **Hệ Thống Thông Báo Thời Gian Thực Đa Tầng (Hybrid Real-Time Notification Engine):**
+  - Bảng `Notification` lưu trữ thông báo có trạng thái (`isRead`, `readAt`), hỗ trợ cô lập theo người dùng (`userId`), tổ chức (`orgId`), vai trò (`targetRole`) và deduplication bất biến (`dedupKey`).
+  - Mô hình Team-Acknowledged: Thông báo toàn tổ chức (`userId: null`) dùng chung trạng thái đọc, khi 1 thành viên xác nhận xử lý sẽ đồng bộ cho toàn đội; lệnh "Đánh dấu tất cả đã đọc" cá nhân không xóa cảnh báo chung của tổ chức.
+  - Phân phát Socket.IO bảo mật: Tham gia phòng `user:${userId}` trên kết nối; sự kiện `notification:count` và `notification:read-all` strictly phát tới từng user; `notification:new` lọc theo ACL Zalo và vai trò quản lý (`emitManagerEvent`).
+  - Nguồn phát sự kiện tự động: Lịch hẹn (hôm nay + ngày mai), tài khoản Zalo (ngắt kết nối circuit breaker > 5 lần/5m), AI Copilot (cảnh báo bất thường cho quản lý), Chat SLA (cron 5 phút quét tin nhắn chờ quá 30m, tự động giải quyết khi nhân viên gửi phản hồi).
+  - Tự động dọn dẹp (TTL 30 ngày) định kỳ qua tiến trình nền có quản lý lifecycle an toàn trong `app.ts`.
 
 - **SSRF Outbound Policy:**
   - `outbound-url-policy.ts` chặn toàn bộ dải IP private/loopback/link-local của cả IPv4 và IPv6 sau DNS resolution, giới hạn 3 lần redirect và 25MB response stream.
