@@ -183,13 +183,20 @@ export async function chatRoutes(app: FastifyInstance) {
     }> = [];
 
     if (hasAttachments && attachmentIds) {
-      const allStagedFilesInDir = await fs.promises.readdir(stagedDir).catch(() => []);
-
       for (const attId of attachmentIds) {
         const cleanId = path.basename(attId);
-        const matched = allStagedFilesInDir.find(
-          (f) => f.startsWith(`${user.orgId}-`) && (f.includes(cleanId) || f === cleanId),
-        );
+        let matched: string | null = cleanId.startsWith(`${user.orgId}-`) && fs.existsSync(path.join(stagedDir, cleanId))
+          ? cleanId
+          : null;
+
+        // Fallback for legacy clients passing only fileId
+        if (!matched) {
+          const allStaged = await fs.promises.readdir(stagedDir).catch(() => []);
+          matched = allStaged.find(
+            (f) => f.startsWith(`${user.orgId}-`) && (f.includes(cleanId) || f === cleanId),
+          ) || null;
+        }
+
         if (!matched) {
           return reply.status(400).send({ error: `Tệp đính kèm không tồn tại hoặc đã hết hạn: ${cleanId}` });
         }

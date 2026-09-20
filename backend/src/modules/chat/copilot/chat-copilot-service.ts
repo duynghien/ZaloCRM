@@ -9,6 +9,7 @@ import { chatCopilotCache } from './chat-copilot-cache.js';
 import { ChatCopilotPromptBuilder } from './chat-copilot-prompt-builder.js';
 import { normalizeCopilotResult, parseRawCopilotJson } from './chat-copilot-parser.js';
 import { callCopilotAiProvider } from './chat-copilot-ai-caller.js';
+import { getAppSetting } from '../../../shared/settings/app-setting-service.js';
 import type { AiProviderConfig, AiProviderType } from '../../ai-reports/providers/ai-provider-interface.js';
 import type {
   CopilotAnalysisResult,
@@ -19,11 +20,8 @@ import type {
 export class ChatCopilotService {
   async getOrgBusinessContext(orgId: string): Promise<string> {
     try {
-      const row = await prisma.appSetting.findUnique({
-        where: { orgId_settingKey: { orgId, settingKey: 'copilot_settings' } },
-      });
-      if (row?.valuePlain) {
-        const parsed = JSON.parse(row.valuePlain);
+      const parsed = await getAppSetting(orgId, 'copilot_settings');
+      if (parsed && typeof parsed === 'object') {
         return parsed.copilotBusinessContext || '';
       }
     } catch {}

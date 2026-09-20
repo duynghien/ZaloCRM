@@ -4,6 +4,7 @@
 import { prisma } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { decodeSecureSetting, encodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
+import { getDecryptedAppSetting, invalidateAppSetting } from '../../shared/settings/app-setting-service.js';
 import { validateAiGatewayUrl } from './ai-gateway-validator.js';
 import type {
   AiProviderConfig,
@@ -70,11 +71,7 @@ export function getSystemDefaultAiSettings(): OrgAiProviderSettings {
  * Retrieves unmasked credentials for server-side report execution.
  */
 export async function getOrgAiProviderCredentials(orgId: string): Promise<OrgAiProviderSettings> {
-  const row = await prisma.appSetting.findUnique({
-    where: { orgId_settingKey: { orgId, settingKey: SETTING_KEY } },
-  });
-
-  const rawJson = decodeSecureSetting(row);
+  const rawJson = await getDecryptedAppSetting(orgId, SETTING_KEY);
   if (!rawJson) {
     return getSystemDefaultAiSettings();
   }
@@ -247,4 +244,6 @@ export async function saveOrgAiProviderSettings(orgId: string, payload: any): Pr
       ...encoded,
     },
   });
+
+  invalidateAppSetting(orgId, SETTING_KEY);
 }

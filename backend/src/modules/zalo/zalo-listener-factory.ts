@@ -242,7 +242,7 @@ export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
 
   listener.on('undo', (data: any) => track(async () => {
     const msgId = data.data?.msgId || data.msgId;
-    const threadId = data.threadId;
+    const threadId = data.threadId || data.groupId || data.data?.threadId || data.data?.groupId;
     if (typeof threadId !== 'string' || !threadId) return;
     await messagesInFlight.get(JSON.stringify([threadId, String(msgId)]));
     if (msgId) {

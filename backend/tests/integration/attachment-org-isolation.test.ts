@@ -107,7 +107,7 @@ describe('Attachment organization isolation and backward compatibility', () => {
       url: `/api/v1/attachments/${filenameA}`,
       headers: { authorization: `Bearer ${orgB.token}` },
     });
-    expect(streamResB.statusCode).toBe(403);
+    expect(streamResB.statusCode).toBe(404);
   });
 
   it('supports backward compatibility via JSONB @> and performs atomic migration', async () => {

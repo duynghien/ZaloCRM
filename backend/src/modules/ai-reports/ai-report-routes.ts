@@ -14,6 +14,7 @@ import { getOrgAutomationSettings, type AutomationSettings } from './report-cron
 import { logger } from '../../shared/utils/logger.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { encodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
+import { invalidateAppSetting } from '../../shared/settings/app-setting-service.js';
 import { normalizeReportJobRequest, ReportJobValidationError, submitReportJob } from './report-job-service.js';
 import { resolveReportTargets, authorizeReportTargets, authorizeReportAccount, decodeReportTargets } from './report-target-service.js';
 import { assertReportAdmission, trackReportProducer } from './report-admission.js';
@@ -420,6 +421,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
           valuePlain: JSON.stringify(merged),
         },
       });
+      invalidateAppSetting(user.orgId, 'ai_report_automation_settings');
     }
 
     // Update SMTP Settings
@@ -462,6 +464,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
           ...encodeSecureSetting(JSON.stringify(updatedSmtp)),
         },
       });
+      invalidateAppSetting(user.orgId, 'ai_report_smtp_config');
     }
 
     // Update AI Providers Settings

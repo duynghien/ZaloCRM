@@ -15,6 +15,7 @@ import { decryptData } from './shared/utils/crypto.js';
 import { validateConfiguredGeminiModel, validateConfiguredPrimaryModel } from './modules/ai-reports/ai-client.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachments/orphan-cleanup-task.js';
+import { recoverPendingAttachmentDownloads } from './modules/attachments/attachment-processor.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -70,6 +71,7 @@ async function bootstrap() {
     startReportCronJobs();
     startReportJobWorker();
     startOrphanCleanupTask();
+    void recoverPendingAttachmentDownloads();
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

@@ -9,6 +9,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { deliverWebhook } from './webhook-service.js';
 import { OutboundUrlPolicyError } from '../../shared/security/outbound-url-policy.js';
 import { decodeSecureSetting, encodeSecureSetting } from '../../shared/settings/secure-setting-codec.js';
+import { invalidateAppSetting } from '../../shared/settings/app-setting-service.js';
 import crypto from 'node:crypto';
 
 function applyNoStore(reply: FastifyReply): void {
@@ -136,6 +137,7 @@ async function upsertSetting(orgId: string, settingKey: string, value: string): 
     create: { orgId, settingKey, valuePlain: value },
     update: { valuePlain: value },
   });
+  invalidateAppSetting(orgId, settingKey);
 }
 
 async function upsertSecureSetting(orgId: string, settingKey: string, value: string): Promise<void> {
@@ -145,6 +147,7 @@ async function upsertSecureSetting(orgId: string, settingKey: string, value: str
     create: { orgId, settingKey, ...encoded },
     update: encoded,
   });
+  invalidateAppSetting(orgId, settingKey);
 }
 
 async function auditApiKeyAction(orgId: string, userId: string, action: string): Promise<void> {

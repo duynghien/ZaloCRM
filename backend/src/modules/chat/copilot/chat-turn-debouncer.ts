@@ -7,6 +7,7 @@ import { logger } from '../../../shared/utils/logger.js';
 import { emitAccountEvent } from '../../../shared/realtime/socket-event-delivery.js';
 import { chatCopilotService } from './chat-copilot-service.js';
 import { escalateChatAnomaly } from './chat-copilot-anomaly-escalator.js';
+import { getAppSetting } from '../../../shared/settings/app-setting-service.js';
 import type { CopilotMessageContext, CopilotContactContext } from './chat-copilot-types.js';
 
 interface DebounceEntry {
@@ -38,11 +39,8 @@ export class ChatTurnDebouncer {
 
   private async getOrgDebounceSettings(orgId: string): Promise<{ enabled: boolean; delayMs: number }> {
     try {
-      const row = await prisma.appSetting.findUnique({
-        where: { orgId_settingKey: { orgId, settingKey: 'copilot_settings' } },
-      });
-      if (row?.valuePlain) {
-        const parsed = JSON.parse(row.valuePlain);
+      const parsed = await getAppSetting(orgId, 'copilot_settings');
+      if (parsed && typeof parsed === 'object') {
         return {
           enabled: parsed.copilotEnabled !== false,
           delayMs: Math.max(1500, Math.min(5000, Number(parsed.copilotDebounceMs) || 3000)),

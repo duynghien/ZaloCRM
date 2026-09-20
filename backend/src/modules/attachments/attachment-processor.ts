@@ -238,3 +238,42 @@ export async function processMessageAttachmentsAsync(
     }, delay).unref();
   }
 }
+
+export async function recoverPendingAttachmentDownloads(): Promise<void> {
+  try {
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const messages = await prisma.message.findMany({
+      where: {
+        createdAt: { gte: oneDayAgo },
+      },
+      select: {
+        id: true,
+        attachments: true,
+        conversation: { select: { orgId: true } },
+      },
+      take: 100,
+    });
+
+    let recoveredCount = 0;
+    for (const msg of messages) {
+      if (!Array.isArray(msg.attachments) || msg.attachments.length === 0) continue;
+      const hasPending = (msg.attachments as any[]).some(
+        (att) =>
+          att &&
+          typeof att.url === 'string' &&
+          (att.url.includes('zalo') || att.url.includes('zdn.vn') || att.url.includes('zadn.vn')) &&
+          !att.url.startsWith('/api/v1/attachments/'),
+      );
+      if (hasPending) {
+        recoveredCount++;
+        processMessageAttachmentsAsync(msg.id, msg.attachments as any[], 0, msg.conversation?.orgId).catch(() => {});
+      }
+    }
+    if (recoveredCount > 0) {
+      logger.info(`[attachment-processor] Recovered ${recoveredCount} pending attachment downloads from startup sweep`);
+    }
+  } catch (err: any) {
+    logger.warn(`[attachment-processor] Startup attachment recovery sweep failed: ${err?.message || err}`);
+  }
+}
+

@@ -131,7 +131,7 @@ export async function attachmentRoutes(app: FastifyInstance) {
           }
 
           uploadedFiles.push({
-            id: fileId,
+            id: storedFilename,
             filename: storedFilename,
             originalName: sanitized,
             mimeType: initialMeta.mimeType || part.mimetype,
@@ -170,8 +170,17 @@ export async function attachmentRoutes(app: FastifyInstance) {
     const stagedDir = path.join(baseDir, 'staged');
 
     try {
-      const files = await fs.promises.readdir(stagedDir);
-      // Find file starting with orgId and containing id
+      // 1. Direct O(1) lookup when full storedFilename is provided
+      if (safeId.startsWith(`${user.orgId}-`)) {
+        const targetPath = path.join(stagedDir, safeId);
+        if (fs.existsSync(targetPath)) {
+          await fs.promises.unlink(targetPath).catch(() => {});
+          return { success: true, deleted: safeId };
+        }
+      }
+
+      // 2. Fallback for legacy callers passing only fileId
+      const files = await fs.promises.readdir(stagedDir).catch(() => []);
       const targetFile = files.find(
         (f) => f.startsWith(`${user.orgId}-`) && (f.includes(safeId) || f === safeId),
       );
@@ -314,28 +323,6 @@ export async function attachmentRoutes(app: FastifyInstance) {
     }
 
     if (!resolvedPath) {
-      // Check if file exists under another organization or staged under another org
-      // to properly distinguish 403 Forbidden from 404 Not Found
-      let existsInOtherOrg = false;
-      try {
-        const entries = await fs.promises.readdir(baseDir, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory() && entry.name !== authenticatedOrgId && entry.name !== 'staged') {
-            if (fs.existsSync(path.join(baseDir, entry.name, safeFilename))) {
-              existsInOtherOrg = true;
-              break;
-            }
-          }
-        }
-        if (!existsInOtherOrg && fs.existsSync(path.join(stagedDir, safeFilename))) {
-          existsInOtherOrg = true;
-        }
-      } catch {}
-
-      if (existsInOtherOrg) {
-        return reply.status(403).send({ error: 'Forbidden: Access to this organization attachment is denied' });
-      }
-
       return reply.status(404).send({ error: 'Attachment not found' });
     }
 

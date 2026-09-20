@@ -1,7 +1,4 @@
-/**
- * zalo-rate-limiter.ts — Per-account rate limiting and human-like pacing to prevent Zalo account blocks.
- * Enforces daily limits, burst windows, and minimum inter-message delays.
- */
+import { getVnDateString } from '../../shared/utils/date-utils.js';
 
 const DAILY_LIMIT = 200;
 const BURST_LIMIT = 3;            // max messages in BURST_WINDOW_MS
@@ -17,7 +14,7 @@ class ZaloRateLimiter {
 
   /** Check if sending is allowed for accountId */
   checkLimits(accountId: string, weight: number = 1): { allowed: boolean; reason?: string; canForce?: boolean } {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getVnDateString();
     const daily = this.dailyCounts.get(accountId);
 
     // 1. Daily limit check
@@ -70,7 +67,7 @@ class ZaloRateLimiter {
   /** Record a successful send for rate tracking */
   recordSend(accountId: string, zaloMsgId?: string | null | string[], isExternal: boolean = false, weight: number = 1): void {
     const now = Date.now();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getVnDateString();
 
     const idsToCache: string[] = [];
     if (Array.isArray(zaloMsgId)) {
@@ -122,7 +119,7 @@ class ZaloRateLimiter {
   }
 
   getDailyCount(accountId: string): number {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getVnDateString();
     const daily = this.dailyCounts.get(accountId);
     return daily && daily.date === today ? daily.count : 0;
   }

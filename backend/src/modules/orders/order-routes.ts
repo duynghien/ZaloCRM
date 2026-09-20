@@ -9,6 +9,7 @@ import { allocateOrderCode } from './order-code-service.js';
 import { objectInput, identifierInput, stringInput, enumInput, RequestValidationError } from '../../shared/http/request-schemas.js';
 import { randomUUID } from 'node:crypto';
 import { boundedFiniteNumber, boundedPositiveInt, boundedString, validOptionalDate } from '../../shared/http/request-bounds.js';
+import { getVnDayStartUtc } from '../../shared/utils/date-utils.js';
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -72,8 +73,8 @@ export async function orderRoutes(app: FastifyInstance) {
     if (!body.contactId || body.totalAmount === undefined) {
       return reply.status(400).send({ error: 'contactId và totalAmount là bắt buộc' });
     }
-    const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 1_000_000_000);
-    if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 1000000000' });
+    const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 100_000_000_000);
+    if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 100000000000' });
 
     const order = await retryOrderTransaction(() => prisma.$transaction(async (tx) => {
       const contact = await tx.contact.findFirst({ where: { id: body.contactId as string, orgId: user.orgId }, select: { id: true } });
@@ -114,8 +115,8 @@ export async function orderRoutes(app: FastifyInstance) {
 
     const updateData: any = {};
     if (body.totalAmount !== undefined) {
-      const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 1_000_000_000);
-      if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 1000000000' });
+      const totalAmount = boundedFiniteNumber(body.totalAmount, 0, 100_000_000_000);
+      if (totalAmount === undefined) return reply.status(400).send({ error: 'totalAmount must be a finite amount between 0 and 100000000000' });
       updateData.totalAmount = totalAmount;
     }
     if (body.status !== undefined) updateData.status = body.status;
@@ -180,7 +181,7 @@ export async function orderRoutes(app: FastifyInstance) {
         where: {
           orgId: user.orgId,
           status: 'completed',
-          createdAt: { gte: new Date(new Date().toISOString().split('T')[0]) },
+          createdAt: { gte: getVnDayStartUtc() },
         },
         _sum: { totalAmount: true },
       }),

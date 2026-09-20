@@ -276,8 +276,8 @@ describe('Attachment Routes Integration', () => {
       cookies: { zalo_crm_media_session: attackerToken },
     });
 
-    expect(res.statusCode).toBe(403);
-    expect(res.json().error).toContain('Forbidden');
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain('Attachment not found');
   });
 
   it('POST /api/v1/attachments/ticket returns valid ticket for org file', async () => {
