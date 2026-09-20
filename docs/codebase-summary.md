@@ -61,6 +61,8 @@ ZaloCRM/
 │       │   │   ├── providers/               # AI Adapters: Gemini, OpenAI, DeepSeek, Hybrid Vision Bridge
 │       │   │   ├── attachment-burst-sampler.ts # Khử trùng URL, prompt injection sanitization, pool 4 worker
 │       │   │   ├── attachment-image-loader.ts  # Nạp ảnh đa phương thức, kiểm soát trần 12MB, chống traversal
+│       │   │   ├── visual-fact-extractor.ts    # Trích xuất dữ liệu trực quan đa phương thức
+│       │   │   ├── visual-fact-cache.ts        # Bộ nhớ đệm trích xuất trực quan
 │       │   │   ├── report-action-item-parser.ts# Trích xuất nhiệm vụ hành động (Section 5 Action Items)
 │       │   │   ├── report-brief-service.ts     # Sinh bản tin tóm tắt điều hành & kiểm toán tuân thủ (SSoT telemetry)
 │       │   │   ├── report-pdf-service.ts       # Sinh tệp PDF báo cáo điều hành & kiểm toán A4 Neo-Brutalism
@@ -358,11 +360,11 @@ POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách
 | **TypeScript typecheck** | **PASS (0 errors)** | Cả backend (`tsc --noEmit`) và frontend (`vue-tsc --noEmit`) đạt chuẩn 100%. |
 | **Production build** | **PASS** | `npm run build` biên dịch thành công schema manifest, Fastify dist và Vite SPA bundle. |
 | **Clean install workspace** | **PASS** | Root `package-lock.json` duy nhất điều phối toàn bộ dependencies monorepo. |
-| **Unit tests** | **PASS (309 tests)** | Backend: 25 files (224 tests gồm media outbound, attachment tickets, copilot debouncer, action items, burst sampling, noise filter, audit evaluator, audit rule service, zalo report sender, failover, quota, bounds); Frontend: 12 files (85 tests gồm media messaging, staged tray, custom icons, account colors, provider settings, audit rules, chat recovery, qr subscription). |
+| **Unit tests** | **PASS (409 tests)** | Backend: 324 tests gồm media outbound, attachment tickets, copilot debouncer, action items, burst sampling, noise filter, audit evaluator, audit rule service, zalo report sender, failover, quota, bounds; Frontend: 12 files (85 tests gồm media messaging, staged tray, custom icons, account colors, provider settings, audit rules, chat recovery, qr subscription). |
 | **Integration test suites** | **24 test suites** | Kiểm thử Disposable Postgres: tenant isolation, Socket.IO delivery, message replay/undo, order code counter, AI budget & multi-provider failover. |
 | **Browser E2E specs** | **10 specs** | Playwright: session lifecycle, QR intent, chat recovery, account permissions, target qualification. |
 | **Dependency audit policy** | **PASS** | `npm run audit:production` kiểm soát chặt chẽ: chỉ chấp nhận 2 waiver Prisma CLI (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`). |
-| **Số file mã nguồn > 200 dòng** | **45 files** | Được đưa vào danh mục theo dõi tái cấu trúc (refactoring inventory: 22 frontend, 23 backend). |
+| **Số file mã nguồn > 200 dòng** | **52 files** | Được đưa vào danh mục theo dõi tái cấu trúc (refactoring inventory: 21 frontend, 31 backend). |
 
 ---
 

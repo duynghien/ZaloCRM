@@ -47,7 +47,7 @@ Dùng `npm run docker:up` cho cả lần đầu và cập nhật. Lệnh xác nh
 APP_URL=http://localhost:5173 npm run dev # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
 npm run build       # Build biên dịch mã nguồn Backend & Frontend
 npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
-npm test            # Chạy toàn bộ unit test (Frontend 85 tests + Backend 224 tests = 309 tests)
+npm test            # Chạy toàn bộ unit test (Frontend 85 tests + Backend 324 tests = 409 tests)
 npm run docker:dev  # Backend watch + Vite hot reload
 npm run verify:production-container  # Smoke production với database riêng
 npm run verify:development-compose   # Smoke trình duyệt + hot reload với database riêng

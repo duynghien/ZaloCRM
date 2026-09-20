@@ -21,6 +21,8 @@ gantt
     Conversational Copilot (Phase 8) :done, des8, 2026-09, 2026-09
     AI Telemetry & Cost Analytics (Phase 9) :done, des9, 2026-09, 2026-09
     Two-Way Media Messaging (Phase 10) :done, des10, 2026-09, 2026-09
+    DeepSeek Multimodal & Failover (Phase 11) :done, des11, 2026-09, 2026-09
+    Edge Cases & Optimization (Phase 12) :active, des12, 2026-09, 2026-10
 ```
 
 ---
@@ -56,7 +58,7 @@ gantt
 ---
 
 ### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (ĐÃ HOÀN THÀNH)
-- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds, media attachments, copilot debouncer, action items parser và các security/runtime invariant (bộ test đạt **309 unit tests** sạch sẽ: 224 backend + 85 frontend).
+- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds, media attachments, copilot debouncer, action items parser và các security/runtime invariant (bộ test đạt **409 unit tests** sạch sẽ: 324 backend + 85 frontend).
 - [x] Bổ sung browser smoke Playwright (10 spec files) xác nhận login route, QR intent, chat recovery, target qualification và không khôi phục bearer token qua persistent storage.
 - [x] Bổ sung bộ 24 integration test suites chạy trên PostgreSQL 16 disposable cho tenant isolation, socket delivery, message replay/undo, order code counter và AI budget/resend.
 - [x] Tích hợp GitHub Actions (`.github/workflows/ci.yml`) chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build trên pull request/main.
@@ -117,4 +119,20 @@ gantt
 - [x] **Lọc Bỏ Model Text Cũ & Bảng Giá Chi Phí Chuẩn Xác:** Loại bỏ `deepseek-chat` và `deepseek-reasoner` khỏi danh mục gợi ý và luồng refresh model, nhưng bảo lưu trong `AI_PRICING_TABLE` cho telemetry tương thích ngược. Bổ sung giá `deepseek-flash` ($0.15 input, $0.003 cached, $0.60 output).
 - [x] **Loại Trừ Deadlock Bộ Điều Phối AI (Deadlock Prevention):** Cập nhật `getVisionProvider(excludeType)` bỏ qua provider vừa gặp sự cố khi kích hoạt OCR Bridge dự phòng.
 - [x] **Vá Lỗi Unicode Null Byte (Postgres 22P05):** Hàm `sanitizeJsonNullBytes` đệ quy với chốt chặn an toàn `maxDepth = 20`, fallback duyệt lặp và try/catch error boundary bảo vệ worker xử lý tệp đính kèm.
+
+---
+
+### Phase 12: Khắc Phục Edge Cases & Tối Ưu Hóa Toàn Diện Codebase (Pending Review)
+- [ ] **Khắc Phục 8 Nhóm Edge Cases Trọng Yếu (P1/P2):**
+  - Đồng bộ hóa Timezone UTC+7: chuẩn hóa `getVnDateString()` và `getVnDayStartUtc()` cho rate limit Zalo và thống kê đơn hàng hôm nay từ 00:00 VN.
+  - Loại bỏ hoàn toàn quét đĩa cross-tenant và quét `stagedDir` khi xử lý attachments, trả về 404 O(1) chống DoS I/O.
+  - Tích hợp In-Memory Bounded LRU Cache cho `AppSetting` và AI Credentials với defensive cloning, giảm 99% query DB.
+  - Bổ sung nhận diện sự kiện thu hồi tin nhắn trong nhóm Zalo (`threadId = data.threadId || data.groupId || data.data?.threadId || data.data?.groupId`).
+  - Nâng trần giá trị đơn hàng lên 100 tỷ VNĐ.
+  - Khôi phục tiến trình tải attachment lúc khởi động server (`recoverPendingAttachmentDownloads`).
+  - Giải quyết xung đột xoay vòng Refresh Token đa tab bằng Web Locks API (`navigator.locks`) phía client.
+  - Xử lý lỗi fatal `ReportControlError` khi failover AI xảy ra sau khi reservation đã hoàn tất.
+- [ ] **Tối Ưu Hóa Kiến Trúc & Hiệu Năng:**
+  - Nén ngữ cảnh hội thoại AI Copilot (Context Pruning): lọc sticker, emoji, gộp tin nhắn liên tiếp nhưng bảo toàn `lastMsg.id` cho cache key.
+  - Kế hoạch tái cấu trúc phân rã (Modularization) 6 tệp mã nguồn lớn (> 400 dòng): `AiReportsView.vue`, `MessageThread.vue`, `ai-report-routes.ts`, `report-pdf-service.ts`, `zalo-pool.ts`, `summarizer-service.ts`.
 
