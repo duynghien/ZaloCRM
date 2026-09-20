@@ -195,9 +195,18 @@
                 </v-btn>
               </div>
               <!-- Sticker/Video/Voice/GIF -->
-              <div v-else-if="msg.contentType === 'sticker'">🏷️ Sticker</div>
-              <div v-else-if="msg.contentType === 'video'">🎥 Video</div>
-              <div v-else-if="msg.contentType === 'voice'">🎤 Tin nhắn thoại</div>
+              <div v-else-if="msg.contentType === 'sticker'" class="d-flex align-center">
+                <v-icon size="16" class="mr-1">mdi-sticker-emoji</v-icon>
+                <span>Sticker</span>
+              </div>
+              <div v-else-if="msg.contentType === 'video'" class="d-flex align-center">
+                <v-icon size="16" class="mr-1">mdi-video</v-icon>
+                <span>Video</span>
+              </div>
+              <div v-else-if="msg.contentType === 'voice'" class="d-flex align-center">
+                <v-icon size="16" class="mr-1">mdi-microphone</v-icon>
+                <span>Tin nhắn thoại</span>
+              </div>
               <div v-else-if="msg.contentType === 'gif'">GIF</div>
               <!-- Reminder/Calendar -->
               <div v-else-if="isReminderMessage(msg)" class="reminder-card">
@@ -631,7 +640,7 @@ function getDisplayCaption(msg: Message): string {
     const p = JSON.parse(msg.content);
     // Link preview thông thường
     if (msg.contentType === 'link' || (p.href && p.title && !p.href.includes('zdn.vn') && !p.href.includes('/attachments/'))) {
-      return p.title ? `🔗 ${p.title}` : p.href;
+      return p.title ? p.title : p.href;
     }
     if (p.description && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
       return p.description;
@@ -650,9 +659,9 @@ function parseDisplayContent(content: string | null): string {
   if (!content.startsWith('{')) return content;
   try {
     const p = JSON.parse(content);
-    if (p.title && p.href) return `🔗 ${p.title}`;
+    if (p.title && p.href) return p.title;
     if (p.title) return p.title;
-    if (p.href) return `🔗 ${p.description || p.href}`;
+    if (p.href) return p.description || p.href;
     return content;
   } catch { return content; }
 }

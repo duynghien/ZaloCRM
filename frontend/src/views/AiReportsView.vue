@@ -4,12 +4,6 @@
     <v-card class="mb-6 overflow-hidden chart-card" elevation="0">
       <div class="neo-banner pa-6 d-flex align-center justify-space-between flex-wrap gap-4">
         <div class="d-flex align-center gap-4">
-          <div
-            class="d-flex align-center justify-center neo-icon-box flex-shrink-0"
-            style="width: 48px; height: 48px; background: #0068FF; border: 1.5px solid var(--border-color); border-radius: 8px; color: #FFFFFF;"
-          >
-            <v-icon size="28" color="white">mdi-robot-excited-outline</v-icon>
-          </div>
           <div>
             <h1 class="neo-page-title mb-1" style="font-size: 1.5rem;">
               BÁO CÁO <span class="neo-title-accent">ĐIỀU HÀNH AI</span>
@@ -240,11 +234,11 @@
                 <div>
                   <h2 class="text-h6 font-weight-bold mb-1">{{ currentReport.title }}</h2>
                   <div class="d-flex align-center gap-2 text-caption text-medium-emphasis">
-                    <span>🕒 Tạo lúc: {{ formatDateTime(currentReport.createdAt) }}</span>
+                    <span class="d-inline-flex align-center"><v-icon size="14" class="mr-1">mdi-clock-outline</v-icon>Tạo lúc: {{ formatDateTime(currentReport.createdAt) }}</span>
                     <span>•</span>
                     <v-chip size="x-small" color="primary" variant="flat">{{ currentReport.reportType }}</v-chip>
                     <v-chip v-if="currentReport.metadata?.isFallback" size="x-small" color="warning" variant="flat" class="font-weight-bold" prepend-icon="mdi-alert">
-                      ⚠️ Dự phòng: {{ currentReport.metadata.actualModel }}
+                      Dự phòng: {{ currentReport.metadata.actualModel }}
                     </v-chip>
                     <v-chip v-if="currentReport.sentZalo" size="x-small" color="success" prepend-icon="mdi-check">Đã gửi Zalo</v-chip>
                     <v-chip v-if="currentReport.sentEmail" size="x-small" color="info" prepend-icon="mdi-check">Đã gửi Email</v-chip>
@@ -281,7 +275,7 @@
                 @click:close="deliveryError = ''"
               >
                 <div class="d-flex align-center justify-space-between flex-wrap gap-2">
-                  <span>⚠️ Báo cáo đã tạo thành công nhưng gặp sự cố khi gửi: {{ deliveryError }}</span>
+                  <span class="d-inline-flex align-center"><v-icon size="18" color="warning" class="mr-1">mdi-alert</v-icon>Báo cáo đã tạo thành công nhưng gặp sự cố khi gửi: {{ deliveryError }}</span>
                   <v-btn
                     color="warning"
                     variant="flat"
@@ -320,7 +314,7 @@
                     style="border: 1.5px solid var(--border-color);"
                     @click="openBroadcastTaskDialog"
                   >
-                    📢 Gửi nhiệm vụ vào nhóm Zalo
+                    Gửi nhiệm vụ vào nhóm Zalo
                   </v-btn>
                 </div>
 
@@ -360,10 +354,10 @@
                           {{ task.task }}
                         </div>
                         <div class="d-flex align-center gap-3 text-caption text-medium-emphasis mt-1 flex-wrap">
-                          <span>👤 <strong>Phụ trách:</strong> {{ task.assignee || 'Chưa phân công' }}</span>
-                          <span>⏰ <strong>Thời hạn:</strong> {{ task.deadline || 'Trong ca' }}</span>
-                          <span v-if="task.completedAt" class="text-success font-weight-medium">
-                            ✓ Hoàn thành lúc {{ formatDateTime(task.completedAt) }}
+                          <span class="d-inline-flex align-center"><v-icon size="14" class="mr-1">mdi-account-outline</v-icon><strong>Phụ trách:</strong>&nbsp;{{ task.assignee || 'Chưa phân công' }}</span>
+                          <span class="d-inline-flex align-center"><v-icon size="14" class="mr-1">mdi-clock-outline</v-icon><strong>Thời hạn:</strong>&nbsp;{{ task.deadline || 'Trong ca' }}</span>
+                          <span v-if="task.completedAt" class="text-success font-weight-medium d-inline-flex align-center">
+                            <v-icon size="14" color="success" class="mr-1">mdi-check-circle-outline</v-icon>Hoàn thành lúc {{ formatDateTime(task.completedAt) }}
                           </span>
                         </div>
                       </div>
@@ -376,8 +370,9 @@
                         color="warning"
                         variant="tonal"
                         class="font-weight-bold"
+                        prepend-icon="mdi-file-alert-outline"
                       >
-                        🟡 Cần bổ sung chứng từ
+                        Cần bổ sung chứng từ
                       </v-chip>
                       <v-chip
                         v-else-if="task.category === 'anomaly_fraud'"
@@ -385,16 +380,18 @@
                         color="error"
                         variant="tonal"
                         class="font-weight-bold"
+                        prepend-icon="mdi-alert-octagon-outline"
                       >
-                        🔴 Bất thường
+                        Bất thường
                       </v-chip>
                       <v-chip
                         size="x-small"
                         :color="task.priority === 'high' ? 'error' : task.priority === 'low' ? 'success' : 'warning'"
+                        :prepend-icon="task.priority === 'high' ? 'mdi-alert-circle' : task.priority === 'low' ? 'mdi-arrow-down-circle' : 'mdi-alert'"
                         variant="flat"
                         class="font-weight-bold"
                       >
-                        {{ task.priority === 'high' ? '🔴 Cao' : task.priority === 'low' ? '🟢 Thấp' : '🟡 Trung bình' }}
+                        {{ task.priority === 'high' ? 'Cao' : task.priority === 'low' ? 'Thấp' : 'Trung bình' }}
                       </v-chip>
                       <v-chip v-if="task.groupName" size="x-small" variant="outlined">
                         {{ task.groupName }}
@@ -450,8 +447,8 @@
               <td class="font-weight-medium">
                 {{ rep.title }}
                 <v-chip v-if="!reportCanResend(rep)" size="small" color="warning" class="ml-2">Nguồn chưa xác minh</v-chip>
-                <v-chip v-if="rep.metadata?.isFallback" size="x-small" color="warning" variant="flat" class="ml-2 font-weight-bold">
-                  ⚠️ Dự phòng: {{ rep.metadata.actualModel || 'Fallback' }}
+                <v-chip v-if="rep.metadata?.isFallback" size="x-small" color="warning" variant="flat" class="ml-2 font-weight-bold" prepend-icon="mdi-alert">
+                  Dự phòng: {{ rep.metadata.actualModel || 'Fallback' }}
                 </v-chip>
               </td>
               <td>
@@ -748,6 +745,7 @@
             <v-chip
               v-for="preset in INDUSTRY_PRESETS"
               :key="preset.id"
+              :prepend-icon="preset.icon"
               size="small"
               variant="outlined"
               color="primary"
@@ -870,7 +868,10 @@
     <v-dialog v-model="broadcastTaskDialog" max-width="600">
       <v-card class="pa-5 chart-card" elevation="0">
         <div class="d-flex align-center justify-space-between mb-4">
-          <h3 class="text-h6 font-weight-bold">📢 Phát sóng nhiệm vụ vào nhóm Zalo</h3>
+          <h3 class="text-h6 font-weight-bold d-flex align-center">
+            <v-icon class="mr-2" size="20">mdi-bullhorn-outline</v-icon>
+            Phát sóng nhiệm vụ vào nhóm Zalo
+          </h3>
           <v-btn icon="mdi-close" variant="text" size="small" @click="broadcastTaskDialog = false" />
         </div>
 
@@ -1251,19 +1252,22 @@ const editingGroup = ref<GroupItem | null>(null);
 const INDUSTRY_PRESETS = [
   {
     id: 'fnb',
-    label: '☕ F&B / Quán / Coworking',
+    label: 'F&B / Quán / Coworking',
+    icon: 'mdi-coffee',
     focusKeywords: ['huỷ', 'hỏng', 'hết hàng', 'thiếu', 'sự cố', 'xin cốc', 'bàn giao', 'checklist', 'thành phẩm', 'tồn kho'],
     customPrompt: 'Đặc biệt chú ý đối chiếu số lượng cốc huỷ, kiểm tra việc nhân viên có ghi rõ lý do huỷ hay không; cảnh báo các nguyên liệu hết trước ca kế tiếp; kiểm tra việc hoàn thành checklist máy móc và bàn giao ca.',
   },
   {
     id: 'sales',
-    label: '💼 Bán hàng / Sales CRM',
+    label: 'Bán hàng / Sales CRM',
+    icon: 'mdi-briefcase-outline',
     focusKeywords: ['báo giá', 'chốt đơn', 'thanh toán', 'cọc', 'khiếu nại', 'khách hẹn', 'hợp đồng'],
     customPrompt: 'Tập trung vào số lượng lead mới, đơn hàng thành công, doanh số dự kiến và các thắc mắc/khiếu nại của khách hàng chưa được xử lý.',
   },
   {
     id: 'tech',
-    label: '🛠️ Kỹ thuật / Vận hành hệ thống',
+    label: 'Kỹ thuật / Vận hành hệ thống',
+    icon: 'mdi-tools',
     focusKeywords: ['sự cố', 'lỗi', 'bug', 'tiến độ', 'release', 'server', 'downtime', 'hoàn thành', 'deploy'],
     customPrompt: 'Làm rõ các sự cố kỹ thuật, thời gian khắc phục, tiến độ các task trọng tâm và rủi ro chậm tiến độ.',
   },

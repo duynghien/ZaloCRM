@@ -2,8 +2,9 @@
   <div v-if="visible && draft && draft.hasActionableData" class="chat-ai-draft-card pa-3 mb-2">
     <div class="d-flex align-center justify-space-between mb-2">
       <div class="d-flex align-center" style="gap: 6px;">
-        <span class="draft-badge px-2 py-0 font-weight-bold text-caption">
-          ✨ AI DRAFT
+        <span class="draft-badge px-2 py-0 font-weight-bold text-caption d-inline-flex align-center gap-1">
+          <v-icon size="14">mdi-creation</v-icon>
+          <span>AI DRAFT</span>
         </span>
         <span class="text-caption font-weight-medium text-grey-darken-3">
           Phát hiện dữ liệu giao dịch tự động
@@ -54,9 +55,10 @@
         color="primary"
         rounded="lg"
         class="neo-btn font-weight-bold"
+        prepend-icon="mdi-plus"
         @click="handleOpenOrder"
       >
-        + Tạo Đơn Hàng (1-Click)
+        Tạo Đơn Hàng (1-Click)
       </v-btn>
 
       <v-btn
@@ -65,9 +67,10 @@
         color="warning"
         rounded="lg"
         class="neo-btn font-weight-bold"
+        prepend-icon="mdi-plus"
         @click="handleOpenAppointment"
       >
-        + Đặt Lịch Hẹn
+        Đặt Lịch Hẹn
       </v-btn>
 
       <v-btn
@@ -76,10 +79,11 @@
         variant="outlined"
         rounded="lg"
         class="neo-btn"
+        prepend-icon="mdi-plus"
         :loading="enriching"
         @click="handleEnrichContact"
       >
-        + Cập Nhật Hồ Sơ Contact
+        Cập Nhật Hồ Sơ Contact
       </v-btn>
     </div>
   </div>

@@ -100,19 +100,22 @@
           </v-chip>
           <span
             v-if="hasAnomaly(conv)"
-            class="neo-pill ml-1 px-1 py-0 text-caption font-weight-bold"
+            class="neo-pill ml-1 px-1 py-0 text-caption font-weight-bold d-inline-flex align-center gap-1"
             style="background-color: #FEE2E2; color: #DC2626; border: 1px solid #EF4444; font-size: 0.65rem !important;"
             title="Cuộc trò chuyện có khiếu nại hoặc bức xúc cần xử lý"
           >
-            ⚠️ KHIẾU NẠI
+            <v-icon size="10" color="error">mdi-alert</v-icon>
+            KHIẾU NẠI
           </span>
           <v-spacer />
           <span class="text-caption text-grey ml-1">{{ formatTime(conv.lastMessageAt) }}</span>
         </v-list-item-title>
 
         <v-list-item-subtitle class="d-flex align-center mt-1">
-          <span class="text-truncate flex-grow-1 mr-2" :class="{ 'font-weight-medium': conv.unreadCount > 0 }">
-            {{ lastMessagePreview(conv) }}
+          <span class="text-truncate flex-grow-1 mr-2 d-inline-flex align-center" :class="{ 'font-weight-medium': conv.unreadCount > 0 }">
+            <span v-if="getMessagePreview(conv).prefix" class="mr-1">{{ getMessagePreview(conv).prefix }}</span>
+            <v-icon v-if="getMessagePreview(conv).icon" size="14" class="mr-1 text-grey flex-shrink-0">{{ getMessagePreview(conv).icon }}</v-icon>
+            <span class="text-truncate">{{ getMessagePreview(conv).text }}</span>
           </span>
           <v-badge
             v-if="conv.unreadCount > 0"
@@ -209,20 +212,26 @@ function getConvAccountColor(conv: Conversation): string {
   return getDeterministicAccountColor(conv.zaloAccount.id, conv.zaloAccount.colorTag);
 }
 
-function lastMessagePreview(conv: Conversation): string {
+interface MessagePreview {
+  prefix?: string;
+  icon?: string;
+  text: string;
+}
+
+function getMessagePreview(conv: Conversation): MessagePreview {
   const msg = conv.messages?.[0];
-  if (!msg) return '';
-  if (msg.isDeleted) return '(đã thu hồi)';
+  if (!msg) return { text: '' };
+  if (msg.isDeleted) return { text: '(đã thu hồi)' };
   const prefix = msg.senderType === 'self' ? 'Bạn: ' : '';
 
   switch (msg.contentType) {
-    case 'image': return prefix + '📷 Hình ảnh';
-    case 'sticker': return prefix + '🏷️ Sticker';
-    case 'video': return prefix + '🎥 Video';
-    case 'voice': return prefix + '🎤 Tin nhắn thoại';
-    case 'gif': return prefix + 'GIF';
-    case 'file': return prefix + '📎 Tệp đính kèm';
-    case 'link': return prefix + '🔗 Liên kết';
+    case 'image': return { prefix, icon: 'mdi-image-outline', text: 'Hình ảnh' };
+    case 'sticker': return { prefix, icon: 'mdi-sticker-emoji', text: 'Sticker' };
+    case 'video': return { prefix, icon: 'mdi-video-outline', text: 'Video' };
+    case 'voice': return { prefix, icon: 'mdi-microphone-outline', text: 'Tin nhắn thoại' };
+    case 'gif': return { prefix, text: 'GIF' };
+    case 'file': return { prefix, icon: 'mdi-paperclip', text: 'Tệp đính kèm' };
+    case 'link': return { prefix, icon: 'mdi-link-variant', text: 'Liên kết' };
   }
 
   // Reminder/calendar messages
@@ -230,13 +239,13 @@ function lastMessagePreview(conv: Conversation): string {
     try {
       const p = JSON.parse(msg.content);
       if (p.action === 'msginfo.actionlist' && p.title) {
-        return prefix + '📅 ' + p.title.slice(0, 50);
+        return { prefix, icon: 'mdi-calendar-clock', text: p.title.slice(0, 50) };
       }
     } catch { /* not JSON */ }
   }
 
   const text = msg.content || '';
-  return prefix + (text.length > 50 ? text.slice(0, 50) + '...' : text);
+  return { prefix, text: text.length > 50 ? text.slice(0, 50) + '...' : text };
 }
 
 function formatTime(dateStr: string | null): string {

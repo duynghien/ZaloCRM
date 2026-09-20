@@ -4,7 +4,7 @@
       <div class="d-flex align-center" style="gap: 6px;">
         <v-icon color="error" size="18">mdi-alert-octagon</v-icon>
         <span class="font-weight-bold text-caption text-error font-mono">
-          ⚠️ CẢNH BÁO RỦI RO KHIẾU NẠI
+          CẢNH BÁO RỦI RO KHIẾU NẠI
         </span>
         <span
           class="neo-pill px-2 py-0 text-caption font-weight-bold"
@@ -29,9 +29,10 @@
         variant="tonal"
         rounded="lg"
         class="neo-btn"
+        prepend-icon="mdi-hand-heart-outline"
         @click="applySoothingReply"
       >
-        🕊️ Gợi ý xoa dịu
+        Gợi ý xoa dịu
       </v-btn>
 
       <v-btn
@@ -39,10 +40,11 @@
         variant="outlined"
         rounded="lg"
         class="neo-btn"
+        prepend-icon="mdi-check-circle-outline"
         :loading="resolving"
         @click="handleResolve"
       >
-        ✓ Đánh dấu đã xử lý
+        Đánh dấu đã xử lý
       </v-btn>
     </div>
   </div>

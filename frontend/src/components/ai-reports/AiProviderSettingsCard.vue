@@ -52,7 +52,7 @@
         class="font-weight-bold"
         @click="setAsPrimary(selectedTab)"
       >
-        ⚡ Đặt {{ getProviderLabel(selectedTab) }} làm nhà cung cấp chính
+        Đặt {{ getProviderLabel(selectedTab) }} làm nhà cung cấp chính
       </v-btn>
     </div>
 
@@ -128,8 +128,14 @@
         >
           Kiểm tra kết nối
         </v-btn>
-        <v-chip v-if="testResult" size="small" :color="testResult.success ? 'success' : 'error'" variant="flat">
-          {{ testResult.success ? `✓ Thành công (${testResult.latencyMs}ms)` : `✗ Lỗi: ${testResult.message}` }}
+        <v-chip
+          v-if="testResult"
+          size="small"
+          :color="testResult.success ? 'success' : 'error'"
+          :prepend-icon="testResult.success ? 'mdi-check-circle' : 'mdi-alert-circle'"
+          variant="flat"
+        >
+          {{ testResult.success ? `Thành công (${testResult.latencyMs}ms)` : `Lỗi: ${testResult.message}` }}
         </v-chip>
         <v-btn
           v-if="testResult?.success && settings.primaryProvider !== selectedTab"
@@ -330,7 +336,7 @@ const availableModelSuggestions = computed<string[]>(() => {
 
 const modelHint = computed(() => {
   if (fetchModelError.value) {
-    return `⚠️ ${fetchModelError.value}`;
+    return fetchModelError.value;
   }
   if (selectedTab.value === 'deepseek') {
     return 'Official DeepSeek: deepseek-flash & deepseek-v4-pro (hỗ trợ Native Multimodal Vision). Tự động tải từ Base URL.';

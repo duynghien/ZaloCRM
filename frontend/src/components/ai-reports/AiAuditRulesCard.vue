@@ -65,8 +65,8 @@
             <div class="font-weight-medium">
               {{ formatDestination(rule) }}
             </div>
-            <v-chip v-if="rule.sendOperationalReminder" size="x-small" color="warning" variant="flat" class="mt-1 font-weight-bold">
-              🔔 Nhắc nhóm nguồn
+            <v-chip v-if="rule.sendOperationalReminder" size="x-small" color="warning" variant="flat" prepend-icon="mdi-bell-outline" class="mt-1 font-weight-bold">
+              Nhắc nhóm nguồn
             </v-chip>
           </td>
           <td>
@@ -166,8 +166,8 @@
           </v-alert>
 
           <v-tabs v-model="resultTab" density="compact" color="primary" class="mb-3">
-            <v-tab value="supervisory">📋 Báo Cáo Giám Sát</v-tab>
-            <v-tab v-if="runNowResult?.operationalReminderMessage" value="reminder">🔔 Tin Nhắn Nhắc Nhở Vận Hành</v-tab>
+            <v-tab value="supervisory" prepend-icon="mdi-clipboard-text-outline">Báo Cáo Giám Sát</v-tab>
+            <v-tab v-if="runNowResult?.operationalReminderMessage" value="reminder" prepend-icon="mdi-bell-outline">Tin Nhắn Nhắc Nhở Vận Hành</v-tab>
           </v-tabs>
 
           <div v-show="resultTab === 'supervisory'" class="pa-4 bg-surface-variant rounded markdown-body" style="max-height: 400px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 13px;">

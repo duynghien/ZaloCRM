@@ -74,10 +74,10 @@ describe('AI Usage API & KPI Utilities', () => {
     function computeBudgetBadge(status?: 'ok' | 'warning' | 'exceeded', usagePercentage = 0) {
       if (!status || status === 'ok') return null;
       if (status === 'exceeded') {
-        return { type: 'badge-exceeded', text: `🚨 Vượt ngân sách (${usagePercentage}%)` };
+        return { type: 'badge-exceeded', icon: 'mdi-alert-octagon', text: `Vượt ngân sách (${usagePercentage}%)` };
       }
       if (status === 'warning') {
-        return { type: 'badge-warning', text: `⚠️ Cảnh báo ngân sách (${usagePercentage}%)` };
+        return { type: 'badge-warning', icon: 'mdi-alert', text: `Cảnh báo ngân sách (${usagePercentage}%)` };
       }
       return null;
     }
@@ -91,7 +91,8 @@ describe('AI Usage API & KPI Utilities', () => {
       const badge = computeBudgetBadge('warning', 85);
       expect(badge).toEqual({
         type: 'badge-warning',
-        text: '⚠️ Cảnh báo ngân sách (85%)',
+        icon: 'mdi-alert',
+        text: 'Cảnh báo ngân sách (85%)',
       });
     });
 
@@ -99,7 +100,8 @@ describe('AI Usage API & KPI Utilities', () => {
       const badge = computeBudgetBadge('exceeded', 112);
       expect(badge).toEqual({
         type: 'badge-exceeded',
-        text: '🚨 Vượt ngân sách (112%)',
+        icon: 'mdi-alert-octagon',
+        text: 'Vượt ngân sách (112%)',
       });
     });
   });

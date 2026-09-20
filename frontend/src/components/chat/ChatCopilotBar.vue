@@ -3,7 +3,8 @@
     <div class="d-flex align-center justify-space-between mb-1">
       <div class="d-flex align-center flex-wrap" style="gap: 6px;">
         <span class="copilot-brand font-weight-bold d-flex align-center">
-          <span class="mr-1">✨</span> Copilot
+          <v-icon size="16" color="primary" class="mr-1">mdi-creation</v-icon>
+          <span>Copilot</span>
         </span>
 
         <!-- Buying Intent & Sentiment Pill -->
@@ -25,10 +26,11 @@
           color="primary"
           rounded="lg"
           class="neo-btn"
+          prepend-icon="mdi-creation"
           :loading="loadingManual"
           @click="$emit('request-manual')"
         >
-          ✨ Gợi ý
+          Gợi ý
         </v-btn>
         <v-btn
           size="x-small"

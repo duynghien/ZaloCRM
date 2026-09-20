@@ -28,8 +28,9 @@
       </div>
 
       <div v-if="budgetAlert" class="mt-2">
-        <div :class="['budget-badge', budgetAlert.type]">
-          {{ budgetAlert.text }}
+        <div :class="['budget-badge', budgetAlert.type, 'd-inline-flex', 'align-center']">
+          <v-icon size="14" class="mr-1">{{ budgetAlert.icon }}</v-icon>
+          <span>{{ budgetAlert.text }}</span>
         </div>
       </div>
     </div>
@@ -70,10 +71,10 @@ const budgetAlert = computed(() => {
   if (!kpiData.value?.budgetStatus || kpiData.value.budgetStatus.status === 'ok') return null;
   const { status, usagePercentage } = kpiData.value.budgetStatus;
   if (status === 'exceeded') {
-    return { type: 'badge-exceeded', text: `🚨 Vượt ngân sách (${usagePercentage}%)` };
+    return { type: 'badge-exceeded', icon: 'mdi-alert-octagon', text: `Vượt ngân sách (${usagePercentage}%)` };
   }
   if (status === 'warning') {
-    return { type: 'badge-warning', text: `⚠️ Cảnh báo ngân sách (${usagePercentage}%)` };
+    return { type: 'badge-warning', icon: 'mdi-alert', text: `Cảnh báo ngân sách (${usagePercentage}%)` };
   }
   return null;
 });
