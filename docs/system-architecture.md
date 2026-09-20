@@ -45,9 +45,11 @@ graph TD
 - **Real-time Gateway:** Socket.IO tích hợp trực tiếp trên server HTTP của Fastify, xác thực kết nối bằng JWT Token chứa `sessionId` và kiểm tra trạng thái session thực trong PostgreSQL.
 - **App factory:** `backend/src/app-factory.ts` dựng cùng HTTP routes và Socket.IO production cho ứng dụng và integration fixture; entrypoint `app.ts` sở hữu việc khởi động worker, cron và Zalo listeners.
 
-### 2.3. Zalo Account Connection Pool (`ZaloPool`)
+### 2.3. Zalo Account Connection Pool (`ZaloPool`) & Session Manager
 - **Quản lý đa phiên Zalo:** `ZaloPool` duy trì danh sách các thể hiện (instances) của thư viện `zca-js` cho từng tài khoản Zalo đang hoạt động.
 - **Tự động khôi phục (Auto-reconnect):** Khi khởi động server, `ZaloPool` giải mã dữ liệu session (cookie, IMEI) từ DB và tự động tái lập kết nối với Zalo Server, có cơ chế giãn cách (stagger 10s) tránh rate limit.
+- **Duy trì phiên & Heartbeat định kỳ (`zalo-session-manager`):** Khởi động timer `setTimeout` đệ quy mỗi 1 giờ (±60s jitter) gọi `api.keepAlive()` để ngăn Zalo ngắt kết nối session idle. Tự động trích xuất cookie mới nhất từ `CookieJar`, bảo lưu IMEI/UserAgent từ `api.getContext()` và mã hóa AES-256-GCM lưu bền vững vào PostgreSQL.
+- **Kiên cường kết nối & Chống Flapping:** Cơ chế retry exponential backoff tường minh `[30s, 2m, 5m]` cho các lỗi mạng tạm thời mà không gán `qr_pending` tức thì; chỉ chuyển `qr_pending` khi vượt quá 3 lần thử thất bại liên tiếp hoặc gặp lỗi fatal auth (`isFatalAuthError`). Duy trì circuit breaker `disconnectHistory` (cửa sổ trượt 5 phút) để bảo vệ tài khoản khi socket bị flapping liên tục.
 
 ### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
 - **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 24 Data Models phân tách theo nghiệp vụ:
