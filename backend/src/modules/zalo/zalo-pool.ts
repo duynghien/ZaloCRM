@@ -18,6 +18,14 @@ import { emitWebhook } from '../api/webhook-service.js';
 import imageSize from 'image-size';
 import fs from 'node:fs';
 
+import {
+  syncAccountCredentials,
+  startAccountHeartbeat,
+  stopAccountHeartbeat,
+  stopAllHeartbeats,
+  isFatalAuthError,
+} from './zalo-session-manager.js';
+
 // zca-js has no reliable ESM type exports — load via CJS interop
 const require = createRequire(import.meta.url);
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -45,7 +53,7 @@ const imageMetadataGetter = async (filePath: string) => {
   }
 };
 
-interface ZaloCredentials {
+export interface ZaloCredentials {
   cookie: any;
   imei: string;
   userAgent: string;
@@ -70,10 +78,45 @@ class ZaloAccountPool {
   private userInfoCache = new Map<string, UserInfoCacheEntry>();
   // Circuit breaker: track disconnect timestamps per account
   private disconnectHistory = new Map<string, number[]>();
+  private reconnectFailures = new Map<string, number>();
+  private static readonly BACKOFF_DELAYS = [30_000, 120_000, 300_000];
 
   private connectionAttempts = new Map<string, object>();
   private drainingListeners = new Set<Promise<void>>();
   private reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  isReconnectScheduled(accountId: string): boolean {
+    return this.reconnectTimers.has(accountId);
+  }
+
+  clearReconnectFailures(accountId: string): void {
+    this.reconnectFailures.delete(accountId);
+  }
+
+  async handleFatalAuth(accountId: string, err: unknown): Promise<void> {
+    const errMsg = String(err);
+    logger.error(`[zalo:${accountId}] Fatal auth error encountered: ${errMsg}`);
+    stopAccountHeartbeat(accountId);
+    clearTimeout(this.reconnectTimers.get(accountId));
+    this.reconnectTimers.delete(accountId);
+    const instance = this.instances.get(accountId);
+    if (instance) {
+      instance.status = 'qr_pending';
+      if (instance.drainListener) {
+        const drain = instance.drainListener().finally(() => this.drainingListeners.delete(drain));
+        this.drainingListeners.add(drain);
+      }
+      if (instance.api?.listener) {
+        try { instance.api.listener.stop(); } catch (e) {
+          logger.warn(`[zalo:${accountId}] Error stopping listener:`, e);
+        }
+      }
+      instance.api = null;
+    }
+    await this.updateAccountDB(accountId, 'qr_pending', null);
+    await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
+    await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+  }
 
   setIO(io: Server): void {
     this.io = io;
@@ -176,6 +219,14 @@ class ZaloAccountPool {
         await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'connected' });
         await this.updateAccountDB(accountId, 'connected', ownId);
 
+        this.reconnectFailures.delete(accountId);
+        await syncAccountCredentials(accountId, api).catch((err) =>
+          logger.warn(`[zalo:${accountId}] Failed to sync credentials after loginQR: ${err}`)
+        );
+        startAccountHeartbeat(accountId, api, 3600_000, (id, err) => {
+          void this.handleFatalAuth(id, err);
+        });
+
         if (orgId) {
           emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
         }
@@ -248,16 +299,36 @@ class ZaloAccountPool {
         await this.emitForAccount(accountId, 'zalo:connected', { accountId, zaloUid: ownId });
         await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'connected' });
 
+        this.reconnectFailures.delete(accountId);
+        await syncAccountCredentials(accountId, api).catch((err) =>
+          logger.warn(`[zalo:${accountId}] Failed to sync credentials after reconnect: ${err}`)
+        );
+        startAccountHeartbeat(accountId, api, 3600_000, (id, err) => {
+          void this.handleFatalAuth(id, err);
+        });
+
         if (orgId) {
           emitWebhook(orgId, 'zalo.connected', { accountId }).catch(() => {});
         }
       } catch (err) {
         const instance = this.instances.get(accountId);
         if (instance !== pending) return;
-        instance.status = 'disconnected';
-        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
-        await this.updateAccountDB(accountId, 'qr_pending', null);
-        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: String(err) });
+        const errMsg = String(err);
+        const failures = (this.reconnectFailures.get(accountId) || 0) + 1;
+        this.reconnectFailures.set(accountId, failures);
+
+        if (failures > ZaloAccountPool.BACKOFF_DELAYS.length || isFatalAuthError(err)) {
+          instance.status = 'qr_pending';
+          await this.updateAccountDB(accountId, 'qr_pending', null);
+          await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
+          await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+        } else {
+          instance.status = 'disconnected';
+          await this.updateAccountDB(accountId, 'disconnected', null);
+          await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
+          await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+          this.scheduleReconnect(accountId, ZaloAccountPool.BACKOFF_DELAYS[failures - 1]);
+        }
       }
     } finally {
       if (this.connectionAttempts.get(accountId) === attempt) this.connectionAttempts.delete(accountId);
@@ -274,11 +345,9 @@ class ZaloAccountPool {
       io: this.io,
       userInfoCache: this.userInfoCache,
       onDisconnected: (id) => {
+        stopAccountHeartbeat(id);
         const inst = this.instances.get(id);
         if (!inst || inst.api !== api) return;
-        inst.status = 'disconnected';
-        void this.emitForAccount(id, 'zalo:status-changed', { accountId: id, status: 'disconnected' });
-        this.updateAccountDB(id, 'disconnected', null);
 
         if (orgId) {
           emitWebhook(orgId, 'zalo.disconnected', { accountId: id }).catch(() => {});
@@ -294,11 +363,19 @@ class ZaloAccountPool {
         if (history.length >= 5) {
           // >5 disconnects in 5 min → stop reconnecting, require QR re-login
           logger.error(`[zalo:${id}] Circuit breaker: ${history.length} disconnects in 5 min — stopping auto-reconnect. QR re-login required.`);
+          clearTimeout(this.reconnectTimers.get(id));
+          this.reconnectTimers.delete(id);
+          inst.status = 'qr_pending';
           this.updateAccountDB(id, 'qr_pending', null);
+          void this.emitForAccount(id, 'zalo:status-changed', { accountId: id, status: 'qr_pending' });
           void this.emitForAccount(id, 'zalo:reconnect-failed', { accountId: id, error: 'Session không ổn định, cần đăng nhập QR lại' });
           this.disconnectHistory.delete(key);
           return; // DON'T reconnect
         }
+
+        inst.status = 'disconnected';
+        void this.emitForAccount(id, 'zalo:status-changed', { accountId: id, status: 'disconnected' });
+        this.updateAccountDB(id, 'disconnected', null);
 
         // Normal auto-reconnect after 30 seconds
         this.scheduleReconnect(id, 30_000);
@@ -316,20 +393,27 @@ class ZaloAccountPool {
       .catch((err) => logger.error(`[zalo:${accountId}] saveCredentials error:`, err));
   }
 
-  // Sync account status and zaloUid to DB
-  private async updateAccountDB(accountId: string, status: string, zaloUid: string | null): Promise<void> {
-    try {
-      await prisma.zaloAccount.update({
-        where: { id: accountId },
-        data: {
-          status,
-          ...(zaloUid !== null ? { zaloUid } : {}),
-          ...(status === 'connected' ? { lastConnectedAt: new Date() } : {}),
-        },
-      });
-    } catch (err) {
-      logger.error(`[zalo:${accountId}] updateAccountDB error:`, err);
-    }
+  private dbUpdateQueues = new Map<string, Promise<void>>();
+
+  // Sync account status and zaloUid to DB (serialized per account to prevent race conditions)
+  private updateAccountDB(accountId: string, status: string, zaloUid: string | null): Promise<void> {
+    const prev = this.dbUpdateQueues.get(accountId) || Promise.resolve();
+    const next = prev.catch(() => {}).then(async () => {
+      try {
+        await prisma.zaloAccount.update({
+          where: { id: accountId },
+          data: {
+            status,
+            ...(zaloUid !== null ? { zaloUid } : {}),
+            ...(status === 'connected' ? { lastConnectedAt: new Date() } : {}),
+          },
+        });
+      } catch (err) {
+        logger.error(`[zalo:${accountId}] updateAccountDB error:`, err);
+      }
+    });
+    this.dbUpdateQueues.set(accountId, next);
+    return next;
   }
 
   // Auto-reconnect using saved session from DB (supports encrypted and legacy sessions)
@@ -351,17 +435,37 @@ class ZaloAccountPool {
         await this.reconnect(accountId, session);
       } else {
         logger.warn(`[zalo:${accountId}] No saved session, cannot auto-reconnect`);
+        inst.status = 'qr_pending';
+        await this.updateAccountDB(accountId, 'qr_pending', null);
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
         await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: 'No saved session' });
       }
     } catch (err) {
       logger.error(`[zalo:${accountId}] Auto-reconnect failed:`, err);
-      // Retry again in 2 minutes
-      this.scheduleReconnect(accountId, 120_000);
+      const errMsg = String(err);
+      const failures = (this.reconnectFailures.get(accountId) || 0) + 1;
+      this.reconnectFailures.set(accountId, failures);
+
+      if (failures > ZaloAccountPool.BACKOFF_DELAYS.length || isFatalAuthError(err)) {
+        inst.status = 'qr_pending';
+        await this.updateAccountDB(accountId, 'qr_pending', null);
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
+        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+      } else {
+        inst.status = 'disconnected';
+        await this.updateAccountDB(accountId, 'disconnected', null);
+        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
+        this.scheduleReconnect(accountId, ZaloAccountPool.BACKOFF_DELAYS[failures - 1]);
+      }
     }
   }
 
   // Stop listener and remove from pool
-  disconnect(accountId: string): void {
+  disconnect(accountId: string, clearFailures = false): void {
+    if (clearFailures) {
+      this.reconnectFailures.delete(accountId);
+    }
+    stopAccountHeartbeat(accountId);
     this.connectionAttempts.delete(accountId);
     clearTimeout(this.reconnectTimers.get(accountId));
     this.reconnectTimers.delete(accountId);
@@ -377,15 +481,23 @@ class ZaloAccountPool {
       }
     }
     this.instances.delete(accountId);
-    void this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
+    if (instance && instance.status !== 'disconnected' && instance.status !== 'qr_pending') {
+      void this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
+    }
   }
 
   disconnectAll(): void {
-    for (const accountId of new Set([...this.instances.keys(), ...this.connectionAttempts.keys()])) this.disconnect(accountId);
+    stopAllHeartbeats();
+    for (const accountId of new Set([...this.instances.keys(), ...this.connectionAttempts.keys()])) {
+      this.disconnect(accountId, true);
+    }
   }
 
-  async drain(): Promise<void> {
-    await Promise.allSettled(this.drainingListeners);
+  async drain(timeoutMs = 15_000): Promise<void> {
+    await Promise.race([
+      Promise.allSettled(this.drainingListeners),
+      new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+    ]);
   }
 
   getStatus(accountId: string): string {

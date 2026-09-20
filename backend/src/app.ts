@@ -39,6 +39,7 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();
       await zaloPool.drain();
+      application?.io?.disconnectSockets(true);
       await application?.close();
       await prisma.$disconnect();
     } catch (error) {

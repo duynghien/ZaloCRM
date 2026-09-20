@@ -8,6 +8,9 @@ import { Prisma } from '@prisma/client';
 import { zaloPool } from './zalo-pool.js';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
+import { config } from '../../config/index.js';
+import { decryptData } from '../../shared/utils/crypto.js';
+import { syncAccountCredentials } from './zalo-session-manager.js';
 
 let zaloHealthTasks: ReturnType<typeof cron.schedule>[] = [];
 let shutdownController = new AbortController();
@@ -42,9 +45,10 @@ async function runConnectionCheck(): Promise<void> {
 
     for (const acc of accounts) {
       if (isStopping()) return;
+      if (zaloPool.isReconnectScheduled(acc.id)) continue;
       const status = zaloPool.getStatus(acc.id);
       if (status !== 'connected' && status !== 'connecting' && status !== 'qr_pending') {
-        const session = acc.sessionData as any;
+        const session = decryptData<any>(acc.sessionData, config.encryptionKey);
         if (session?.imei) {
           logger.info(`[health-check] Reconnecting ${acc.displayName || acc.id}...`);
           await zaloPool.reconnect(acc.id, session);
@@ -66,13 +70,22 @@ async function runDailySessionRefresh(): Promise<void> {
 
     for (const acc of accounts) {
       if (isStopping()) return;
-      const session = acc.sessionData as any;
-      if (session?.imei) {
-        zaloPool.disconnect(acc.id);
-        await waitOrStop(5000);
-        if (isStopping()) return;
-        await zaloPool.reconnect(acc.id, session);
+      const session = decryptData<any>(acc.sessionData, config.encryptionKey);
+      const currentStatus = zaloPool.getStatus(acc.id);
+
+      if (currentStatus === 'connected') {
+        const api = zaloPool.getApi(acc.id);
+        if (api) {
+          await api.keepAlive?.().catch(() => {});
+          await syncAccountCredentials(acc.id, api).catch(() => {});
+        }
+      } else if (currentStatus === 'disconnected' && session?.imei) {
+        if (!zaloPool.isReconnectScheduled(acc.id)) {
+          await zaloPool.reconnect(acc.id, session);
+        }
       }
+      // If qr_pending or connecting: do nothing, skip!
+
       await waitOrStop(10_000);
     }
   } catch (err) {

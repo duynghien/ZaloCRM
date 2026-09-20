@@ -246,6 +246,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       }
 
       // Fire-and-forget — result emitted via Socket.IO
+      zaloPool.clearReconnectFailures(id);
       zaloPool.reconnect(id, session).catch(() => {});
 
       return { message: 'Reconnect initiated' };
@@ -266,7 +267,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(404).send({ error: 'Account not found' });
       }
 
-      zaloPool.disconnect(id);
+      zaloPool.disconnect(id, true);
       await prisma.zaloAccount.delete({ where: { id, orgId: user.orgId } });
       await pruneSocketsForZaloAccount(app.io, id);
 

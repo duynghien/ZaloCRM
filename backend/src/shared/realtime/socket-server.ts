@@ -91,6 +91,7 @@ export function initializeSocketServer(app: FastifyInstance): Server {
     for (const timer of timers.values()) clearTimeout(timer);
     timers.clear();
     closeSocketEventDelivery(io);
+    io.disconnectSockets(true);
     await io.close();
   });
   return io;

@@ -51,8 +51,8 @@ it('real QR login emits ordered QR lifecycle to acknowledged admins and connecte
     return api;
   });
   await pool.loginQR(s.account.id); await flush();
-  expect(seen[0].map(p => p.event)).toEqual(['zalo:qr', 'zalo:qr-expired', 'zalo:scanned', 'zalo:connected']);
-  expect(seen[1].map(p => p.event)).toEqual(['zalo:connected']); expect(seen[2]).toEqual([]); expect(seen[3]).toEqual([]);
+  expect(seen[0].map(p => p.event)).toEqual(['zalo:qr', 'zalo:qr-expired', 'zalo:scanned', 'zalo:connected', 'zalo:status-changed']);
+  expect(seen[1].map(p => p.event)).toEqual(['zalo:connected', 'zalo:status-changed']); expect(seen[2]).toEqual([]); expect(seen[3]).toEqual([]);
   expect(retry).toHaveBeenCalledOnce(); expect(api.listener.start).toHaveBeenCalledOnce();
   expect(await fixture.prisma.zaloAccount.findUnique({ where: { id: s.account.id } })).toMatchObject({ status: 'connected' });
 });
@@ -64,8 +64,8 @@ it('real QR failure and reconnect failure/success honor read ACL with their exis
   const login = vi.spyOn(Zalo.prototype, 'login').mockRejectedValueOnce(new Error('provider-reconnect-failed')).mockResolvedValue(provider());
   await pool.reconnect(s.account.id, credentials); await pool.reconnect(s.account.id, credentials); await flush();
   for (const permitted of seen.slice(0, 2)) {
-    expect(permitted.map(p => p.event)).toEqual(['zalo:error', 'zalo:reconnect-failed', 'zalo:connected']);
-    expect(permitted[0].payload).toMatchObject({ accountId: s.account.id, error: 'Error: provider-qr-failed' });
+    expect(permitted.map(p => p.event)).toEqual(['zalo:status-changed', 'zalo:error', 'zalo:status-changed', 'zalo:reconnect-failed', 'zalo:connected', 'zalo:status-changed']);
+    expect(permitted.find(p => p.event === 'zalo:error')?.payload).toMatchObject({ accountId: s.account.id, error: 'Error: provider-qr-failed' });
   }
   expect(seen[2]).toEqual([]); expect(seen[3]).toEqual([]); expect(login).toHaveBeenCalledTimes(2);
 });
