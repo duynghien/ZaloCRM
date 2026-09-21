@@ -8,6 +8,7 @@
     <!-- API Key section -->
     <v-card class="mb-4" elevation="0">
       <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">API Key</v-card-title>
+      <v-card-text>
         <v-alert
           v-if="justGenerated"
           type="warning"
