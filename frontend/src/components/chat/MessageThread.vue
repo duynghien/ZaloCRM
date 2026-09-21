@@ -92,31 +92,101 @@
           @resolve="onResolveAnomaly"
         />
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
-        <div v-for="msg in messages" :key="msg.id" class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
-          <div style="max-width: 70%;">
-            <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1 font-weight-bold" style="color: var(--primary-brand);">
-              {{ msg.senderName || 'Unknown' }}
+        <template v-for="(msg, index) in messages" :key="msg.id">
+          <!-- Date Separator Pill -->
+          <div v-if="shouldShowDateSeparator(msg, index)" class="d-flex justify-center my-3">
+            <div class="date-separator-pill px-3 py-1 text-center font-weight-medium" :class="dateSeparatorThemeClass">
+              {{ formatDateSeparator(msg.sentAt) }}
             </div>
-            <div class="message-bubble pa-2 px-3" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'msg-contact-bubble'" style="word-wrap: break-word;">
-              <!-- Deleted -->
-              <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
-                {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
+          </div>
+
+          <div class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
+            <div style="max-width: 70%;">
+              <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1 font-weight-bold" style="color: var(--primary-brand);">
+                {{ msg.senderName || 'Unknown' }}
               </div>
-              <!-- Structured multi-attachment (new format) -->
-              <div v-else-if="msg.attachments && msg.attachments.length > 0" class="message-attachments-container">
-                <div v-for="(att, attIdx) in msg.attachments" :key="att.filename || attIdx" class="mb-1">
-                  <!-- Image attachment -->
-                  <div v-if="isImageFile(att.filename || att.originalName, att.mimeType, att.url)">
+              <div class="message-bubble pa-2 px-3" :class="msg.senderType === 'self' ? 'bg-primary text-white' : 'msg-contact-bubble'" style="word-wrap: break-word;">
+                <!-- Deleted -->
+                <div v-if="msg.isDeleted" class="text-decoration-line-through font-italic" style="opacity: 0.6;">
+                  {{ msg.content || '(tin nhắn)' }}<span class="text-caption"> (đã thu hồi)</span>
+                </div>
+                <!-- Structured multi-attachment (new format) -->
+                <div v-else-if="msg.attachments && msg.attachments.length > 0">
+                  <!-- Text/Caption on top -->
+                  <div v-if="hasCustomCaption(msg)" class="mb-2 msg-text-body">
+                    <template v-for="(seg, sIdx) in getCaptionSegments(msg)" :key="sIdx">
+                      <hr v-if="seg.type === 'divider'" class="msg-divider" />
+                      <span v-else>{{ seg.content }}</span>
+                    </template>
+                  </div>
+                  <!-- Attachments below -->
+                  <div class="message-attachments-container">
+                    <div v-for="(att, attIdx) in msg.attachments" :key="att.filename || attIdx" class="mb-1">
+                      <!-- Image attachment -->
+                      <div v-if="isImageFile(att.filename || att.originalName, att.mimeType, att.url)">
+                        <img
+                          v-if="!failedImages.has(getAttachmentKey(msg, att))"
+                          :src="resolveAttachmentUrl(att.url)"
+                          :alt="att.originalName || 'Hình ảnh'"
+                          class="chat-image"
+                          loading="lazy"
+                          decoding="async"
+                          referrerpolicy="no-referrer"
+                          @click="openLightbox(resolveAttachmentUrl(att.url), att.originalName || att.filename)"
+                          @error="handleImageError($event, att, msg)"
+                        />
+                        <div v-else class="image-fallback-card pa-3 text-center border rounded">
+                          <v-icon size="24" color="grey-darken-1">mdi-image-off-outline</v-icon>
+                          <div class="text-caption mt-1 text-grey-darken-1">Ảnh không khả dụng</div>
+                          <v-btn
+                            size="x-small"
+                            variant="text"
+                            color="primary"
+                            class="mt-1"
+                            prepend-icon="mdi-reload"
+                            @click="retryLoadImage(att, msg)"
+                          >
+                            Thử lại
+                          </v-btn>
+                        </div>
+                      </div>
+                      <!-- Document attachment -->
+                      <div v-else class="file-card">
+                        <v-icon size="20" class="mr-2" :color="getFileIconColor(att.originalName || att.filename)">
+                          {{ getFileIcon(att.originalName || att.filename) }}
+                        </v-icon>
+                        <div class="flex-grow-1 overflow-hidden mr-2">
+                          <div class="text-body-2 font-weight-medium text-truncate">{{ att.originalName || att.filename }}</div>
+                          <div class="text-caption" style="opacity: 0.6;">{{ formatFileSize(att.size) }}</div>
+                        </div>
+                        <v-btn icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(att.url))">
+                          <v-icon size="16">mdi-download</v-icon>
+                        </v-btn>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <!-- Image -->
+                <div v-else-if="getImageUrl(msg)">
+                  <!-- Text/Caption on top -->
+                  <div v-if="hasCustomCaption(msg)" class="mb-2 msg-text-body">
+                    <template v-for="(seg, sIdx) in getCaptionSegments(msg)" :key="sIdx">
+                      <hr v-if="seg.type === 'divider'" class="msg-divider" />
+                      <span v-else>{{ seg.content }}</span>
+                    </template>
+                  </div>
+                  <!-- Image below -->
+                  <div>
                     <img
-                      v-if="!failedImages.has(getAttachmentKey(msg, att))"
-                      :src="resolveAttachmentUrl(att.url)"
-                      :alt="att.originalName || 'Hình ảnh'"
+                      v-if="!failedImages.has(getAttachmentKey(msg))"
+                      :src="resolveAttachmentUrl(getImageUrl(msg)!)"
+                      alt="Hình ảnh"
                       class="chat-image"
                       loading="lazy"
                       decoding="async"
                       referrerpolicy="no-referrer"
-                      @click="openLightbox(resolveAttachmentUrl(att.url), att.originalName || att.filename)"
-                      @error="handleImageError($event, att, msg)"
+                      @click="openLightbox(resolveAttachmentUrl(getImageUrl(msg)!))"
+                      @error="handleImageError($event, undefined, msg)"
                     />
                     <div v-else class="image-fallback-card pa-3 text-center border rounded">
                       <v-icon size="24" color="grey-darken-1">mdi-image-off-outline</v-icon>
@@ -127,110 +197,77 @@
                         color="primary"
                         class="mt-1"
                         prepend-icon="mdi-reload"
-                        @click="retryLoadImage(att, msg)"
+                        @click="retryLoadImage(undefined, msg)"
                       >
                         Thử lại
                       </v-btn>
                     </div>
                   </div>
-                  <!-- Document attachment -->
-                  <div v-else class="file-card">
-                    <v-icon size="20" class="mr-2" :color="getFileIconColor(att.originalName || att.filename)">
-                      {{ getFileIcon(att.originalName || att.filename) }}
-                    </v-icon>
-                    <div class="flex-grow-1 overflow-hidden mr-2">
-                      <div class="text-body-2 font-weight-medium text-truncate">{{ att.originalName || att.filename }}</div>
-                      <div class="text-caption" style="opacity: 0.6;">{{ formatFileSize(att.size) }}</div>
+                </div>
+                <!-- File/PDF -->
+                <div v-else-if="getFileInfo(msg)">
+                  <!-- Optional Caption on top -->
+                  <div v-if="hasCustomCaption(msg)" class="mb-2 msg-text-body">
+                    <template v-for="(seg, sIdx) in getCaptionSegments(msg)" :key="sIdx">
+                      <hr v-if="seg.type === 'divider'" class="msg-divider" />
+                      <span v-else>{{ seg.content }}</span>
+                    </template>
+                  </div>
+                  <!-- File/PDF below -->
+                  <div class="file-card">
+                    <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
+                    <div class="flex-grow-1">
+                      <div class="text-body-2 font-weight-medium">{{ getFileInfo(msg)!.name }}</div>
+                      <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(msg)!.size }}</div>
                     </div>
-                    <v-btn icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(att.url))">
+                    <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(getFileInfo(msg)!.href))">
                       <v-icon size="16">mdi-download</v-icon>
                     </v-btn>
                   </div>
                 </div>
-                <!-- Optional Caption text -->
-                <div v-if="hasCustomCaption(msg)" class="mt-2 text-body-2" style="white-space: pre-wrap;">
-                  {{ getDisplayCaption(msg) }}
+                <!-- Sticker/Video/Voice/GIF -->
+                <div v-else-if="msg.contentType === 'sticker'" class="d-flex align-center">
+                  <v-icon size="16" class="mr-1">mdi-sticker-emoji</v-icon>
+                  <span>Sticker</span>
                 </div>
-              </div>
-              <!-- Image -->
-              <div v-else-if="getImageUrl(msg)">
-                <img
-                  v-if="!failedImages.has(getAttachmentKey(msg))"
-                  :src="resolveAttachmentUrl(getImageUrl(msg)!)"
-                  alt="Hình ảnh"
-                  class="chat-image"
-                  loading="lazy"
-                  decoding="async"
-                  referrerpolicy="no-referrer"
-                  @click="openLightbox(resolveAttachmentUrl(getImageUrl(msg)!))"
-                  @error="handleImageError($event, undefined, msg)"
-                />
-                <div v-else class="image-fallback-card pa-3 text-center border rounded">
-                  <v-icon size="24" color="grey-darken-1">mdi-image-off-outline</v-icon>
-                  <div class="text-caption mt-1 text-grey-darken-1">Ảnh không khả dụng</div>
-                  <v-btn
-                    size="x-small"
-                    variant="text"
-                    color="primary"
-                    class="mt-1"
-                    prepend-icon="mdi-reload"
-                    @click="retryLoadImage(undefined, msg)"
-                  >
-                    Thử lại
+                <div v-else-if="msg.contentType === 'video'" class="d-flex align-center">
+                  <v-icon size="16" class="mr-1">mdi-video</v-icon>
+                  <span>Video</span>
+                </div>
+                <div v-else-if="msg.contentType === 'voice'" class="d-flex align-center">
+                  <v-icon size="16" class="mr-1">mdi-microphone</v-icon>
+                  <span>Tin nhắn thoại</span>
+                </div>
+                <div v-else-if="msg.contentType === 'gif'">GIF</div>
+                <!-- Reminder/Calendar -->
+                <div v-else-if="isReminderMessage(msg)" class="reminder-card">
+                  <div class="d-flex align-center mb-1">
+                    <v-icon size="16" color="warning" class="mr-1">mdi-calendar-clock</v-icon>
+                    <span class="text-caption font-weight-bold" style="color: #FFB74D;">Nhắc hẹn</span>
+                  </div>
+                  <div class="text-body-2">{{ getReminderTitle(msg) }}</div>
+                  <div v-if="getReminderTime(msg)" class="text-caption mt-1" style="opacity: 0.7;">
+                    <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(msg) }}
+                  </div>
+                  <v-btn size="x-small" variant="tonal" color="warning" class="mt-2" prepend-icon="mdi-calendar-sync" @click="syncAppointment(msg)">
+                    Đồng bộ lịch
                   </v-btn>
                 </div>
-                <div v-if="hasCustomCaption(msg)" class="mt-2 text-body-2" style="white-space: pre-wrap;">
-                  {{ getDisplayCaption(msg) }}
+                <!-- Default text -->
+                <div v-else class="msg-text-body">
+                  <template v-for="(seg, sIdx) in getMessageSegments(msg.content)" :key="sIdx">
+                    <hr v-if="seg.type === 'divider'" class="msg-divider" />
+                    <span v-else>{{ seg.content }}</span>
+                  </template>
                 </div>
-              </div>
-              <!-- File/PDF -->
-              <div v-else-if="getFileInfo(msg)" class="file-card">
-                <v-icon size="20" class="mr-2" color="info">mdi-file-document-outline</v-icon>
-                <div class="flex-grow-1">
-                  <div class="text-body-2 font-weight-medium">{{ getFileInfo(msg)!.name }}</div>
-                  <div class="text-caption" style="opacity: 0.6;">{{ getFileInfo(msg)!.size }}</div>
+                <!-- Timestamp -->
+                <div class="text-caption mt-1 msg-time" :class="msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
+                  {{ formatMessageTime(msg.sentAt) }}
                 </div>
-                <v-btn v-if="getFileInfo(msg)!.href" icon size="x-small" variant="text" @click="openFile(resolveAttachmentUrl(getFileInfo(msg)!.href))">
-                  <v-icon size="16">mdi-download</v-icon>
-                </v-btn>
-              </div>
-              <!-- Sticker/Video/Voice/GIF -->
-              <div v-else-if="msg.contentType === 'sticker'" class="d-flex align-center">
-                <v-icon size="16" class="mr-1">mdi-sticker-emoji</v-icon>
-                <span>Sticker</span>
-              </div>
-              <div v-else-if="msg.contentType === 'video'" class="d-flex align-center">
-                <v-icon size="16" class="mr-1">mdi-video</v-icon>
-                <span>Video</span>
-              </div>
-              <div v-else-if="msg.contentType === 'voice'" class="d-flex align-center">
-                <v-icon size="16" class="mr-1">mdi-microphone</v-icon>
-                <span>Tin nhắn thoại</span>
-              </div>
-              <div v-else-if="msg.contentType === 'gif'">GIF</div>
-              <!-- Reminder/Calendar -->
-              <div v-else-if="isReminderMessage(msg)" class="reminder-card">
-                <div class="d-flex align-center mb-1">
-                  <v-icon size="16" color="warning" class="mr-1">mdi-calendar-clock</v-icon>
-                  <span class="text-caption font-weight-bold" style="color: #FFB74D;">Nhắc hẹn</span>
-                </div>
-                <div class="text-body-2">{{ getReminderTitle(msg) }}</div>
-                <div v-if="getReminderTime(msg)" class="text-caption mt-1" style="opacity: 0.7;">
-                  <v-icon size="12" class="mr-1">mdi-clock-outline</v-icon>{{ getReminderTime(msg) }}
-                </div>
-                <v-btn size="x-small" variant="tonal" color="warning" class="mt-2" prepend-icon="mdi-calendar-sync" @click="syncAppointment(msg)">
-                  Đồng bộ lịch
-                </v-btn>
-              </div>
-              <!-- Default text -->
-              <div v-else>{{ parseDisplayContent(msg.content) }}</div>
-              <!-- Timestamp -->
-              <div class="text-caption mt-1 msg-time" :class="msg.senderType === 'self' ? 'msg-time-self' : 'msg-time-contact'" style="font-size: 0.7rem;">
-                {{ formatMessageTime(msg.sentAt) }}
               </div>
             </div>
           </div>
-        </div>
+        </template>
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
@@ -367,11 +404,17 @@
 
 <script setup lang="ts">
 import { ref, watch, nextTick, computed } from 'vue';
-import { useDisplay } from 'vuetify';
+import { useDisplay, useTheme } from 'vuetify';
 import type { Conversation, Message } from '@/composables/use-chat';
 import { api } from '@/api/index';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
 import { formatFileSize, getFileIcon, getFileIconColor, isImageFile, resolveAttachmentUrl } from '@/utils/file-utils';
+import {
+  formatDateSeparator,
+  isDifferentDay,
+  parseFormattedSegments,
+  type TextSegment,
+} from '@/utils/chat-message-formatter';
 import { useStagedMedia } from '@/composables/use-staged-media';
 import ChatCopilotBar from './ChatCopilotBar.vue';
 import ChatAiDraftCard from './ChatAiDraftCard.vue';
@@ -381,6 +424,28 @@ import MediaLightboxDialog from './MediaLightboxDialog.vue';
 import { useChatCopilot } from '@/composables/use-chat-copilot';
 
 const { mobile } = useDisplay();
+const theme = useTheme();
+
+const isDarkTheme = computed(() => theme.global.current.value.dark);
+const dateSeparatorThemeClass = computed(() => (isDarkTheme.value ? 'date-separator-dark' : 'date-separator-light'));
+
+function shouldShowDateSeparator(msg: Message, index: number): boolean {
+  if (!formatDateSeparator(msg.sentAt)) return false;
+  if (index === 0) return true;
+  const prevMsg = props.messages[index - 1];
+  if (!prevMsg) return true;
+  return isDifferentDay(msg.sentAt, prevMsg.sentAt);
+}
+
+function getMessageSegments(content: string | null): TextSegment[] {
+  const displayContent = parseDisplayContent(content);
+  return parseFormattedSegments(displayContent);
+}
+
+function getCaptionSegments(msg: Message): TextSegment[] {
+  const caption = getDisplayCaption(msg);
+  return parseFormattedSegments(caption);
+}
 
 const props = defineProps<{
   conversation: Conversation | null;
@@ -613,12 +678,17 @@ function isImageFilenameOrPlaceholder(str: string): boolean {
 
 function hasCustomCaption(msg: Message): boolean {
   if (!msg.content || !msg.content.trim()) return false;
+  if (msg.content === getImageUrl(msg)) return false;
   if (!msg.content.startsWith('{')) return true;
   try {
     const p = JSON.parse(msg.content);
     // Nếu là tin nhắn chia sẻ web link (Link preview) -> Luôn hiển thị
     if (msg.contentType === 'link' || (p.href && p.title && !p.href.includes('zdn.vn') && !p.href.includes('/attachments/'))) {
       return true;
+    }
+    // Nếu là payload tệp đính kèm (PDF, docs...)
+    if (getFileInfo(msg)) {
+      return !!(p.description && p.description.trim() && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description));
     }
     // Nếu là payload ảnh Zalo:
     if (p.description && p.description.trim() && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
@@ -641,6 +711,13 @@ function getDisplayCaption(msg: Message): string {
     // Link preview thông thường
     if (msg.contentType === 'link' || (p.href && p.title && !p.href.includes('zdn.vn') && !p.href.includes('/attachments/'))) {
       return p.title ? p.title : p.href;
+    }
+    // Nếu là payload tệp đính kèm (PDF, docs...)
+    if (getFileInfo(msg)) {
+      if (p.description && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
+        return p.description;
+      }
+      return '';
     }
     if (p.description && p.description !== p.href && !isImageFilenameOrPlaceholder(p.description)) {
       return p.description;
@@ -806,5 +883,37 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+.date-separator-pill {
+  border-radius: 9999px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  user-select: none;
+  backdrop-filter: blur(4px);
+}
+
+.date-separator-light {
+  background-color: rgba(0, 0, 0, 0.25);
+  color: #FFFFFF;
+}
+
+.date-separator-dark {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #FFFFFF;
+}
+
+.msg-text-body {
+  white-space: pre-wrap;
+  line-height: 1.55;
+  word-break: break-word;
+  font-size: 0.875rem;
+}
+
+.msg-divider {
+  border: none;
+  border-top: 1px solid currentColor;
+  opacity: 0.25;
+  margin: 6px 0;
 }
 </style>
