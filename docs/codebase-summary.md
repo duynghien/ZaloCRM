@@ -116,7 +116,7 @@ ZaloCRM/
         ├── api/              # Axios HTTP client, Session state in-memory, AI Report API, AI Usage API
         ├── composables/      # Vue composables (useChat, useChatCopilot, useStagedMedia, useChatRecovery, useZaloAccounts, useDashboard,...)
         ├── components/       # Reusable components
-        │   ├── chat/         # AccountRail, ConversationList, MessageThread, StagedMediaBar, MediaLightboxDialog, ChatCopilotBar, ChatAiDraftCard, ChatAnomalyBanner, ChatAppointments, ChatOrders
+        │   ├── chat/         # AccountRail, ConversationList, MessageThread, MessagePhotoGrid, StagedMediaBar, MediaLightboxDialog (Gallery), ChatCopilotBar, ChatAiDraftCard, ChatAnomalyBanner, ChatAppointments, ChatOrders
         │   ├── contacts/     # ContactDetailDialog, ContactFilters
         │   ├── dashboard/    # KpiCards, AiCostKpiCard, DashboardDateFilter, MessageVolumeChart, PipelineChart,...
         │   ├── orders/       # OrderStaffTable
@@ -129,7 +129,7 @@ ZaloCRM/
         ├── plugins/          # Vuetify 4, Pinia, Socket.IO, Custom Icons registry
         ├── router/           # Vue Router navigation guards
         ├── stores/           # Pinia Stores (auth)
-        ├── utils/            # account-colors.ts (12 bảng mã màu tài khoản Zalo chuẩn nhận diện), file-utils.ts
+        ├── utils/            # account-colors.ts, file-utils.ts, chat-message-clustering.ts, chat-message-formatter.ts
         └── views/            # 13 View components chính
 ```
 
