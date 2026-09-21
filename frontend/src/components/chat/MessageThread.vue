@@ -92,15 +92,24 @@
           @resolve="onResolveAnomaly"
         />
         <v-progress-linear v-if="loading" indeterminate color="primary" class="mb-2" />
-        <template v-for="(msg, index) in messages" :key="msg.id">
-          <!-- Date Separator Pill -->
-          <div v-if="shouldShowDateSeparator(msg, index)" class="d-flex justify-center my-3">
+        <div
+          v-for="group in messageDateGroups"
+          :key="group.dateKey"
+          class="message-date-group"
+        >
+          <!-- Date Separator Sticky Header -->
+          <div v-if="group.dateLabel" class="date-separator-sticky-header">
             <div class="date-separator-pill px-3 py-1 text-center font-weight-medium" :class="dateSeparatorThemeClass">
-              {{ formatDateSeparator(msg.sentAt) }}
+              {{ group.dateLabel }}
             </div>
           </div>
 
-          <div class="mb-2 d-flex" :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'">
+          <div
+            v-for="msg in group.messages"
+            :key="msg.id"
+            class="mb-2 d-flex"
+            :class="msg.senderType === 'self' ? 'justify-end' : 'justify-start'"
+          >
             <div style="max-width: 70%;">
               <div v-if="conversation.threadType === 'group' && msg.senderType !== 'self'" class="text-caption mb-1 font-weight-bold" style="color: var(--primary-brand);">
                 {{ msg.senderName || 'Unknown' }}
@@ -267,7 +276,7 @@
               </div>
             </div>
           </div>
-        </template>
+        </div>
         <div v-if="!loading && messages.length === 0" class="text-center pa-8 text-grey">Chưa có tin nhắn</div>
       </div>
 
@@ -410,9 +419,8 @@ import { api } from '@/api/index';
 import { getDeterministicAccountColor } from '@/utils/account-colors';
 import { formatFileSize, getFileIcon, getFileIconColor, isImageFile, resolveAttachmentUrl } from '@/utils/file-utils';
 import {
-  formatDateSeparator,
-  isDifferentDay,
   parseFormattedSegments,
+  groupMessagesByDate,
   type TextSegment,
 } from '@/utils/chat-message-formatter';
 import { useStagedMedia } from '@/composables/use-staged-media';
@@ -429,13 +437,7 @@ const theme = useTheme();
 const isDarkTheme = computed(() => theme.global.current.value.dark);
 const dateSeparatorThemeClass = computed(() => (isDarkTheme.value ? 'date-separator-dark' : 'date-separator-light'));
 
-function shouldShowDateSeparator(msg: Message, index: number): boolean {
-  if (!formatDateSeparator(msg.sentAt)) return false;
-  if (index === 0) return true;
-  const prevMsg = props.messages[index - 1];
-  if (!prevMsg) return true;
-  return isDifferentDay(msg.sentAt, prevMsg.sentAt);
-}
+const messageDateGroups = computed(() => groupMessagesByDate(props.messages));
 
 function getMessageSegments(content: string | null): TextSegment[] {
   const displayContent = parseDisplayContent(content);
@@ -885,21 +887,38 @@ watch(() => props.messages.length, async () => { await nextTick(); if (messagesC
   gap: 4px;
 }
 
+.message-date-group {
+  position: relative;
+}
+
+.date-separator-sticky-header {
+  position: sticky;
+  top: 4px;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  padding: 6px 0;
+}
+
 .date-separator-pill {
+  pointer-events: auto;
   border-radius: 9999px;
   font-size: 0.72rem;
   line-height: 1.2;
   user-select: none;
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
 }
 
 .date-separator-light {
-  background-color: rgba(0, 0, 0, 0.25);
+  background-color: rgba(0, 0, 0, 0.3);
   color: #FFFFFF;
 }
 
 .date-separator-dark {
-  background-color: rgba(255, 255, 255, 0.2);
+  background-color: rgba(255, 255, 255, 0.25);
   color: #FFFFFF;
 }
 

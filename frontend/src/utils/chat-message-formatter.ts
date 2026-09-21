@@ -108,3 +108,47 @@ export function parseFormattedSegments(rawContent: string | null | undefined): T
   flushText();
   return segments;
 }
+
+export interface MessageDateGroup<T = any> {
+  dateKey: string;
+  dateLabel: string;
+  messages: T[];
+}
+
+/**
+ * Groups messages chronologically by calendar date for sticky date header rendering.
+ */
+export function groupMessagesByDate<T extends { sentAt: string | Date }>(
+  messages: T[],
+  now?: Date | string
+): MessageDateGroup<T>[] {
+  if (!messages || messages.length === 0) return [];
+
+  const groups: MessageDateGroup<T>[] = [];
+  let currentGroup: MessageDateGroup<T> | null = null;
+
+  for (const msg of messages) {
+    const label = formatDateSeparator(msg.sentAt, now);
+    let dateKey = 'unknown';
+
+    if (msg.sentAt) {
+      const d = typeof msg.sentAt === 'string' ? new Date(msg.sentAt) : new Date(msg.sentAt.getTime());
+      if (!isNaN(d.getTime())) {
+        dateKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      }
+    }
+
+    if (!currentGroup || currentGroup.dateKey !== dateKey) {
+      currentGroup = {
+        dateKey,
+        dateLabel: label,
+        messages: [msg],
+      };
+      groups.push(currentGroup);
+    } else {
+      currentGroup.messages.push(msg);
+    }
+  }
+
+  return groups;
+}

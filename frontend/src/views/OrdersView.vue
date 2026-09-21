@@ -67,6 +67,19 @@
       </v-col>
     </v-row>
 
+    <!-- Global Alert for errors like 409 locked delete -->
+    <v-alert
+      v-if="orderError"
+      type="error"
+      variant="tonal"
+      density="compact"
+      closable
+      class="mb-3 text-caption"
+      @click:close="orderError = null"
+    >
+      {{ orderError }}
+    </v-alert>
+
     <!-- Filters -->
     <v-row class="mb-3">
       <v-col cols="12" sm="6" md="4">
@@ -90,6 +103,7 @@
             <th>Khách hàng</th>
             <th>Tổng tiền</th>
             <th>Trạng thái</th>
+            <th>Hóa đơn KiotViet</th>
             <th>Nhân viên</th>
             <th>Ngày tạo</th>
             <th></th>
@@ -97,16 +111,28 @@
         </thead>
         <tbody>
           <tr v-if="!loading && orders.length === 0">
-            <td colspan="7" class="text-center text-grey py-6">Không có đơn hàng</td>
+            <td colspan="8" class="text-center text-grey py-6">Không có đơn hàng</td>
           </tr>
           <tr v-for="o in orders" :key="o.id">
             <td class="text-caption font-weight-bold font-mono">{{ o.orderCode }}</td>
             <td>{{ o.contact?.fullName || '—' }}</td>
-            <td class="font-weight-bold">{{ formatVND(o.totalAmount) }}</td>
+            <td class="font-weight-bold">
+              <div>{{ formatVND(o.totalAmount) }}</div>
+              <div v-if="o.paidAmount !== null && o.paidAmount !== undefined" class="text-caption text-grey" style="font-size: 0.7rem;">
+                Đã thu: {{ formatVND(o.paidAmount) }}
+              </div>
+            </td>
             <td>
               <v-chip size="small" :color="statusColor(o.status)" variant="flat" rounded="pill" class="font-weight-bold neo-pill" style="border: 1.5px solid var(--border-color); font-size: 0.7rem;">
                 {{ statusLabel(o.status) }}
               </v-chip>
+            </td>
+            <td>
+              <OrderKiotvietStatus
+                :order="o"
+                @update:order="onOrderUpdated"
+                @open-reconcile="openReconcile(o)"
+              />
             </td>
             <td>{{ o.createdBy?.fullName || '—' }}</td>
             <td class="text-caption">{{ formatDate(o.createdAt) }}</td>
@@ -114,7 +140,14 @@
               <v-btn icon size="x-small" variant="text" @click="openEdit(o)">
                 <v-icon size="16">pen.svg</v-icon>
               </v-btn>
-              <v-btn icon size="x-small" variant="text" color="error" @click="confirmDelete(o.id)">
+              <v-btn
+                icon
+                size="x-small"
+                variant="text"
+                color="error"
+                :disabled="o.editable === false"
+                @click="confirmDelete(o.id)"
+              >
                 <v-icon size="16">trash-xmark-alt.svg</v-icon>
               </v-btn>
             </td>
@@ -127,37 +160,168 @@
     <OrderStaffTable :staff-stats="staffStats" />
 
     <!-- Create / Edit dialog -->
-    <v-dialog v-model="dialog" max-width="480">
+    <v-dialog v-model="dialog" max-width="720" persistent scrollable>
       <v-card class="pa-2" style="border: 1.5px solid var(--border-color); border-radius: 12px;">
-        <v-card-title class="font-weight-bold neo-subtitle" style="font-size: 0.9rem;">{{ editingId ? 'CẬP NHẬT ĐƠN HÀNG' : 'TẠO ĐƠN HÀNG' }}</v-card-title>
-        <v-card-text>
-          <v-text-field v-if="!editingId" v-model="form.contactId" label="ID Khách hàng" density="compact"
-            variant="outlined" rounded="lg" class="mb-3" hide-details />
-          <v-text-field v-model.number="form.totalAmount" label="Tổng tiền (VND)" type="number"
-            density="compact" variant="outlined" rounded="lg" class="mb-3" hide-details />
-          <v-select v-model="form.status" label="Trạng thái" :items="ORDER_STATUS_OPTIONS"
-            item-title="text" item-value="value" density="compact" variant="outlined" rounded="lg" class="mb-3" hide-details />
-          <v-textarea v-model="form.notes" label="Ghi chú" rows="2" density="compact"
-            variant="outlined" rounded="lg" hide-details />
+        <v-card-title class="font-weight-bold neo-subtitle d-flex align-center justify-space-between" style="font-size: 0.95rem;">
+          <span>{{ editingOrder ? `CẬP NHẬT ĐƠN HÀNG ${editingOrder.orderCode}` : 'TẠO ĐƠN HÀNG MỚI' }}</span>
+          <v-btn icon size="x-small" variant="text" @click="dialog = false">
+            <v-icon size="16">xmark.svg</v-icon>
+          </v-btn>
+        </v-card-title>
+
+        <v-card-text style="max-height: 75vh;">
+          <!-- Financial Lock Alert -->
+          <v-alert
+            v-if="isFinancialLocked"
+            type="warning"
+            variant="tonal"
+            density="compact"
+            class="mb-3 text-caption"
+          >
+            Đơn hàng này đã xuất hoặc đang xử lý hóa đơn KiotViet (<strong>{{ editingOrder?.kiotvietInvoiceStatus }}</strong>).
+            Thông tin sản phẩm, giá tiền và phương thức thanh toán đã bị khóa. Vui lòng điều chỉnh trực tiếp trên KiotViet nếu cần.
+          </v-alert>
+
+          <!-- Dialog Error Alert -->
+          <v-alert
+            v-if="dialogError"
+            type="error"
+            variant="tonal"
+            density="compact"
+            class="mb-3 text-caption"
+          >
+            {{ dialogError }}
+          </v-alert>
+
+          <!-- Contact ID Input (if creating) -->
+          <v-text-field
+            v-if="!editingOrder"
+            v-model="form.contactId"
+            label="ID Khách hàng (Contact ID)"
+            density="compact"
+            variant="outlined"
+            rounded="lg"
+            class="mb-3"
+            hide-details
+          />
+
+          <!-- Customer Picker (KiotViet) -->
+          <div class="mb-3">
+            <KiotvietCustomerPicker
+              v-model="kiotvietCustomerId"
+              :phone="editingOrder?.contact?.phone"
+              :name="editingOrder?.contact?.fullName"
+              :disabled="isFinancialLocked"
+            />
+          </div>
+
+          <v-divider class="my-3" />
+
+          <!-- Order Items Selector -->
+          <div class="mb-3">
+            <OrderItemsSelector
+              v-model="formItems"
+              :disabled="isFinancialLocked"
+              @update:total="onItemsTotalUpdated"
+            />
+          </div>
+
+          <!-- Total Amount (Displays computed total or manual input if amount-only) -->
+          <v-row dense class="mb-2">
+            <v-col cols="12" sm="6">
+              <v-text-field
+                v-model.number="form.totalAmount"
+                label="Tổng tiền đơn hàng (VND)"
+                type="number"
+                density="compact"
+                variant="outlined"
+                rounded="lg"
+                :disabled="isFinancialLocked || formItems.length > 0"
+                hide-details
+              />
+              <span v-if="formItems.length > 0" class="text-caption text-grey" style="font-size: 0.7rem;">
+                Tự động tính từ danh sách sản phẩm
+              </span>
+            </v-col>
+            <v-col cols="12" sm="6">
+              <v-select
+                v-model="form.status"
+                label="Trạng thái giao hàng"
+                :items="ORDER_STATUS_OPTIONS"
+                item-title="text"
+                item-value="value"
+                density="compact"
+                variant="outlined"
+                rounded="lg"
+                hide-details
+              />
+            </v-col>
+          </v-row>
+
+          <v-divider class="my-3" />
+
+          <!-- Payment Fields -->
+          <div class="mb-3">
+            <OrderPaymentFields
+              v-model:paid-amount="form.paidAmount"
+              v-model:payment-method="form.paymentMethod"
+              v-model:payment-account-id="form.paymentAccountId"
+              :total-amount="form.totalAmount"
+              :disabled="isFinancialLocked"
+            />
+          </div>
+
+          <!-- Notes -->
+          <v-textarea
+            v-model="form.notes"
+            label="Ghi chú đơn hàng"
+            rows="2"
+            density="compact"
+            variant="outlined"
+            rounded="lg"
+            hide-details
+          />
         </v-card-text>
-        <v-card-actions>
+
+        <v-card-actions class="px-4 pb-3">
           <v-spacer />
-          <v-btn rounded="lg" @click="dialog = false">Huỷ</v-btn>
-          <v-btn color="primary" rounded="lg" class="font-weight-bold" style="border: 1.5px solid var(--border-color);" :loading="saving" @click="submit">Lưu</v-btn>
+          <v-btn rounded="lg" variant="text" @click="dialog = false">Hủy</v-btn>
+          <v-btn
+            color="primary"
+            rounded="lg"
+            class="font-weight-bold"
+            style="border: 1.5px solid var(--border-color);"
+            :loading="saving"
+            @click="submit"
+          >
+            Lưu đơn hàng
+          </v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Reconcile Dialog -->
+    <KiotvietReconcileDialog
+      v-model="reconcileDialog"
+      :order="reconcileOrder"
+      @reconciled="onOrderReconciled"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue';
+import { ref, reactive, computed, onMounted } from 'vue';
 import { useOrders, ORDER_STATUS_OPTIONS } from '@/composables/use-orders';
-import type { Order } from '@/composables/use-orders';
+import type { Order, OrderItem } from '@/composables/use-orders';
 import OrderStaffTable from '@/components/orders/OrderStaffTable.vue';
+import OrderItemsSelector from '@/components/orders/OrderItemsSelector.vue';
+import OrderPaymentFields from '@/components/orders/OrderPaymentFields.vue';
+import OrderKiotvietStatus from '@/components/orders/OrderKiotvietStatus.vue';
+import KiotvietReconcileDialog from '@/components/orders/KiotvietReconcileDialog.vue';
+import KiotvietCustomerPicker from '@/components/orders/KiotvietCustomerPicker.vue';
 
 const {
-  orders, loading, saving, stats, staffStats,
+  orders, loading, saving, orderError, stats, staffStats,
   fetchOrders, createOrder, updateOrder, deleteOrder,
   fetchStats, fetchStaffStats, statusColor, statusLabel,
 } = useOrders();
@@ -165,11 +329,37 @@ const {
 const search = ref('');
 const statusFilter = ref<string | null>(null);
 const dialog = ref(false);
-const editingId = ref<string | null>(null);
+const dialogError = ref<string | null>(null);
+const editingOrder = ref<Order | null>(null);
+const formItems = ref<OrderItem[]>([]);
+const kiotvietCustomerId = ref<string | null>(null);
+
+const reconcileDialog = ref(false);
+const reconcileOrder = ref<Order | null>(null);
 
 const statusFilterItems = [{ text: 'Tất cả', value: '' }, ...ORDER_STATUS_OPTIONS];
 
-const form = reactive({ contactId: '', totalAmount: 0, status: 'new', notes: '' });
+const form = reactive<{
+  contactId: string;
+  totalAmount: number;
+  paidAmount: number | null;
+  paymentMethod: string | null;
+  paymentAccountId: string | null;
+  status: string;
+  notes: string;
+}>({
+  contactId: '',
+  totalAmount: 0,
+  paidAmount: null,
+  paymentMethod: null,
+  paymentAccountId: null,
+  status: 'new',
+  notes: '',
+});
+
+const isFinancialLocked = computed(() => {
+  return editingOrder.value ? editingOrder.value.editable === false : false;
+});
 
 function formatVND(n: number) {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
@@ -186,36 +376,104 @@ function buildParams() {
   return p;
 }
 
-function onSearch() { fetchOrders(buildParams()); }
+function onSearch() {
+  fetchOrders(buildParams());
+}
+
+function onItemsTotalUpdated(total: number) {
+  if (formItems.value.length > 0) {
+    form.totalAmount = total;
+  }
+}
 
 function openCreate() {
-  editingId.value = null;
-  Object.assign(form, { contactId: '', totalAmount: 0, status: 'new', notes: '' });
+  editingOrder.value = null;
+  dialogError.value = null;
+  formItems.value = [];
+  kiotvietCustomerId.value = null;
+  Object.assign(form, {
+    contactId: '',
+    totalAmount: 0,
+    paidAmount: null,
+    paymentMethod: null,
+    paymentAccountId: null,
+    status: 'new',
+    notes: '',
+  });
   dialog.value = true;
 }
 
 function openEdit(o: Order) {
-  editingId.value = o.id;
-  Object.assign(form, { contactId: o.contactId, totalAmount: o.totalAmount, status: o.status, notes: o.notes || '' });
+  editingOrder.value = o;
+  dialogError.value = null;
+  formItems.value = o.items ? [...o.items] : [];
+  kiotvietCustomerId.value = o.kiotvietCustomerId || null;
+  Object.assign(form, {
+    contactId: o.contactId,
+    totalAmount: o.totalAmount,
+    paidAmount: o.paidAmount ?? null,
+    paymentMethod: o.paymentMethod ?? null,
+    paymentAccountId: o.paymentAccountId ?? null,
+    status: o.status,
+    notes: o.notes || '',
+  });
   dialog.value = true;
 }
 
 async function submit() {
-  if (editingId.value) {
-    await updateOrder(editingId.value, { totalAmount: form.totalAmount, status: form.status, notes: form.notes || null });
-  } else {
-    await createOrder({ contactId: form.contactId, totalAmount: form.totalAmount, status: form.status, notes: form.notes || null });
+  dialogError.value = null;
+  try {
+    const payload: Partial<Order> & { expectedRevision?: number } = {
+      contactId: form.contactId,
+      totalAmount: form.totalAmount,
+      paidAmount: form.paidAmount,
+      paymentMethod: form.paymentMethod,
+      paymentAccountId: form.paymentAccountId,
+      status: form.status,
+      notes: form.notes || null,
+      kiotvietCustomerId: kiotvietCustomerId.value,
+      items: formItems.value,
+    };
+
+    if (editingOrder.value) {
+      payload.expectedRevision = editingOrder.value.revision;
+      await updateOrder(editingOrder.value.id, payload);
+    } else {
+      await createOrder(payload);
+    }
+
+    dialog.value = false;
+    fetchOrders(buildParams());
+    fetchStats();
+  } catch (err: any) {
+    dialogError.value = err?.response?.data?.message || err?.message || 'Có lỗi xảy ra khi lưu đơn hàng';
   }
-  dialog.value = false;
-  fetchOrders(buildParams());
-  fetchStats();
 }
 
 async function confirmDelete(id: string) {
   if (!confirm('Xoá đơn hàng này?')) return;
-  await deleteOrder(id);
+  const ok = await deleteOrder(id);
+  if (ok) {
+    fetchOrders(buildParams());
+    fetchStats();
+  }
+}
+
+function onOrderUpdated(updated: Order) {
+  const idx = orders.value.findIndex(o => o.id === updated.id);
+  if (idx !== -1) {
+    orders.value[idx] = updated;
+  }
+}
+
+function openReconcile(o: Order) {
+  reconcileOrder.value = o;
+  reconcileDialog.value = true;
+}
+
+function onOrderReconciled(updated: Order) {
+  onOrderUpdated(updated);
   fetchOrders(buildParams());
-  fetchStats();
 }
 
 onMounted(() => {

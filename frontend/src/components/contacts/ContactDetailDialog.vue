@@ -10,6 +10,16 @@
       <v-divider />
 
       <v-card-text>
+        <v-alert
+          v-if="contactError"
+          type="error"
+          variant="tonal"
+          density="compact"
+          class="mb-3 text-caption"
+        >
+          {{ contactError }}
+        </v-alert>
+
         <v-row dense>
           <!-- Full name -->
           <v-col cols="12" sm="6">
@@ -129,7 +139,7 @@ const emit = defineEmits<{
   deleted: [id: string];
 }>();
 
-const { saving, deleting, createContact, updateContact, deleteContact } = useContacts();
+const { saving, deleting, contactError, createContact, updateContact, deleteContact } = useContacts();
 
 const show = computed({
   get: () => props.modelValue,

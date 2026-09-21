@@ -52,6 +52,7 @@ export function useContacts() {
   const loading = ref(false);
   const saving = ref(false);
   const deleting = ref(false);
+  const contactError = ref<string | null>(null);
 
   const filters = reactive<ContactFilters>({
     search: '',
@@ -123,12 +124,18 @@ export function useContacts() {
 
   async function deleteContact(id: string): Promise<boolean> {
     deleting.value = true;
+    contactError.value = null;
     try {
       await api.delete(`/contacts/${id}`);
       await fetchContacts();
       return true;
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete contact:', err);
+      contactError.value =
+        err?.response?.data?.message ||
+        err?.response?.data?.error ||
+        err?.message ||
+        'Không thể xóa khách hàng';
       return false;
     } finally {
       deleting.value = false;
@@ -144,7 +151,7 @@ export function useContacts() {
   }
 
   return {
-    contacts, total, loading, saving, deleting,
+    contacts, total, loading, saving, deleting, contactError,
     filters, pagination,
     fetchContacts, fetchContact,
     createContact, updateContact, deleteContact,
