@@ -3,6 +3,7 @@ import {
   isDifferentDay,
   formatDateSeparator,
   parseFormattedSegments,
+  groupMessagesByDate,
 } from '../src/utils/chat-message-formatter';
 
 describe('chat-message-formatter utility', () => {
@@ -186,4 +187,60 @@ describe('chat-message-formatter utility', () => {
       ]);
     });
   });
+
+  describe('groupMessagesByDate', () => {
+    const mockNow = new Date(2026, 8, 21, 10, 0, 0);
+
+    it('should return empty array for empty messages', () => {
+      expect(groupMessagesByDate([])).toEqual([]);
+    });
+
+    it('should group messages on the same calendar day together', () => {
+      const msgs = [
+        { id: '1', sentAt: new Date(2026, 8, 21, 8, 0, 0) },
+        { id: '2', sentAt: new Date(2026, 8, 21, 14, 30, 0) },
+      ];
+      const groups = groupMessagesByDate(msgs, mockNow);
+      expect(groups.length).toBe(1);
+      expect(groups[0].dateKey).toBe('2026-09-21');
+      expect(groups[0].dateLabel).toBe('Hôm nay');
+      expect(groups[0].messages.length).toBe(2);
+    });
+
+    it('should create separate groups for different calendar days', () => {
+      const msgs = [
+        { id: '1', sentAt: new Date(2026, 8, 19, 10, 0, 0) },
+        { id: '2', sentAt: new Date(2026, 8, 20, 15, 0, 0) },
+        { id: '3', sentAt: new Date(2026, 8, 21, 9, 0, 0) },
+        { id: '4', sentAt: new Date(2026, 8, 21, 11, 0, 0) },
+      ];
+      const groups = groupMessagesByDate(msgs, mockNow);
+      expect(groups.length).toBe(3);
+
+      expect(groups[0].dateKey).toBe('2026-09-19');
+      expect(groups[0].dateLabel).toBe('T7 19/09/2026');
+      expect(groups[0].messages.map((m) => m.id)).toEqual(['1']);
+
+      expect(groups[1].dateKey).toBe('2026-09-20');
+      expect(groups[1].dateLabel).toBe('Hôm qua');
+      expect(groups[1].messages.map((m) => m.id)).toEqual(['2']);
+
+      expect(groups[2].dateKey).toBe('2026-09-21');
+      expect(groups[2].dateLabel).toBe('Hôm nay');
+      expect(groups[2].messages.map((m) => m.id)).toEqual(['3', '4']);
+    });
+
+    it('should handle messages with invalid or missing dates gracefully', () => {
+      const msgs = [
+        { id: '1', sentAt: '' },
+        { id: '2', sentAt: 'invalid' },
+      ];
+      const groups = groupMessagesByDate(msgs as any, mockNow);
+      expect(groups.length).toBe(1);
+      expect(groups[0].dateKey).toBe('unknown');
+      expect(groups[0].dateLabel).toBe('');
+      expect(groups[0].messages.length).toBe(2);
+    });
+  });
 });
+
