@@ -18,6 +18,7 @@ import { emitWebhook } from '../api/webhook-service.js';
 import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
 import { getAttachmentsBaseDir, getOrgAttachmentsDir } from '../attachments/attachment-routes.js';
 import { resolveByEntity } from '../notifications/notification-service.js';
+import { messageDeliveryService } from '../zalo/message-delivery-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -190,12 +191,21 @@ export async function chatRoutes(app: FastifyInstance) {
           ? cleanId
           : null;
 
-        // Fallback for legacy clients passing only fileId
+        // Fallback for legacy clients passing only fileId (exact UUID)
         if (!matched) {
           const allStaged = await fs.promises.readdir(stagedDir).catch(() => []);
-          matched = allStaged.find(
-            (f) => f.startsWith(`${user.orgId}-`) && (f.includes(cleanId) || f === cleanId),
-          ) || null;
+          const stagedFileRegex = /^([a-zA-Z0-9_-]+)-([a-f0-9-]{36})-(.+)$/;
+          const isUuid = /^[a-f0-9-]{36}$/i.test(cleanId);
+
+          matched = allStaged.find((f) => {
+            if (!f.startsWith(`${user.orgId}-`)) return false;
+            if (f === cleanId) return true;
+            if (isUuid) {
+              const match = f.match(stagedFileRegex);
+              return match ? match[1] === user.orgId && match[2].toLowerCase() === cleanId.toLowerCase() : false;
+            }
+            return false;
+          }) || null;
         }
 
         if (!matched) {
@@ -219,6 +229,32 @@ export async function chatRoutes(app: FastifyInstance) {
           size: stat.size,
           mimeType: isImg ? (ext === 'jpg' ? 'image/jpeg' : `image/${ext}`) : 'application/octet-stream',
           fileType: isImg ? 'image' : 'file',
+        });
+      }
+    }
+
+    if (resolvedStagedFiles.length === 0) {
+      try {
+        const result = await messageDeliveryService.sendText({
+          orgId: user.orgId,
+          zaloAccountId: conversation.zaloAccountId,
+          threadId: conversation.externalThreadId || '',
+          threadType: conversation.threadType as any,
+          content: content!.trim(),
+          source: 'chat_ui',
+          senderUserId: user.id,
+          senderName: user.fullName || 'Staff',
+          force,
+        });
+        return result.message;
+      } catch (err: any) {
+        if (err.statusCode === 429) {
+          return reply.status(429).send({ error: err.message, canForce: err.canForce });
+        }
+        logger.error('[chat] Send text message error:', err);
+        return reply.status(err.statusCode || 502).send({
+          error: 'Gửi tin nhắn sang Zalo thất bại',
+          details: err?.message || String(err),
         });
       }
     }

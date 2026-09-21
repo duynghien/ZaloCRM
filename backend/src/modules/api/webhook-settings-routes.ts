@@ -98,11 +98,24 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
       applyNoStore(reply);
 
       const newKey = `zcrm_${crypto.randomBytes(24).toString('hex')}`;
-      await upsertSetting(orgId, 'public_api_key', newKey);
+      const keyHash = crypto.createHash('sha256').update(newKey).digest('hex');
+      const keyPrefix = newKey.slice(0, 10);
+
+      await Promise.all([
+        upsertSetting(orgId, 'public_api_key_hash', keyHash),
+        upsertSetting(orgId, 'public_api_key_prefix', keyPrefix),
+      ]);
+
+      // Remove legacy plaintext key upon explicit generation/rotation
+      await prisma.appSetting.deleteMany({
+        where: { orgId, settingKey: 'public_api_key' },
+      });
+      invalidateAppSetting(orgId, 'public_api_key');
+
       await auditApiKeyAction(orgId, request.user!.id, 'api_key.rotated');
       logger.info(`[webhook-settings] Public API key rotated for org ${orgId} by user ${request.user?.id}`);
 
-      return { key: newKey, apiKey: newKey };
+      return { key: newKey, apiKey: newKey, prefix: keyPrefix };
     } catch (err) {
       logger.error('[webhook-settings] Generate API key error:', err);
       return reply.status(500).send({ error: 'Failed to generate API key' });
@@ -115,13 +128,21 @@ export async function webhookSettingsRoutes(app: FastifyInstance): Promise<void>
       const { orgId } = request.user!;
       applyNoStore(reply);
 
-      const setting = await prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key' } });
-      if (!setting?.valuePlain) return { key: null, apiKey: null };
+      const [hashSetting, prefixSetting, legacySetting] = await Promise.all([
+        prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key_hash' } }),
+        prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key_prefix' } }),
+        prisma.appSetting.findFirst({ where: { orgId, settingKey: 'public_api_key' } }),
+      ]);
 
-      const k = setting.valuePlain;
+      if (!hashSetting && !legacySetting) {
+        return { key: null, apiKey: null, maskedKey: null };
+      }
+
+      const prefix = prefixSetting?.valuePlain || (legacySetting?.valuePlain ? legacySetting.valuePlain.slice(0, 10) : 'zcrm_');
+      const masked = `${prefix}••••••••••••••••••••••••••••••••••••••••`;
       await auditApiKeyAction(orgId, request.user!.id, 'api_key.viewed');
       logger.info(`[webhook-settings] Public API key viewed for org ${orgId} by user ${request.user?.id}`);
-      return { key: k, apiKey: k };
+      return { key: masked, apiKey: masked, maskedKey: masked, prefix };
     } catch (err) {
       logger.error('[webhook-settings] GET API key error:', err);
       return reply.status(500).send({ error: 'Failed to fetch API key' });

@@ -8,20 +8,58 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { boundedPositiveInt, boundedString, validOptionalDate } from '../../shared/http/request-bounds.js';
 
+import crypto from 'node:crypto';
 import { validatePublicRequest } from './public-api-schemas.js';
+import { messageDeliveryService } from '../zalo/message-delivery-service.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
 async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
   const apiKey = request.headers['x-api-key'] as string;
-  if (!apiKey) return reply.status(401).send({ error: 'API key required' });
+  if (!apiKey || typeof apiKey !== 'string') {
+    return reply.status(401).send({ error: 'API key required' });
+  }
 
-  const setting = await prisma.appSetting.findFirst({
+  // 1. Primary: SHA-256 hash lookup
+  const incomingHash = crypto.createHash('sha256').update(apiKey).digest('hex');
+  const hashedSetting = await prisma.appSetting.findFirst({
+    where: { settingKey: 'public_api_key_hash', valuePlain: incomingHash },
+  });
+
+  if (hashedSetting) {
+    (request as any).orgId = hashedSetting.orgId;
+    return;
+  }
+
+  // 2. Backward-compatible fallback: legacy plaintext lookup with lazy migration
+  const legacySetting = await prisma.appSetting.findFirst({
     where: { settingKey: 'public_api_key', valuePlain: apiKey },
   });
-  if (!setting) return reply.status(401).send({ error: 'Invalid API key' });
 
-  (request as any).orgId = setting.orgId;
+  if (legacySetting) {
+    (request as any).orgId = legacySetting.orgId;
+
+    // Asynchronously upgrade without deleting legacy key during in-flight request
+    const prefix = apiKey.slice(0, 10);
+    Promise.all([
+      prisma.appSetting.upsert({
+        where: { orgId_settingKey: { orgId: legacySetting.orgId, settingKey: 'public_api_key_hash' } },
+        create: { orgId: legacySetting.orgId, settingKey: 'public_api_key_hash', valuePlain: incomingHash },
+        update: { valuePlain: incomingHash },
+      }),
+      prisma.appSetting.upsert({
+        where: { orgId_settingKey: { orgId: legacySetting.orgId, settingKey: 'public_api_key_prefix' } },
+        create: { orgId: legacySetting.orgId, settingKey: 'public_api_key_prefix', valuePlain: prefix },
+        update: { valuePlain: prefix },
+      }),
+    ]).catch((err) => {
+      logger.warn(`[public-api] Failed to lazy upgrade legacy API key for org ${legacySetting.orgId}:`, err);
+    });
+
+    return;
+  }
+
+  return reply.status(401).send({ error: 'Invalid API key' });
 }
 
 // ── Route registration ────────────────────────────────────────────────────────
@@ -272,28 +310,29 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'zaloAccountId, threadId, and content are required' });
       }
 
-      // Verify account belongs to org
-      const account = await prisma.zaloAccount.findFirst({
-        where: { id: body.zaloAccountId, orgId },
-        select: { id: true, status: true },
+      const result = await messageDeliveryService.sendText({
+        orgId,
+        zaloAccountId: body.zaloAccountId,
+        threadId: body.threadId,
+        threadType: body.threadType,
+        content: body.content,
+        source: 'public_api',
+        force: Boolean(body.force),
       });
-      if (!account) return reply.status(404).send({ error: 'Zalo account not found' });
-      if (account.status !== 'connected') {
-        return reply.status(422).send({ error: 'Zalo account is not connected' });
-      }
 
-      // Dynamically import zaloPool to avoid circular deps
-      const { zaloPool } = await import('../zalo/zalo-pool.js');
-      const api = zaloPool.getApi(body.zaloAccountId);
-      if (!api) return reply.status(422).send({ error: 'Zalo account not active in pool' });
-
-      const threadType = body.threadType === 'group' ? 1 : 0;
-      await api.sendMessage(body.content, body.threadId, threadType);
-
-      return { success: true };
-    } catch (err) {
+      return {
+        success: true,
+        messageId: result.message.id,
+        conversationId: result.conversationId,
+        zaloMsgId: result.zaloMsgId,
+      };
+    } catch (err: any) {
       logger.error('[public-api] POST /messages/send error:', err);
-      return reply.status(500).send({ error: 'Failed to send message' });
+      const statusCode = err?.statusCode || (err?.message?.includes('not found') ? 404 : 500);
+      return reply.status(statusCode).send({
+        error: err?.message || 'Failed to send message',
+        canForce: err?.canForce,
+      });
     }
   });
 }

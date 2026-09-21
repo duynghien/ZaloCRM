@@ -37,28 +37,37 @@ export async function checkAndReserveRateLimit(
   const windowStart = new Date(now);
   windowStart.setSeconds(0, 0);
 
-  const bucket = await prisma.kiotvietRateLimitBucket.findUnique({
-    where: {
-      orgId_retailer_windowStart: {
-        orgId,
-        retailer,
-        windowStart,
-      },
-    },
-  });
-
-  if (bucket?.blockedUntil && bucket.blockedUntil > now) {
-    const waitSeconds = Math.ceil((bucket.blockedUntil.getTime() - now.getTime()) / 1000);
-    throw new KiotvietRateLimitError(
-      `KiotViet API rate limit active. Blocked until ${bucket.blockedUntil.toISOString()}`,
-      waitSeconds
-    );
-  }
-
-  // If normal background request (like catalog sync) and request count is high, throttle
   const limit = isPriorityWrite ? MAX_REQUESTS_PER_MINUTE + 20 : MAX_REQUESTS_PER_MINUTE;
 
-  if (bucket && bucket.requestCount >= limit) {
+  const rows = await prisma.$queryRaw<any[]>`
+    INSERT INTO "kiotviet_rate_limit_buckets" ("id", "org_id", "retailer", "window_start", "request_count", "updated_at")
+    VALUES (gen_random_uuid(), ${orgId}, ${retailer}, ${windowStart}, 1, NOW())
+    ON CONFLICT ("org_id", "retailer", "window_start")
+    DO UPDATE SET "request_count" = "kiotviet_rate_limit_buckets"."request_count" + 1, "updated_at" = NOW()
+    WHERE "kiotviet_rate_limit_buckets"."request_count" < ${limit}
+      AND ("kiotviet_rate_limit_buckets"."blocked_until" IS NULL OR "kiotviet_rate_limit_buckets"."blocked_until" <= NOW())
+    RETURNING *
+  `;
+
+  if (!rows || rows.length === 0) {
+    const bucket = await prisma.kiotvietRateLimitBucket.findUnique({
+      where: {
+        orgId_retailer_windowStart: {
+          orgId,
+          retailer,
+          windowStart,
+        },
+      },
+    });
+
+    if (bucket?.blockedUntil && bucket.blockedUntil > now) {
+      const waitSeconds = Math.ceil((bucket.blockedUntil.getTime() - now.getTime()) / 1000);
+      throw new KiotvietRateLimitError(
+        `KiotViet API rate limit active. Blocked until ${bucket.blockedUntil.toISOString()}`,
+        waitSeconds
+      );
+    }
+
     const nextWindowStart = new Date(windowStart.getTime() + 60_000);
     const waitSeconds = Math.max(1, Math.ceil((nextWindowStart.getTime() - now.getTime()) / 1000));
     throw new KiotvietRateLimitError(
@@ -66,25 +75,6 @@ export async function checkAndReserveRateLimit(
       waitSeconds
     );
   }
-
-  await prisma.kiotvietRateLimitBucket.upsert({
-    where: {
-      orgId_retailer_windowStart: {
-        orgId,
-        retailer,
-        windowStart,
-      },
-    },
-    create: {
-      orgId,
-      retailer,
-      windowStart,
-      requestCount: 1,
-    },
-    update: {
-      requestCount: { increment: 1 },
-    },
-  });
 }
 
 /**

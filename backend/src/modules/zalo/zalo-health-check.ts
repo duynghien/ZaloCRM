@@ -11,6 +11,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { config } from '../../config/index.js';
 import { decryptData } from '../../shared/utils/crypto.js';
 import { syncAccountCredentials } from './zalo-session-manager.js';
+import { withCronLock, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
 
 let zaloHealthTasks: ReturnType<typeof cron.schedule>[] = [];
 let shutdownController = new AbortController();
@@ -38,23 +39,25 @@ function track(run: () => Promise<void>): Promise<void> {
 
 async function runConnectionCheck(): Promise<void> {
   try {
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { sessionData: { not: Prisma.JsonNull } },
-      select: { id: true, displayName: true, sessionData: true },
-    });
+    await withCronLock(CRON_LOCKS.ZALO_HEALTH_CHECK, async (tx) => {
+      const accounts = await tx.zaloAccount.findMany({
+        where: { sessionData: { not: Prisma.JsonNull } },
+        select: { id: true, displayName: true, sessionData: true },
+      });
 
-    for (const acc of accounts) {
-      if (isStopping()) return;
-      if (zaloPool.isReconnectScheduled(acc.id)) continue;
-      const status = zaloPool.getStatus(acc.id);
-      if (status !== 'connected' && status !== 'connecting' && status !== 'qr_pending') {
-        const session = decryptData<any>(acc.sessionData, config.encryptionKey);
-        if (session?.imei) {
-          logger.info(`[health-check] Reconnecting ${acc.displayName || acc.id}...`);
-          await zaloPool.reconnect(acc.id, session);
+      for (const acc of accounts) {
+        if (isStopping()) return;
+        if (zaloPool.isReconnectScheduled(acc.id)) continue;
+        const status = zaloPool.getStatus(acc.id);
+        if (status !== 'connected' && status !== 'connecting' && status !== 'qr_pending') {
+          const session = decryptData<any>(acc.sessionData, config.encryptionKey);
+          if (session?.imei) {
+            logger.info(`[health-check] Reconnecting ${acc.displayName || acc.id}...`);
+            await zaloPool.reconnect(acc.id, session);
+          }
         }
       }
-    }
+    });
   } catch (err) {
     if (!isStopping()) logger.error('[health-check] Error during health check:', err);
   }
@@ -63,31 +66,33 @@ async function runConnectionCheck(): Promise<void> {
 async function runDailySessionRefresh(): Promise<void> {
   logger.info('[health-check] Daily session refresh starting...');
   try {
-    const accounts = await prisma.zaloAccount.findMany({
-      where: { sessionData: { not: Prisma.JsonNull } },
-      select: { id: true, sessionData: true },
-    });
+    await withCronLock(CRON_LOCKS.ZALO_HEALTH_CHECK, async (tx) => {
+      const accounts = await tx.zaloAccount.findMany({
+        where: { sessionData: { not: Prisma.JsonNull } },
+        select: { id: true, sessionData: true },
+      });
 
-    for (const acc of accounts) {
-      if (isStopping()) return;
-      const session = decryptData<any>(acc.sessionData, config.encryptionKey);
-      const currentStatus = zaloPool.getStatus(acc.id);
+      for (const acc of accounts) {
+        if (isStopping()) return;
+        const session = decryptData<any>(acc.sessionData, config.encryptionKey);
+        const currentStatus = zaloPool.getStatus(acc.id);
 
-      if (currentStatus === 'connected') {
-        const api = zaloPool.getApi(acc.id);
-        if (api) {
-          await api.keepAlive?.().catch(() => {});
-          await syncAccountCredentials(acc.id, api).catch(() => {});
+        if (currentStatus === 'connected') {
+          const api = zaloPool.getApi(acc.id);
+          if (api) {
+            await api.keepAlive?.().catch(() => {});
+            await syncAccountCredentials(acc.id, api).catch(() => {});
+          }
+        } else if (currentStatus === 'disconnected' && session?.imei) {
+          if (!zaloPool.isReconnectScheduled(acc.id)) {
+            await zaloPool.reconnect(acc.id, session);
+          }
         }
-      } else if (currentStatus === 'disconnected' && session?.imei) {
-        if (!zaloPool.isReconnectScheduled(acc.id)) {
-          await zaloPool.reconnect(acc.id, session);
-        }
+        // If qr_pending or connecting: do nothing, skip!
+
+        await waitOrStop(10_000);
       }
-      // If qr_pending or connecting: do nothing, skip!
-
-      await waitOrStop(10_000);
-    }
+    });
   } catch (err) {
     if (!isStopping()) logger.error('[health-check] Error during daily refresh:', err);
   }

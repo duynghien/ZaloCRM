@@ -13,6 +13,7 @@ import fastifyJwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import {
   validateFileMetadata,
   validateMagicBytes,
@@ -28,6 +29,14 @@ import {
   attachmentRoutes,
   getAttachmentsBaseDir,
 } from '../../src/modules/attachments/attachment-routes.js';
+
+vi.mock('../../src/shared/database/prisma-client.js', () => ({
+  prisma: {
+    authSession: {
+      findFirst: vi.fn(async () => ({ id: 'valid-session-id' })),
+    },
+  },
+}));
 
 vi.mock('../../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: vi.fn(async (req: any) => {
@@ -185,7 +194,7 @@ describe('Attachment Routes Integration', () => {
     expect(res.headers['content-disposition']).toBe('inline');
   });
 
-  it('GET /api/v1/attachments/:filename serves image with valid token in query param', async () => {
+  it('GET /api/v1/attachments/:filename rejects token in query param per F-05', async () => {
     const orgId = 'org-test';
     const orgDir = path.join(testFileDir, orgId);
     fs.mkdirSync(orgDir, { recursive: true });
@@ -208,9 +217,7 @@ describe('Attachment Routes Integration', () => {
       url: `/api/v1/attachments/${filename}?token=${accessToken}`,
     });
 
-    expect(res.statusCode).toBe(200);
-    expect(res.headers['content-type']).toBe('image/png');
-    expect(res.headers['content-disposition']).toBe('inline');
+    expect(res.statusCode).toBe(401);
   });
 
   it('GET /api/v1/attachments/:filename serves long filename (> 100 characters) without 404', async () => {
@@ -229,7 +236,8 @@ describe('Attachment Routes Integration', () => {
 
     const res = await app.inject({
       method: 'GET',
-      url: `/api/v1/attachments/${longName}?token=${accessToken}`,
+      url: `/api/v1/attachments/${longName}`,
+      cookies: { zalo_crm_media_session: accessToken },
     });
 
     expect(res.statusCode).toBe(200);
@@ -309,7 +317,7 @@ describe('Attachment Routes Integration', () => {
     const stagedDir = path.join(testFileDir, 'staged');
     fs.mkdirSync(stagedDir, { recursive: true });
 
-    const fileId = 'draft-12345';
+    const fileId = randomUUID();
     const stagedFilename = `${orgId}-${fileId}-sample.png`;
     const stagedPath = path.join(stagedDir, stagedFilename);
     fs.writeFileSync(stagedPath, 'dummy data');

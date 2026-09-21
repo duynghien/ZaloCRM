@@ -37,6 +37,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
     kiotvietProduct: {
       findMany: vi.fn(),
     },
+    $queryRaw: vi.fn(),
   };
   return { prisma: mockPrisma };
 });
@@ -146,14 +147,14 @@ describe('KiotViet Rate Limit Service', () => {
   });
 
   it('allows reservation when bucket is under quota', async () => {
-    (prisma.kiotvietRateLimitBucket.findUnique as any).mockResolvedValueOnce(null);
-    (prisma.kiotvietRateLimitBucket.upsert as any).mockResolvedValueOnce({});
+    (prisma.$queryRaw as any).mockResolvedValueOnce([{ id: '1', request_count: 1 }]);
 
     await expect(checkAndReserveRateLimit('org-1', 'retailer-1')).resolves.not.toThrow();
-    expect(prisma.kiotvietRateLimitBucket.upsert).toHaveBeenCalled();
+    expect(prisma.$queryRaw).toHaveBeenCalled();
   });
 
   it('blocks request if blockedUntil is in the future', async () => {
+    (prisma.$queryRaw as any).mockResolvedValueOnce([]);
     const future = new Date(Date.now() + 30_000);
     (prisma.kiotvietRateLimitBucket.findUnique as any).mockResolvedValueOnce({
       blockedUntil: future,

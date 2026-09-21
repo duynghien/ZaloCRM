@@ -31,7 +31,7 @@ function clearSessionCookies(reply: FastifyReply, request?: FastifyRequest): voi
   reply.clearCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaCookieOptions(request));
 }
 
-function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id: string; orgId: string; role: string }, refreshToken: string, expiresAt: Date, request?: FastifyRequest): string {
+function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id: string; orgId: string; role: string }, refreshToken: string, expiresAt: Date, sessionId: string, request?: FastifyRequest): string {
   const csrfToken = randomBytes(32).toString('base64url');
   reply.setCookie(config.refreshCookieName, refreshToken, cookieOptions(request, expiresAt));
   // The SPA reads this non-secret double-submit value from any protected route.
@@ -39,7 +39,7 @@ function setSessionCookies(reply: FastifyReply, app: FastifyInstance, user: { id
   reply.setCookie(config.csrfCookieName, csrfToken, { httpOnly: false, secure: isSecureCookie(request), sameSite: 'lax', path: '/', expires: expiresAt });
 
   const mediaToken = app.jwt.sign(
-    { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
+    { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId } as never,
     { expiresIn: '7d' },
   );
   reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(request, expiresAt));
@@ -58,9 +58,8 @@ function assertBrowserRequest(request: FastifyRequest): void {
     try {
       const parsed = new URL(requestOrigin);
       const isLoopback = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1' || parsed.hostname === '::1';
-      const hostHeader = request.headers.host;
-      const hostOrigin = hostHeader ? `${request.protocol}://${hostHeader}` : '';
-      if (isLoopback || (hostOrigin && requestOrigin === hostOrigin)) {
+      const isDevPort = parsed.port === '5173' || parsed.port === '3080' || parsed.port === '3000';
+      if (isLoopback && (isDevPort || !config.isProduction)) {
         isAllowedOrigin = true;
       }
     } catch {}
@@ -85,7 +84,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!orgName || !fullName || !email || !password) return reply.status(400).send({ error: 'Missing required fields' });
     const user = await setup(orgName, fullName, email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, request);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, tokens.sessionId, request);
     return { token: tokens.accessToken, user };
   });
 
@@ -94,7 +93,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     if (!email || !password) return reply.status(400).send({ error: 'Missing email or password' });
     const user = await login(email, password);
     const tokens = await createSession(app, user);
-    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, request);
+    setSessionCookies(reply, app, user, tokens.refreshToken, tokens.expiresAt, tokens.sessionId, request);
     return { token: tokens.accessToken, user };
   });
 
@@ -104,7 +103,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       const refreshToken = request.cookies[config.refreshCookieName];
       if (!refreshToken) return reply.status(401).send({ error: 'Missing refresh session' });
       const { tokens, identity } = await rotateSession(app, refreshToken);
-      setSessionCookies(reply, app, identity, tokens.refreshToken, tokens.expiresAt, request);
+      setSessionCookies(reply, app, identity, tokens.refreshToken, tokens.expiresAt, tokens.sessionId, request);
       return { token: tokens.accessToken, user: identity };
     } catch (error) {
       clearSessionCookies(reply, request);
@@ -143,9 +142,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/v1/profile', { preHandler: authMiddleware }, async (request, reply) => {
     const user = request.user!;
     const mediaCookie = request.cookies[config.mediaCookieName || 'zalo_crm_media_session'];
-    if (!mediaCookie && user.orgId) {
+    const sessionId = (user as any).sessionId;
+    if (!mediaCookie && user.orgId && sessionId) {
       const mediaToken = app.jwt.sign(
-        { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId: 'media' } as never,
+        { id: user.id, email: (user as any).email || '', orgId: user.orgId, role: user.role, sessionId } as never,
         { expiresIn: '7d' },
       );
       reply.setCookie(config.mediaCookieName || 'zalo_crm_media_session', mediaToken, mediaCookieOptions(request));

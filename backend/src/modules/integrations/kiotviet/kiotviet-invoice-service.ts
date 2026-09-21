@@ -5,6 +5,7 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
+import type { Prisma } from '@prisma/client';
 import { prisma } from '../../../shared/database/prisma-client.js';
 import { getKiotvietConfig, KiotvietConflictError } from './kiotviet-settings-service.js';
 import { isOrderFinancialLocked } from '../../orders/order-invoice-lock.js';
@@ -25,21 +26,20 @@ export function computeSnapshotHash(snapshot: KiotvietInvoiceSnapshot): string {
 }
 
 /**
- * Validates eligibility and enqueues an invoice job transactionally.
+ * Validates eligibility and enqueues an invoice job within an existing transaction.
  */
-export async function enqueueInvoice(params: EnqueueInvoiceParams) {
+export async function enqueueInvoiceTx(tx: Prisma.TransactionClient, params: EnqueueInvoiceParams) {
   const { orderId, orgId, mode, expectedRevision, actorId } = params;
 
-  return await prisma.$transaction(async (tx) => {
-    // 1. Fetch order with items and contact
-    const order = await tx.order.findFirst({
-      where: { id: orderId, orgId },
-      include: {
-        items: true,
-        contact: true,
-        kiotvietJob: true,
-      },
-    });
+  // 1. Fetch order with items and contact
+  const order = await tx.order.findFirst({
+    where: { id: orderId, orgId },
+    include: {
+      items: true,
+      contact: true,
+      kiotvietJob: true,
+    },
+  });
 
     if (!order) {
       throw new KiotvietConflictError('Order not found', 'order_not_found');
@@ -189,5 +189,11 @@ export async function enqueueInvoice(params: EnqueueInvoiceParams) {
     });
 
     return { order: updatedOrder, jobId: job.id };
-  });
+}
+
+/**
+ * Convenience wrapper that runs enqueueInvoiceTx in its own transaction.
+ */
+export async function enqueueInvoice(params: EnqueueInvoiceParams) {
+  return await prisma.$transaction(async (tx) => enqueueInvoiceTx(tx, params));
 }

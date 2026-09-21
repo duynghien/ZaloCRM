@@ -78,31 +78,30 @@ async function processCatalogJob(orgId: string): Promise<void> {
   const now = new Date();
   const leaseExpiresAt = new Date(now.getTime() + LEASE_DURATION_MS);
 
-  const claimed = await prisma.$transaction(async (tx) => {
-    const state = await tx.kiotvietSyncState.findFirst({
-      where: {
-        orgId,
-        OR: [
-          { status: 'queued' },
-          { status: 'running', leaseExpiresAt: { lt: now } },
-        ],
-      },
-    });
-
-    if (!state || !state.runId) return null;
-
-    return await tx.kiotvietSyncState.update({
-      where: { orgId },
-      data: {
-        status: 'running',
-        leaseOwner: WORKER_ID,
-        leaseExpiresAt,
-        leaseVersion: { increment: 1 },
-      },
-    });
+  const claimedCount = await prisma.kiotvietSyncState.updateMany({
+    where: {
+      orgId,
+      runId: { not: null },
+      OR: [
+        { status: 'queued' },
+        { status: 'running', leaseExpiresAt: { lt: now } },
+      ],
+    },
+    data: {
+      status: 'running',
+      leaseOwner: WORKER_ID,
+      leaseExpiresAt,
+      leaseVersion: { increment: 1 },
+    },
   });
 
-  if (!claimed) return;
+  if (claimedCount.count !== 1) return;
+
+  const claimed = await prisma.kiotvietSyncState.findUnique({
+    where: { orgId },
+  });
+
+  if (!claimed || claimed.leaseOwner !== WORKER_ID) return;
 
   const runId = claimed.runId!;
   const mode = claimed.runMode as KiotvietCatalogRunMode;
@@ -145,7 +144,7 @@ async function processCatalogJob(orgId: string): Promise<void> {
 
       if (
         liveState?.leaseOwner !== WORKER_ID ||
-        liveState.leaseVersion !== claimed.leaseVersion + 1 ||
+        liveState.leaseVersion !== claimed.leaseVersion ||
         liveState.configRevision !== configRevision
       ) {
         throw new Error('Lost lease or config revision changed during catalog sync');

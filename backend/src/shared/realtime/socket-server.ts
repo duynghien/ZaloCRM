@@ -25,7 +25,7 @@ export function initializeSocketServer(app: FastifyInstance): Server {
 
   io.use(async (socket, next) => {
     try {
-      const token = socket.handshake.auth?.token || socket.handshake.query?.token;
+      const token = socket.handshake.auth?.token;
       if (typeof token !== 'string') throw new Error('Token required');
       const claims = app.jwt.verify<JwtPayload & { exp: number }>(token);
       if (!claims.sessionId || !Number.isFinite(claims.exp)) throw new Error('Invalid token');

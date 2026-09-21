@@ -8,7 +8,15 @@
     <!-- API Key section -->
     <v-card class="mb-4" elevation="0">
       <v-card-title class="text-body-1 font-weight-bold" style="font-family: 'Space Grotesk', sans-serif;">API Key</v-card-title>
-      <v-card-text>
+        <v-alert
+          v-if="justGenerated"
+          type="warning"
+          variant="tonal"
+          density="compact"
+          class="mb-3"
+        >
+          Khóa API mới đã được tạo. Hãy sao chép và lưu trữ an toàn ngay bây giờ. Vì lý do bảo mật, khóa sẽ được ẩn sau khi tải lại trang.
+        </v-alert>
         <v-text-field
           v-model="apiKey"
           label="API Key"
@@ -97,6 +105,7 @@ import { api } from '@/api';
 const apiKey = ref('');
 const showApiKey = ref(false);
 const generatingKey = ref(false);
+const justGenerated = ref(false);
 const webhookUrl = ref('');
 const webhookSecret = ref('');
 const saving = ref(false);
@@ -109,6 +118,7 @@ function showSnack(text: string, color = 'success') {
 }
 
 async function loadApiKey() {
+  justGenerated.value = false;
   try {
     const res = await api.get('/settings/api-key');
     apiKey.value = res.data.apiKey ?? res.data.key ?? '';
@@ -133,6 +143,7 @@ async function generateKey() {
   try {
     const res = await api.post('/settings/api-key/generate');
     apiKey.value = res.data.apiKey ?? res.data.key ?? '';
+    justGenerated.value = true;
     showSnack('API key mới đã được tạo');
   } catch {
     showSnack('Tạo key thất bại', 'error');

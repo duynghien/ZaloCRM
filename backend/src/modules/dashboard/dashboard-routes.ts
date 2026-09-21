@@ -7,6 +7,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireRole } from '../auth/role-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { getVnDayStartUtc } from '../../shared/utils/date-utils.js';
 import { handleGetAiKpi } from './dashboard-ai-kpi-handler.js';
 
 type QueryParams = Record<string, string>;
@@ -15,11 +16,7 @@ type QueryParams = Record<string, string>;
 
 // Compute today's boundaries in UTC based on VN timezone (UTC+7)
 function todayRange() {
-  const now = new Date();
-  const vnOffset = 7 * 60 * 60 * 1000;
-  const vnNow = new Date(now.getTime() + vnOffset);
-  const todayVN = new Date(vnNow.getFullYear(), vnNow.getMonth(), vnNow.getDate());
-  const today = new Date(todayVN.getTime() - vnOffset);
+  const today = getVnDayStartUtc();
   const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000);
   return { today, tomorrow };
 }

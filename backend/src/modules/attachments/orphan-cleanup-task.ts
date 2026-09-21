@@ -10,6 +10,7 @@ import path from 'node:path';
 import cron from 'node-cron';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
+import { withCronLock, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
 
 let cleanupCronTask: ReturnType<typeof cron.schedule> | undefined;
 const activeCleanupRuns = new Set<Promise<any>>();
@@ -26,19 +27,20 @@ export interface CleanupReport {
  * Scan attachments/staged/ and unlink files older than maxAgeMs.
  */
 export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promise<CleanupReport> {
-  const stagedDir = path.join(config.uploadDir, 'attachments', 'staged');
-  const report: CleanupReport = {
-    scannedCount: 0,
-    cleanedCount: 0,
-    errorCount: 0,
-  };
+  const lockResult = await withCronLock(CRON_LOCKS.ORPHAN_CLEANUP, async () => {
+    const stagedDir = path.join(config.uploadDir, 'attachments', 'staged');
+    const report: CleanupReport = {
+      scannedCount: 0,
+      cleanedCount: 0,
+      errorCount: 0,
+    };
 
-  try {
-    await fs.access(stagedDir);
-  } catch {
-    // Directory doesn't exist yet, nothing to clean
-    return report;
-  }
+    try {
+      await fs.access(stagedDir);
+    } catch {
+      // Directory doesn't exist yet, nothing to clean
+      return report;
+    }
 
   let entries: string[] = [];
   try {
@@ -71,9 +73,14 @@ export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promis
       report.errorCount++;
       logger.warn(`[cleanup] Failed to clean staged file ${entry}:`, err);
     }
-  }
+    }
+    return report;
+  });
 
-  return report;
+  if (!lockResult.executed) {
+    return { scannedCount: 0, cleanedCount: 0, errorCount: 0 };
+  }
+  return lockResult.result;
 }
 
 /**

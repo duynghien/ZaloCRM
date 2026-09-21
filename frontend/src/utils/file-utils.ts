@@ -1,22 +1,14 @@
-import { getAccessToken } from '@/api';
-
 /**
  * File utility functions for media & attachment presentation
  */
 
 /**
- * Resolves an attachment URL by appending an authenticated query token if needed.
- * This guarantees browser <img> and download links load seamlessly even when
- * HttpOnly cookies are missing, rejected over plain HTTP, or cross-site.
+ * Resolves an attachment URL. Same-origin requests rely on HttpOnly media session cookies
+ * or explicit short-lived tickets. Query tokens are no longer appended to prevent JWT leakage.
  */
 export function resolveAttachmentUrl(url?: string): string {
   if (!url) return '';
-  if (!url.startsWith('/api/v1/attachments/')) return url;
-  if (url.includes('ticket=') || url.includes('token=') || url.includes('t=')) return url;
-  const token = getAccessToken();
-  if (!token) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return `${url}${sep}token=${encodeURIComponent(token)}`;
+  return url;
 }
 
 

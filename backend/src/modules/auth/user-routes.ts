@@ -5,6 +5,8 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { authMiddleware } from './auth-middleware.js';
 import { revokeUserSessions, validatePassword } from './auth-service.js';
+import { assertTeamInOrg } from '../../shared/security/tenant-assertions.js';
+import { TenantIsolationError } from '../../shared/errors/index.js';
 
 type CurrentUser = { id: string; email: string; role: string; orgId: string };
 const forbidden = (reply: FastifyReply) => reply.status(403).send({ error: 'Không có quyền' });
@@ -29,6 +31,16 @@ export async function userRoutes(app: FastifyInstance) {
     if (!['member', 'admin'].includes(role) || (role === 'admin' && currentUser.role !== 'owner')) return forbidden(reply);
     validatePassword(password);
     if (await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } })) return reply.status(400).send({ error: 'Email đã tồn tại' });
+    if (teamId) {
+      try {
+        await assertTeamInOrg(prisma, currentUser.orgId, teamId);
+      } catch (err: any) {
+        if (err instanceof TenantIsolationError) {
+          return reply.status(err.statusCode).send({ error: err.message });
+        }
+        throw err;
+      }
+    }
     const user = await prisma.user.create({ data: { orgId: currentUser.orgId, email: email.toLowerCase().trim(), fullName: fullName.trim(), passwordHash: await bcrypt.hash(password, 12), role, teamId: teamId || null }, select: { id: true, email: true, fullName: true, role: true, isActive: true, createdAt: true } });
     logger.info(`User created: ${user.id} by ${currentUser.id}`);
     return user;
@@ -47,7 +59,19 @@ export async function userRoutes(app: FastifyInstance) {
     const data: Record<string, unknown> = {};
     if (body.fullName !== undefined) data.fullName = body.fullName.trim();
     if (body.email !== undefined) data.email = body.email.toLowerCase().trim();
-    if (managesTarget && body.teamId !== undefined) data.teamId = body.teamId || null;
+    if (managesTarget && body.teamId !== undefined) {
+      if (body.teamId) {
+        try {
+          await assertTeamInOrg(prisma, currentUser.orgId, body.teamId);
+        } catch (err: any) {
+          if (err instanceof TenantIsolationError) {
+            return reply.status(err.statusCode).send({ error: err.message });
+          }
+          throw err;
+        }
+      }
+      data.teamId = body.teamId || null;
+    }
     if (body.role !== undefined) data.role = body.role;
     if (body.isActive !== undefined) data.isActive = body.isActive;
     const user = await prisma.user.update({ where: { id }, data, select: { id: true, email: true, fullName: true, role: true, isActive: true, teamId: true } });

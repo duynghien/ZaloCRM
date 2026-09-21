@@ -28,7 +28,7 @@ import {
   isOrderFinancialLocked,
   assertOrderNotLockedForFinancialChanges,
 } from './order-invoice-lock.js';
-import { enqueueInvoice } from '../integrations/kiotviet/kiotviet-invoice-service.js';
+import { enqueueInvoice, enqueueInvoiceTx } from '../integrations/kiotviet/kiotviet-invoice-service.js';
 import { reconcileInvoice } from '../integrations/kiotviet/kiotviet-invoice-reconciliation.js';
 import {
   getKiotvietConfig,
@@ -199,10 +199,11 @@ export async function orderRoutes(app: FastifyInstance) {
 
           // RBAC: Check confirmation / payment permissions if auto-sync is enabled
           const isPrivileged = ['owner', 'admin'].includes(user.role);
-          const isConfirmedOrPaid =
-            body.status === 'confirmed' || (payment.paidAmount !== null && payment.paidAmount > 0);
+          const isAutoSyncEligibleStatus =
+            ['confirmed', 'paid', 'shipped', 'completed'].includes(body.status as string) ||
+            (payment.paidAmount !== null && payment.paidAmount > 0);
 
-          if (isConfirmedOrPaid && !isPrivileged) {
+          if (isAutoSyncEligibleStatus && !isPrivileged) {
             const config = await getKiotvietConfig(user.orgId, tx);
             if (config?.autoSync) {
               throw new RequestValidationError(
@@ -268,12 +269,15 @@ export async function orderRoutes(app: FastifyInstance) {
           ) {
             const config = await getKiotvietConfig(user.orgId, tx);
             if (config?.autoSync) {
-              await enqueueInvoice({
+              const enqueueRes = await enqueueInvoiceTx(tx, {
                 orderId: createdOrder.id,
                 orgId: user.orgId,
                 mode: 'automatic',
                 actorId: user.id,
               });
+              if (enqueueRes?.order?.kiotvietSyncStatus) {
+                createdOrder.kiotvietSyncStatus = enqueueRes.order.kiotvietSyncStatus;
+              }
             }
           }
 
@@ -395,9 +399,14 @@ export async function orderRoutes(app: FastifyInstance) {
         const isPrivileged = ['owner', 'admin'].includes(user.role);
         const newStatus = (updateData.status as string) || existing.status;
         const newPaid = updateData.paidAmount !== undefined ? updateData.paidAmount : (existing.paidAmount ? Number(existing.paidAmount) : 0);
-        const isConfirmedOrPaid = newStatus === 'confirmed' || (newPaid !== null && newPaid > 0);
+        const isAutoSyncEligible =
+          ['confirmed', 'paid', 'shipped', 'completed'].includes(newStatus) || (newPaid !== null && newPaid > 0);
 
-        if (isConfirmedOrPaid && !isPrivileged && (existing.status !== 'confirmed')) {
+        if (
+          isAutoSyncEligible &&
+          !isPrivileged &&
+          !['confirmed', 'paid', 'shipped', 'completed'].includes(existing.status)
+        ) {
           const config = await getKiotvietConfig(user.orgId, tx);
           if (config?.autoSync) {
             throw new RequestValidationError(
@@ -458,12 +467,15 @@ export async function orderRoutes(app: FastifyInstance) {
         ) {
           const config = await getKiotvietConfig(user.orgId, tx);
           if (config?.autoSync) {
-            await enqueueInvoice({
+            const enqueueRes = await enqueueInvoiceTx(tx, {
               orderId: updated.id,
               orgId: user.orgId,
               mode: 'automatic',
               actorId: user.id,
             });
+            if (enqueueRes?.order?.kiotvietSyncStatus) {
+              updated.kiotvietSyncStatus = enqueueRes.order.kiotvietSyncStatus;
+            }
           }
         }
 

@@ -7,6 +7,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { assertUserInOrg } from '../../shared/security/tenant-assertions.js';
+import { TenantIsolationError } from '../../shared/errors/index.js';
+import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
+import { RequestValidationError } from '../../shared/http/request-schemas.js';
 
 type QueryParams = Record<string, string>;
 
@@ -38,8 +42,8 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         ];
       }
 
-      const pageNum = parseInt(page);
-      const limitNum = parseInt(limit);
+      const pageNum = boundedPositiveInt(page, 1, 10_000);
+      const limitNum = boundedPositiveInt(limit, 50, 100);
 
       const [contacts, total] = await Promise.all([
         prisma.contact.findMany({
@@ -56,7 +60,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       ]);
 
       return { contacts, total, page: pageNum, limit: limitNum };
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof RequestValidationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[contacts] List error:', err);
       return reply.status(500).send({ error: 'Failed to fetch contacts' });
     }
@@ -142,6 +149,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const body = request.body as Record<string, any>;
 
+      if (body.assignedUserId) {
+        await assertUserInOrg(prisma, user.orgId, body.assignedUserId);
+      }
+
       const contact = await prisma.contact.create({
         data: {
           orgId: user.orgId,
@@ -162,7 +173,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.status(201).send(contact);
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof TenantIsolationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[contacts] Create error:', err);
       return reply.status(500).send({ error: 'Failed to create contact' });
     }
@@ -177,6 +191,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
+
+      if (body.assignedUserId !== undefined && body.assignedUserId !== null) {
+        await assertUserInOrg(prisma, user.orgId, body.assignedUserId);
+      }
 
       const updateData: any = {
         fullName: body.fullName,
@@ -207,7 +225,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return updated;
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof TenantIsolationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[contacts] Update error:', err);
       return reply.status(500).send({ error: 'Failed to update contact' });
     }
@@ -235,6 +256,12 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       if (body.status !== undefined) updateData.status = body.status;
       if (body.notes !== undefined) updateData.notes = body.notes;
       if (body.tags !== undefined) updateData.tags = body.tags;
+      if (body.assignedUserId !== undefined) {
+        if (body.assignedUserId !== null) {
+          await assertUserInOrg(prisma, user.orgId, body.assignedUserId);
+        }
+        updateData.assignedUserId = body.assignedUserId;
+      }
 
       let mergedMetadata = typeof existing.metadata === 'object' && existing.metadata !== null
         ? { ...(existing.metadata as Record<string, any>) }
@@ -268,7 +295,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return updated;
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof TenantIsolationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[contacts] Patch error:', err);
       return reply.status(500).send({ error: 'Failed to patch contact' });
     }

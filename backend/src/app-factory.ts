@@ -38,6 +38,7 @@ import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js
 import { kiotvietRoutes } from './modules/integrations/kiotviet/kiotviet-routes.js';
 
 import { initializeSocketServer } from './shared/realtime/socket-server.js';
+import { messageDeliveryService } from './modules/zalo/message-delivery-service.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -83,18 +84,11 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
     },
   });
 
-  // Rate limiting with higher limits and per-key tracking
+  // Rate limiting with trusted IP key generation
   await app.register(rateLimit, {
     max: 1000,
     timeWindow: '1 minute',
-    // Use different limits for different clients
     keyGenerator: (request) => {
-      // Use API key for authenticated requests
-      const apiKey = request.headers['x-api-key'] as string;
-      if (apiKey) {
-        return `api:${apiKey}`;
-      }
-      // Use IP for other requests
       return request.ip;
     },
   });
@@ -109,6 +103,7 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
 
   initializeSocketServer(app);
   chatTurnDebouncer.init(app.io);
+  messageDeliveryService.setIO(app.io);
 
   // ── Routes ────────────────────────────────────────────────────────────────
 
@@ -164,9 +159,17 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   // ── Error handler ─────────────────────────────────────────────────────────
 
   app.setErrorHandler((error: Error & { statusCode?: number }, request, reply) => {
-    logger.error(`[http] Request error on ${request.method} ${request.url}: ${error.message}`);
-    reply.status(error.statusCode ?? 500).send({
-      error: error.message || 'Internal Server Error',
+    const status = error.statusCode ?? 500;
+    logger.error(`[http] Request error on ${request.method} ${request.url}: ${error.stack || error.message}`);
+    if (status >= 500 && config.isProduction) {
+      return reply.status(status).send({
+        error: 'Internal Server Error',
+        requestId: request.id,
+      });
+    }
+    return reply.status(status).send({
+      error: error.message || (status >= 500 ? 'Internal Server Error' : 'Bad Request'),
+      ...(config.isProduction ? {} : { stack: error.stack }),
     });
   });
 

@@ -14,6 +14,14 @@ import {
   getAttachmentsBaseDir,
 } from '../../src/modules/attachments/attachment-routes.js';
 
+vi.mock('../../src/shared/database/prisma-client.js', () => ({
+  prisma: {
+    authSession: {
+      findFirst: vi.fn(async () => ({ id: 'valid-session' })),
+    },
+  },
+}));
+
 vi.mock('../../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: vi.fn(async (req: any) => {
     req.user = { id: 'u-1', orgId: 'org-test', role: 'owner', email: 'test@example.com' };

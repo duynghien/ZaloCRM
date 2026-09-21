@@ -75,28 +75,72 @@ export function isSocketAuthenticationFailure(message: string): boolean {
     || normalized.includes('jwt');
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event: StorageEvent) => {
+    if (event.key === TOKEN_STORAGE_KEY || event.key === 'token') {
+      accessToken.value = event.newValue || '';
+    }
+  });
+}
+
+function isTokenFresh(token: string): boolean {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return false;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join(''),
+    );
+    const payload = JSON.parse(jsonPayload);
+    if (typeof payload.exp !== 'number') return false;
+    return payload.exp * 1000 > Date.now() + 10000;
+  } catch {
+    return false;
+  }
+}
+
+async function executeRefreshCall(): Promise<string> {
+  try {
+    const response = await refreshApi.post('/auth/refresh', undefined, {
+      headers: { 'X-CSRF-Token': getCookie('zalo_crm_csrf') },
+    });
+    const token = response.data.token;
+    if (!token) throw new Error('Refresh response did not include an access token');
+    setAccessToken(token);
+    return token;
+  } catch (error: unknown) {
+    if (isAuthenticationFailure(error)) {
+      clearAccessToken();
+      redirectToLogin();
+    }
+    throw error;
+  }
+}
+
+async function performRefresh(): Promise<string> {
+  if (typeof navigator !== 'undefined' && navigator.locks) {
+    return navigator.locks.request('zalocrm_token_refresh', async () => {
+      const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem('token');
+      if (stored && isTokenFresh(stored)) {
+        accessToken.value = stored;
+        return stored;
+      }
+      return executeRefreshCall();
+    });
+  }
+  return executeRefreshCall();
+}
+
 /** Shares a refresh exchange so concurrent expired requests rotate the session once. */
 export function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
-    refreshPromise = refreshApi.post('/auth/refresh', undefined, {
-      headers: { 'X-CSRF-Token': getCookie('zalo_crm_csrf') },
-    })
-      .then((response) => {
-        const token = response.data.token;
-        if (!token) throw new Error('Refresh response did not include an access token');
-        setAccessToken(token);
-        return token;
-      })
-      .catch((error: unknown) => {
-        if (isAuthenticationFailure(error)) {
-          clearAccessToken();
-          redirectToLogin();
-        }
-        throw error;
-      })
-      .finally(() => {
-        refreshPromise = null;
-      });
+    refreshPromise = performRefresh().finally(() => {
+      refreshPromise = null;
+    });
   }
 
   return refreshPromise;

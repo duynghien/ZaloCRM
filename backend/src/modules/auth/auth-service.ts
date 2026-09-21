@@ -8,7 +8,7 @@ import { logger } from '../../shared/utils/logger.js';
 
 export interface JwtPayload { id: string; email: string; role: string; orgId: string; sessionId: string; fullName?: string; }
 export interface AuthIdentity { id: string; email: string; role: string; orgId: string; fullName: string; }
-export interface SessionTokens { accessToken: string; refreshToken: string; expiresAt: Date; }
+export interface SessionTokens { accessToken: string; refreshToken: string; expiresAt: Date; sessionId: string; }
 type RefreshLookup = { id: string; familyId: string; refreshTokenHash: string; expiresAt: Date; revokedAt: Date | null; replacedBySessionId: string | null; user: AuthIdentity & { isActive: boolean }; };
 type SessionRevocationListener = (sessionIds: string[]) => void;
 
@@ -74,7 +74,7 @@ export async function login(email: string, password: string): Promise<AuthIdenti
 export async function createSession(app: FastifyInstance, identity: AuthIdentity, familyId = randomUUID()): Promise<SessionTokens> {
   const id = randomUUID(); const refreshToken = makeRefreshToken(id); const expiresAt = new Date(Date.now() + config.refreshSessionTtlMs);
   await prisma.authSession.create({ data: { id, userId: identity.id, familyId, refreshTokenHash: refreshTokenHash(refreshToken), expiresAt } });
-  return { accessToken: app.jwt.sign({ ...identity, sessionId: id } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt };
+  return { accessToken: app.jwt.sign({ ...identity, sessionId: id } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt, sessionId: id };
 }
 
 export async function rotateSession(app: FastifyInstance, opaqueToken: string): Promise<{ tokens: SessionTokens; identity: AuthIdentity }> {
@@ -94,7 +94,7 @@ export async function rotateSession(app: FastifyInstance, opaqueToken: string): 
     const consumed = await tx.authSession.updateMany({ where: { id: session.id, revokedAt: null, replacedBySessionId: null, rotatedAt: null, lastUsedAt: null }, data: { rotatedAt: now, lastUsedAt: now, replacedBySessionId: replacementId, revokedAt: now, revokedReason: 'rotated' } });
     if (consumed.count !== 1) return { kind: 'reused' as const, familyId: session.familyId };
     await tx.authSession.create({ data: { id: replacementId, userId: identity.id, familyId: session.familyId, refreshTokenHash: refreshTokenHash(refreshToken), expiresAt } });
-    return { kind: 'rotated' as const, revokedSessionId: session.id, tokens: { accessToken: app.jwt.sign({ ...identity, sessionId: replacementId } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt }, identity };
+    return { kind: 'rotated' as const, revokedSessionId: session.id, tokens: { accessToken: app.jwt.sign({ ...identity, sessionId: replacementId } as never, { expiresIn: config.accessTokenTtl }), refreshToken, expiresAt, sessionId: replacementId }, identity };
   });
 
   if (result.kind === 'rotated') {

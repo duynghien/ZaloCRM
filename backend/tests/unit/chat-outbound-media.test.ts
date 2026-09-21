@@ -12,6 +12,7 @@ import fastifyCookie from '@fastify/cookie';
 import fastifyJwt from '@fastify/jwt';
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 
 vi.mock('../../src/modules/auth/auth-middleware.js', () => ({
   authMiddleware: vi.fn(async (req: any) => {
@@ -78,7 +79,8 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     const stagedDir = path.join(testBaseDir, 'staged');
     const orgDir = path.join(testBaseDir, orgId);
 
-    const stagedFilename = `${orgId}-att-uuid-1-baogia.pdf`;
+    const uuid1 = randomUUID();
+    const stagedFilename = `${orgId}-${uuid1}-baogia.pdf`;
     fs.writeFileSync(path.join(stagedDir, stagedFilename), '%PDF-1.4 test quote content');
 
     vi.spyOn(prisma.conversation, 'findFirst').mockResolvedValue({
@@ -110,7 +112,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
       url: `/api/v1/conversations/${convId}/messages`,
       payload: {
         content: 'Báo giá dịch vụ ạ',
-        attachmentIds: ['att-uuid-1'],
+        attachmentIds: [uuid1],
       },
     });
 
@@ -153,7 +155,8 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     const stagedDir = path.join(testBaseDir, 'staged');
     const orgDir = path.join(testBaseDir, orgId);
 
-    const stagedFilename = `${orgId}-att-uuid-2-screenshot.png`;
+    const uuid2 = randomUUID();
+    const stagedFilename = `${orgId}-${uuid2}-screenshot.png`;
     fs.writeFileSync(path.join(stagedDir, stagedFilename), 'fake png');
 
     vi.spyOn(prisma.conversation, 'findFirst').mockResolvedValue({
@@ -183,7 +186,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
       method: 'POST',
       url: `/api/v1/conversations/${convId}/messages`,
       payload: {
-        attachmentIds: ['att-uuid-2'],
+        attachmentIds: [uuid2],
       },
     });
 
@@ -204,7 +207,8 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     const convId = 'conv-test-3';
     const stagedDir = path.join(testBaseDir, 'staged');
 
-    const stagedFilename = `${orgId}-att-uuid-fail-sample.pdf`;
+    const uuidFail = randomUUID();
+    const stagedFilename = `${orgId}-${uuidFail}-sample.pdf`;
     const stagedPath = path.join(stagedDir, stagedFilename);
     fs.writeFileSync(stagedPath, '%PDF-1.4 sample');
 
@@ -230,7 +234,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
       url: `/api/v1/conversations/${convId}/messages`,
       payload: {
         content: 'File đây',
-        attachmentIds: ['att-uuid-fail'],
+        attachmentIds: [uuidFail],
       },
     });
 

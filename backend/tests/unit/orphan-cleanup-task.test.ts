@@ -5,6 +5,13 @@ import os from 'node:os';
 import { runOrphanCleanup, startOrphanCleanupTask, stopOrphanCleanupTask } from '../../src/modules/attachments/orphan-cleanup-task.js';
 import { config } from '../../src/config/index.js';
 
+vi.mock('../../src/shared/utils/lock-registry.js', () => ({
+  CRON_LOCKS: {
+    ORPHAN_CLEANUP: 84732614,
+  },
+  withCronLock: vi.fn(async (_lockId, fn) => ({ executed: true, result: await fn() })),
+}));
+
 describe('orphan-cleanup-task', () => {
   let tempDir: string;
   let stagedDir: string;

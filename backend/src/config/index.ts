@@ -39,14 +39,19 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 function resolveUploadDir(): string {
-  const preferred = process.env.UPLOAD_DIR || '/var/lib/zalo-crm/files';
+  const preferred = process.env.UPLOAD_DIR || (isProduction ? '/var/lib/zalo-crm/files' : path.resolve(process.cwd(), 'uploads'));
   try {
     fs.mkdirSync(preferred, { recursive: true });
     const probe = path.join(preferred, `.probe-${Date.now()}`);
     fs.writeFileSync(probe, '');
     fs.unlinkSync(probe);
     return preferred;
-  } catch {
+  } catch (err: any) {
+    if (isProduction) {
+      const errorMsg = `[FATAL ERROR] Production UPLOAD_DIR (${preferred}) is not writable or accessible: ${err?.message || err}. Refusing to fall back to ephemeral storage in production.`;
+      console.error(errorMsg);
+      throw new Error(errorMsg);
+    }
     const fallback = path.resolve(process.cwd(), 'uploads');
     try {
       fs.mkdirSync(fallback, { recursive: true });

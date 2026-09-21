@@ -24,6 +24,26 @@ import {
   atomicMigrateLegacyAttachment,
 } from './attachment-legacy-migration.js';
 import { logger } from '../../shared/utils/logger.js';
+import { prisma } from '../../shared/database/prisma-client.js';
+import { registerSessionRevocationListener } from '../auth/auth-service.js';
+
+const sessionCache = new Map<string, { validUntil: number; orgId: string }>();
+
+registerSessionRevocationListener((sessionIds) => {
+  const set = new Set(sessionIds);
+  for (const [key] of sessionCache) {
+    const parts = key.split(':');
+    const sid = parts[1];
+    if (sid && set.has(sid)) {
+      sessionCache.delete(key);
+    }
+  }
+});
+
+export function clearAttachmentSessionCacheForTesting(): void {
+  sessionCache.clear();
+}
+
 
 export function getAttachmentsBaseDir(): string {
   const baseDir = config.uploadDir || path.resolve(process.cwd(), 'uploads');
@@ -179,11 +199,20 @@ export async function attachmentRoutes(app: FastifyInstance) {
         }
       }
 
-      // 2. Fallback for legacy callers passing only fileId
+      // 2. Fallback for legacy callers passing only fileId (exact UUID)
       const files = await fs.promises.readdir(stagedDir).catch(() => []);
-      const targetFile = files.find(
-        (f) => f.startsWith(`${user.orgId}-`) && (f.includes(safeId) || f === safeId),
-      );
+      const stagedFileRegex = /^([a-zA-Z0-9_-]+)-([a-f0-9-]{36})-(.+)$/;
+      const isUuid = /^[a-f0-9-]{36}$/i.test(safeId);
+
+      const targetFile = files.find((f) => {
+        if (!f.startsWith(`${user.orgId}-`)) return false;
+        if (f === safeId) return true;
+        if (isUuid) {
+          const match = f.match(stagedFileRegex);
+          return match ? match[1] === user.orgId && match[2].toLowerCase() === safeId.toLowerCase() : false;
+        }
+        return false;
+      });
 
       if (targetFile) {
         await fs.promises.unlink(path.join(stagedDir, targetFile)).catch(() => {});
@@ -249,8 +278,28 @@ export async function attachmentRoutes(app: FastifyInstance) {
     if (mediaCookie) {
       try {
         const decoded = app.jwt.verify(mediaCookie) as any;
-        if (decoded && decoded.orgId) {
-          authenticatedOrgId = decoded.orgId;
+        if (decoded && decoded.orgId && decoded.sessionId && decoded.id) {
+          const cacheKey = `${decoded.orgId}:${decoded.sessionId}`;
+          const cached = sessionCache.get(cacheKey);
+          if (cached && cached.validUntil > Date.now()) {
+            authenticatedOrgId = cached.orgId;
+          } else {
+            const session = await prisma.authSession.findFirst({
+              where: {
+                id: decoded.sessionId,
+                userId: decoded.id,
+                revokedAt: null,
+                expiresAt: { gt: new Date() },
+              },
+            });
+            if (session) {
+              sessionCache.set(cacheKey, {
+                validUntil: Date.now() + 45_000,
+                orgId: decoded.orgId,
+              });
+              authenticatedOrgId = decoded.orgId;
+            }
+          }
         }
       } catch {}
     }
@@ -270,24 +319,35 @@ export async function attachmentRoutes(app: FastifyInstance) {
     if (!authenticatedOrgId) {
       try {
         await request.jwtVerify();
-        const user = request.user as { orgId?: string };
+        const user = request.user as { id?: string; orgId?: string; sessionId?: string };
         if (user?.orgId) {
-          authenticatedOrgId = user.orgId;
+          if (user.sessionId && user.id) {
+            const cacheKey = `${user.orgId}:${user.sessionId}`;
+            const cached = sessionCache.get(cacheKey);
+            if (cached && cached.validUntil > Date.now()) {
+              authenticatedOrgId = cached.orgId;
+            } else {
+              const session = await prisma.authSession.findFirst({
+                where: {
+                  id: user.sessionId,
+                  userId: user.id,
+                  revokedAt: null,
+                  expiresAt: { gt: new Date() },
+                },
+              });
+              if (session) {
+                sessionCache.set(cacheKey, {
+                  validUntil: Date.now() + 45_000,
+                  orgId: user.orgId,
+                });
+                authenticatedOrgId = user.orgId;
+              }
+            }
+          } else {
+            authenticatedOrgId = user.orgId;
+          }
         }
       } catch {}
-    }
-
-    // 4. Check Query Token (JWT access or media token passed as ?token=... or ?t=...)
-    if (!authenticatedOrgId) {
-      const queryToken = (request.query as any)?.token || (request.query as any)?.t;
-      if (queryToken && typeof queryToken === 'string') {
-        try {
-          const decoded = app.jwt.verify(queryToken) as any;
-          if (decoded && decoded.orgId) {
-            authenticatedOrgId = decoded.orgId;
-          }
-        } catch {}
-      }
     }
 
     if (!authenticatedOrgId) {

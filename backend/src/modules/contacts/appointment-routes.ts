@@ -7,6 +7,10 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { logger } from '../../shared/utils/logger.js';
+import { assertContactInOrg, assertUserInOrg } from '../../shared/security/tenant-assertions.js';
+import { TenantIsolationError } from '../../shared/errors/index.js';
+import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
+import { RequestValidationError } from '../../shared/http/request-schemas.js';
 
 type QueryParams = Record<string, string>;
 
@@ -77,17 +81,29 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         dateTo = '',
       } = request.query as QueryParams;
 
+      const pageNum = boundedPositiveInt(page, 1, 10_000);
+      const limitNum = boundedPositiveInt(limit, 50, 100);
+
       const where: any = { orgId: user.orgId };
       if (status) where.status = status;
       if (contactId) where.contactId = contactId;
       if (dateFrom || dateTo) {
         where.appointmentDate = {};
-        if (dateFrom) where.appointmentDate.gte = new Date(dateFrom);
-        if (dateTo) where.appointmentDate.lte = new Date(dateTo);
+        if (dateFrom) {
+          const fromDate = new Date(dateFrom);
+          if (isNaN(fromDate.getTime())) {
+            return reply.status(400).send({ error: 'Invalid dateFrom format' });
+          }
+          where.appointmentDate.gte = fromDate;
+        }
+        if (dateTo) {
+          const toDate = new Date(dateTo);
+          if (isNaN(toDate.getTime())) {
+            return reply.status(400).send({ error: 'Invalid dateTo format' });
+          }
+          where.appointmentDate.lte = toDate;
+        }
       }
-
-      const pageNum = parseInt(page);
-      const limitNum = parseInt(limit);
 
       const [appointments, total] = await Promise.all([
         prisma.appointment.findMany({
@@ -101,7 +117,10 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       ]);
 
       return { appointments, total, page: pageNum, limit: limitNum };
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof RequestValidationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[appointments] List error:', err);
       return reply.status(500).send({ error: 'Failed to fetch appointments' });
     }
@@ -136,11 +155,21 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'contactId and appointmentDate are required' });
       }
 
+      const appointmentDate = new Date(body.appointmentDate);
+      if (isNaN(appointmentDate.getTime())) {
+        return reply.status(400).send({ error: 'Invalid appointmentDate' });
+      }
+
+      await assertContactInOrg(prisma, user.orgId, body.contactId);
+      if (body.assignedUserId) {
+        await assertUserInOrg(prisma, user.orgId, body.assignedUserId, { requireActive: true });
+      }
+
       // Deduplication: prevent same contact + same date within org
       const existing = await prisma.appointment.findFirst({
         where: {
           contactId: body.contactId,
-          appointmentDate: new Date(body.appointmentDate),
+          appointmentDate,
           orgId: user.orgId,
         },
       });
@@ -153,7 +182,7 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
           orgId: user.orgId,
           contactId: body.contactId,
           assignedUserId: body.assignedUserId ?? user.id,
-          appointmentDate: new Date(body.appointmentDate),
+          appointmentDate,
           appointmentTime: body.appointmentTime,
           type: body.type,
           status: body.status ?? 'scheduled',
@@ -163,7 +192,10 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return reply.status(201).send(appointment);
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof TenantIsolationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[appointments] Create error:', err);
       return reply.status(500).send({ error: 'Failed to create appointment' });
     }
@@ -179,12 +211,27 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       const existing = await prisma.appointment.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
       if (!existing) return reply.status(404).send({ error: 'Appointment not found' });
 
+      if (body.contactId !== undefined) {
+        await assertContactInOrg(prisma, user.orgId, body.contactId);
+      }
+      if (body.assignedUserId !== undefined && body.assignedUserId !== null) {
+        await assertUserInOrg(prisma, user.orgId, body.assignedUserId, { requireActive: true });
+      }
+
+      let parsedDate: Date | undefined;
+      if (body.appointmentDate !== undefined) {
+        parsedDate = new Date(body.appointmentDate);
+        if (isNaN(parsedDate.getTime())) {
+          return reply.status(400).send({ error: 'Invalid appointmentDate' });
+        }
+      }
+
       const updated = await prisma.appointment.update({
         where: { id },
         data: {
           contactId: body.contactId,
           assignedUserId: body.assignedUserId,
-          appointmentDate: body.appointmentDate ? new Date(body.appointmentDate) : undefined,
+          appointmentDate: parsedDate,
           appointmentTime: body.appointmentTime,
           type: body.type,
           status: body.status,
@@ -194,7 +241,10 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       });
 
       return updated;
-    } catch (err) {
+    } catch (err: any) {
+      if (err instanceof TenantIsolationError) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[appointments] Update error:', err);
       return reply.status(500).send({ error: 'Failed to update appointment' });
     }

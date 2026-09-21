@@ -11,7 +11,7 @@ export async function createTestApp() {
     const app = await createApp();
     const url = await app.listen({ host: '127.0.0.1', port: 0 });
     return { app, prisma, url, stopDatabase: database.stop, close: async () => {
-      try { await app.close(); } finally { try { await prisma.$disconnect(); } finally { await database.stop(); } }
+      try { await app.close(); } finally { try { if (typeof prisma?.$disconnect === 'function') await prisma.$disconnect(); } finally { await database.stop(); } }
     } };
   } catch (error) { await database.stop(); throw error; }
 }

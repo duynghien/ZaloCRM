@@ -6,6 +6,8 @@ test('member settings page receives forbidden responses and never reveals or rot
   const generated = await request.post('/api/v1/settings/api-key/generate', { headers: ownerHeaders });
   expect(generated.ok()).toBe(true);
   const before = await (await request.get('/api/v1/settings/api-key', { headers: ownerHeaders })).json();
+  expect(before.key).toContain('••••');
+  expect(before.prefix).toMatch(/^zcrm_/);
   await page.goto('/login');
   await page.getByLabel('Email', { exact: true }).fill(fixture.email);
   await page.getByLabel('Mật khẩu', { exact: true }).fill(fixture.password);
