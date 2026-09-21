@@ -18,6 +18,8 @@ import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachm
 import { recoverPendingAttachmentDownloads } from './modules/attachments/attachment-processor.js';
 import { startNotificationCleanupTask, stopNotificationCleanupTask } from './modules/notifications/notification-service.js';
 import { startChatSlaMonitor, stopChatSlaMonitor } from './modules/chat/chat-sla-monitor.js';
+import { startCatalogWorker, stopCatalogWorker } from './modules/integrations/kiotviet/kiotviet-catalog-worker.js';
+import { startInvoiceWorker, stopInvoiceWorker } from './modules/integrations/kiotviet/kiotviet-invoice-worker.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -31,6 +33,11 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
     forceExit.unref();
 
     try {
+      // 1. Disconnect sockets and close Fastify HTTP server FIRST to stop accepting new requests
+      application?.io?.disconnectSockets(true);
+      await application?.close();
+
+      // 2. Drain and stop background workers
       closeReportAdmission();
       chatTurnDebouncer.cleanup();
       await Promise.all([
@@ -40,12 +47,14 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
         stopOrphanCleanupTask(),
         stopNotificationCleanupTask(),
         stopChatSlaMonitor(),
+        stopCatalogWorker(),
+        stopInvoiceWorker(),
       ]);
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();
       await zaloPool.drain();
-      application?.io?.disconnectSockets(true);
-      await application?.close();
+
+      // 3. Disconnect database last
       await prisma.$disconnect();
     } catch (error) {
       logger.error('[lifecycle] Graceful shutdown failed:', error);
@@ -77,6 +86,8 @@ async function bootstrap() {
     startOrphanCleanupTask();
     startNotificationCleanupTask();
     startChatSlaMonitor(app.io);
+    startCatalogWorker();
+    startInvoiceWorker();
     void recoverPendingAttachmentDownloads();
   } catch (err) {
     logger.error('Failed to start server:', err);

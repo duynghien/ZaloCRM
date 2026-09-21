@@ -35,6 +35,7 @@ import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { chatCopilotRoutes } from './modules/chat/copilot/chat-copilot-routes.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
+import { kiotvietRoutes } from './modules/integrations/kiotviet/kiotviet-routes.js';
 
 import { initializeSocketServer } from './shared/realtime/socket-server.js';
 
@@ -132,6 +133,7 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   await app.register(webhookSettingsRoutes);
   await app.register(orderRoutes);
   await app.register(aiReportRoutes);
+  await app.register(kiotvietRoutes);
 
   // Readiness probe: a failed mandatory database dependency must be visible to orchestrators.
   app.get('/health', async (_request, reply) => {

@@ -303,6 +303,26 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
+      // Guard: Check if contact has orders with active or synced KiotViet invoice jobs
+      const activeJobOrder = await prisma.order.findFirst({
+        where: {
+          contactId: id,
+          orgId: user.orgId,
+          OR: [
+            { kiotvietSyncStatus: { in: ['pending', 'uncertain', 'synced'] } },
+            { kiotvietJob: { isNot: null } },
+          ],
+        },
+        select: { id: true, orderCode: true, kiotvietSyncStatus: true },
+      });
+
+      if (activeJobOrder) {
+        return reply.status(409).send({
+          error: `Cannot delete contact: order ${activeJobOrder.orderCode} has a KiotViet invoice record (${activeJobOrder.kiotvietSyncStatus}). Reconcile or adjust on KiotViet before deleting.`,
+          code: 'contact_has_kiotviet_invoices',
+        });
+      }
+
       await prisma.contact.delete({ where: { id } });
       return { success: true };
     } catch (err) {
