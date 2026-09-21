@@ -42,5 +42,9 @@
   {
     "name": "20260920000000_notifications",
     "checksum": "6477e5facef26fc8511963cb04ddeff5bdf07bd430a120fd3da6c1de83af7cee"
+  },
+  {
+    "name": "20260921000000_kiotviet_sync_and_order_items",
+    "checksum": "da445be319c179c45eb8761979185697bc90e955e2b593db2b11371d99783b50"
   }
 ]

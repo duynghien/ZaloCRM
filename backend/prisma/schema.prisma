@@ -31,6 +31,12 @@ model Organization {
   aiUsageLogs        AiUsageLog[]
   dailyAiStats       DailyAiUsageStat[]
   notifications      Notification[]
+  kiotvietProducts   KiotvietProduct[]
+  kiotvietSyncState  KiotvietSyncState?
+  kiotvietRateLimitBuckets KiotvietRateLimitBucket[]
+  kiotvietRetailerLeases   KiotvietRetailerLease[]
+  kiotvietInvoiceJobs      KiotvietInvoiceJob[]
+  orderItems               OrderItem[]
 
   @@map("organizations")
 }
@@ -298,24 +304,38 @@ model AppSetting {
 
 // Sales order linked to a contact (and optionally a conversation)
 model Order {
-  id              String   @id @default(uuid())
-  orgId           String   @map("org_id")
-  contactId       String   @map("contact_id")
-  createdByUserId String   @map("created_by_user_id")
-  conversationId  String?  @map("conversation_id")
-  orderCode       String   @map("order_code")
-  totalAmount     Float    @map("total_amount")
-  status          String   @default("new") // new, confirmed, paid, shipped, completed, cancelled
-  notes           String?
-  createdAt       DateTime @default(now()) @map("created_at")
-  updatedAt       DateTime @updatedAt @map("updated_at")
+  id                  String    @id @default(uuid())
+  orgId               String    @map("org_id")
+  contactId           String    @map("contact_id")
+  createdByUserId     String    @map("created_by_user_id")
+  conversationId      String?   @map("conversation_id")
+  orderCode           String    @map("order_code")
+  totalAmount         Float     @map("total_amount")
+  status              String    @default("new") // new, confirmed, paid, shipped, completed, cancelled
+  notes               String?
+  paidAmount          Decimal?  @map("paid_amount") @db.Decimal(18, 0)
+  paymentMethod       String?   @map("payment_method")
+  paymentAccountId    BigInt?   @map("payment_account_id")
+  paymentRecordedAt   DateTime? @map("payment_recorded_at")
+  kiotvietCustomerId  BigInt?   @map("kiotviet_customer_id")
+  kiotvietInvoiceId   BigInt?   @map("kiotviet_invoice_id")
+  kiotvietInvoiceCode String?   @map("kiotviet_invoice_code")
+  kiotvietSyncStatus  String    @default("not_synced") @map("kiotviet_sync_status")
+  kiotvietSyncError   String?   @map("kiotviet_sync_error")
+  kiotvietSyncedAt    DateTime? @map("kiotviet_synced_at")
+  revision            Int       @default(0)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
 
-  org          Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  contact      Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  createdBy    User          @relation("CreatedOrders", fields: [createdByUserId], references: [id])
-  conversation Conversation? @relation(fields: [conversationId], references: [id])
+  org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  contact      Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdBy    User                @relation("CreatedOrders", fields: [createdByUserId], references: [id])
+  conversation Conversation?       @relation(fields: [conversationId], references: [id])
+  items        OrderItem[]
+  kiotvietJob  KiotvietInvoiceJob?
 
   @@unique([orgId, orderCode])
+  @@unique([orgId, id])
   @@map("orders")
 }
 
@@ -584,3 +604,167 @@ model Notification {
   @@index([entityType, entityId])
   @@map("notifications")
 }
+
+// Order line item snapshot
+model OrderItem {
+  id                String   @id @default(uuid())
+  orgId             String   @map("org_id")
+  orderId           String   @map("order_id")
+  productId         String?  @map("product_id")
+  kiotvietProductId BigInt   @map("kiotviet_product_id")
+  retailer          String
+  branchId          BigInt   @map("branch_id")
+  productCode       String   @map("product_code")
+  productName       String   @map("product_name")
+  unit              String?
+  quantity          Decimal  @db.Decimal(18, 3)
+  price             Decimal  @db.Decimal(18, 4)
+  discountMode      String   @default("amount") @map("discount_mode")
+  discountInput     Decimal  @default(0) @map("discount_input") @db.Decimal(18, 4)
+  discountAmount    Decimal  @default(0) @map("discount_amount") @db.Decimal(18, 4)
+  subtotal          Decimal  @db.Decimal(18, 0)
+  note              String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  order Order        @relation(fields: [orgId, orderId], references: [orgId, id], onDelete: Cascade)
+
+  @@index([orgId, orderId])
+  @@map("order_items")
+}
+
+// Local cache of KiotViet product catalog partitioned by (orgId, retailer, branchId)
+model KiotvietProduct {
+  id               String    @id @default(uuid())
+  orgId            String    @map("org_id")
+  retailer         String
+  branchId         BigInt    @map("branch_id")
+  kiotvietId       BigInt    @map("kiotviet_id")
+  code             String
+  name             String
+  unit             String?
+  price            Decimal   @db.Decimal(18, 4)
+  onHand           Decimal?  @map("on_hand") @db.Decimal(18, 3)
+  isActive         Boolean   @default(true) @map("is_active")
+  allowsSale       Boolean   @default(true) @map("allows_sale")
+  productType      String    @default("normal") @map("product_type")
+  hasVariants      Boolean   @default(false) @map("has_variants")
+  hasSerial        Boolean   @default(false) @map("has_serial")
+  hasBatch         Boolean   @default(false) @map("has_batch")
+  isMaster         Boolean   @default(false) @map("is_master")
+  sourceModifiedAt DateTime? @map("source_modified_at")
+  lastSeenRunId    String?   @map("last_seen_run_id")
+  stockCheckedAt   DateTime? @map("stock_checked_at")
+  rawAttributes    Json?     @map("raw_attributes")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, retailer, branchId, kiotvietId])
+  @@index([orgId, retailer, branchId, isActive])
+  @@index([orgId, retailer, code])
+  @@index([orgId, retailer, name])
+  @@map("kiotviet_products")
+}
+
+// Persistent sync state per organization
+model KiotvietSyncState {
+  orgId               String    @id @map("org_id")
+  configRevision      Int       @default(0) @map("config_revision")
+  retailer            String?
+  branchId            BigInt?   @map("branch_id")
+  catalogCursor       DateTime? @map("catalog_cursor")
+  catalogReady        Boolean   @default(false) @map("catalog_ready")
+  lastSuccessfulAt    DateTime? @map("last_successful_at")
+  lastSuccessfulRunId String?   @map("last_successful_run_id")
+  runId               String?   @map("run_id")
+  runMode             String?   @map("run_mode")
+  status              String    @default("idle")
+  processedCount      Int       @default(0) @map("processed_count")
+  totalProducts       Int       @default(0) @map("total_products")
+  error               String?
+  leaseOwner          String?   @map("lease_owner")
+  leaseExpiresAt      DateTime? @map("lease_expires_at")
+  leaseVersion        Int       @default(0) @map("lease_version")
+  attemptCount        Int       @default(0) @map("attempt_count")
+  nextAttemptAt       DateTime? @map("next_attempt_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@map("kiotviet_sync_states")
+}
+
+// Tenant-scoped rate limit bucket for KiotViet API quota
+model KiotvietRateLimitBucket {
+  id           String    @id @default(uuid())
+  orgId        String    @map("org_id")
+  retailer     String
+  windowStart  DateTime  @map("window_start")
+  requestCount Int       @default(0) @map("request_count")
+  blockedUntil DateTime? @map("blocked_until")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, retailer, windowStart])
+  @@map("kiotviet_rate_limit_buckets")
+}
+
+// Tenant-scoped lease per retailer to avoid cross-tenant DoS
+model KiotvietRetailerLease {
+  orgId          String    @map("org_id")
+  retailer       String
+  leaseOwner     String?   @map("lease_owner")
+  leaseVersion   Int       @default(0) @map("lease_version")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  org Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@id([orgId, retailer])
+  @@map("kiotviet_retailer_leases")
+}
+
+// Durable KiotViet invoice outbox job with claim, lease, fence and reconciliation support
+model KiotvietInvoiceJob {
+  id                   String    @id @default(uuid())
+  orgId                String    @map("org_id")
+  orderId              String    @map("order_id")
+  orderRevision        Int       @map("order_revision")
+  configRevision       Int       @map("config_revision")
+  retailer             String
+  branchId             BigInt    @map("branch_id")
+  snapshot             Json
+  snapshotHash         String    @map("snapshot_hash")
+  state                String    @default("queued") // queued, preparing, dispatching, succeeded, failed, uncertain
+  attemptCount         Int       @default(0) @map("attempt_count")
+  nextAttemptAt        DateTime? @map("next_attempt_at")
+  leaseOwner           String?   @map("lease_owner")
+  leaseVersion         Int       @default(0) @map("lease_version")
+  leaseExpiresAt       DateTime? @map("lease_expires_at")
+  requestStartedAt     DateTime? @map("request_started_at")
+  remoteInvoiceId      BigInt?   @map("remote_invoice_id")
+  remoteInvoiceCode    String?   @map("remote_invoice_code")
+  remoteSnapshot       Json?     @map("remote_snapshot")
+  reconciliationStatus String?   @map("reconciliation_status")
+  errorCode            String?   @map("error_code")
+  errorMessage         String?   @map("error_message")
+  reconciledAt         DateTime? @map("reconciled_at")
+  reconciledByUserId   String?   @map("reconciled_by_user_id")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  order Order        @relation(fields: [orgId, orderId], references: [orgId, id], onDelete: Restrict)
+
+  @@unique([orgId, orderId])
+  @@unique([retailer, remoteInvoiceId])
+  @@index([state, nextAttemptAt, leaseExpiresAt])
+  @@index([orgId, state])
+  @@map("kiotviet_invoice_jobs")
+}
+
