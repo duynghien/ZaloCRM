@@ -48,11 +48,12 @@ export function getFileIconColor(filename?: string): string {
 }
 
 export function isImageFile(filename?: string, mimeType?: string, url?: string): boolean {
-  if (mimeType?.startsWith('image/')) return true;
+  if (mimeType) return mimeType.startsWith('image/');
   const target = filename || url || '';
   const clean = target.split('?')[0];
   const ext = clean.split('.').pop()?.toLowerCase() || '';
   if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) return true;
+  if (['pdf', 'doc', 'docx', 'xls', 'xlsx', 'csv', 'zip', 'rar', '7z', 'tar', 'gz', 'txt', 'exe'].includes(ext)) return false;
   if (url && (url.includes('photo-stal') || url.includes('/attachments/'))) return true;
   return false;
 }
