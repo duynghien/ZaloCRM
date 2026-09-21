@@ -50,7 +50,7 @@ describe('chat-message-clustering utility', () => {
     }
   });
 
-  it('clusters 12 consecutive image messages with a trailing caption within 30s into 1 album', () => {
+  it('clusters 12 consecutive image messages with a trailing caption within 8s into 1 album', () => {
     const messages: Message[] = [];
     for (let i = 1; i <= 12; i++) {
       messages.push(createImageMsg(i, i * 2)); // 2s apart
@@ -60,7 +60,7 @@ describe('chat-message-clustering utility', () => {
       id: 'caption-1',
       content: 'em gửi bc kv cuối ca chiều đầu ca tối',
       contentType: 'text',
-      sentAt: new Date(baseTime + 24 * 1000 + 10 * 1000).toISOString(), // 10s after last image
+      sentAt: new Date(baseTime + 24 * 1000 + 5 * 1000).toISOString(), // 5s after last image
     });
     messages.push(captionMsg);
 
@@ -102,13 +102,13 @@ describe('chat-message-clustering utility', () => {
     expect(album.caption).toBeNull();
   });
 
-  it('does not absorb text sent > 30s after the last image', () => {
+  it('does not absorb text sent > 8s after the last image into album caption', () => {
     const img1 = createImageMsg(1, 0);
     const img2 = createImageMsg(2, 2);
     const textLate = createMsg({
       id: 'text-late',
-      content: 'Gửi muộn quá 30s',
-      sentAt: new Date(baseTime + 35 * 1000).toISOString(), // 33s after img2
+      content: 'Tin nhắn gửi 12s sau ảnh, không phải caption',
+      sentAt: new Date(baseTime + 2 * 1000 + 12 * 1000).toISOString(), // 12s after img2
     });
 
     const result = clusterMessagesIntoRenderItems([img1, img2, textLate]);
@@ -117,6 +117,44 @@ describe('chat-message-clustering utility', () => {
     expect(result[0].type).toBe('album');
     expect((result[0] as PhotoAlbumItem).caption).toBeNull();
     expect(result[1].type).toBe('message');
+    if (result[1].type === 'message') {
+      expect(result[1].message.id).toBe('text-late');
+    }
+  });
+
+  it('preserves intrinsic caption from image payload and does not absorb subsequent text message', () => {
+    const imgWithCaption = createMsg({
+      id: 'img-with-cap',
+      contentType: 'image',
+      content: JSON.stringify({
+        href: 'https://zdn.vn/photo/1.jpg',
+        title: 'photo_1.jpg',
+        description: 'Báo cáo doanh thu tháng 9',
+      }),
+      sentAt: new Date(baseTime).toISOString(),
+    });
+    const img2 = createImageMsg(2, 2);
+    const followUpMsg = createMsg({
+      id: 'follow-up',
+      content: 'Anh xem giúp em nhé',
+      contentType: 'text',
+      sentAt: new Date(baseTime + 5000).toISOString(), // 3s after img2
+    });
+
+    const result = clusterMessagesIntoRenderItems([imgWithCaption, img2, followUpMsg]);
+
+    expect(result).toHaveLength(2);
+    expect(result[0].type).toBe('album');
+    const album = result[0] as PhotoAlbumItem;
+    expect(album.caption).toBe('Báo cáo doanh thu tháng 9');
+    expect(album.captionMessageId).toBe('img-with-cap');
+
+    // followUpMsg must remain an independent message!
+    expect(result[1].type).toBe('message');
+    if (result[1].type === 'message') {
+      expect(result[1].message.id).toBe('follow-up');
+      expect(result[1].message.content).toBe('Anh xem giúp em nhé');
+    }
   });
 
   it('does not cluster images when another sender message intervenes', () => {

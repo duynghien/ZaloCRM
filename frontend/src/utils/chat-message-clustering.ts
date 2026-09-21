@@ -4,6 +4,8 @@ import {
   getImageUrl,
   isValidMediaUrl,
   isReminderMessage,
+  hasCustomCaption,
+  getDisplayCaption,
 } from '@/utils/chat-message-formatter';
 
 export interface AlbumImage {
@@ -108,12 +110,13 @@ function isValidCaptionCandidate(msg: Message): boolean {
 
 /**
  * Cluster consecutive image messages into PhotoAlbumItem.
- * Trailing text messages within captionWindowMs are absorbed as caption.
+ * Trailing text messages within captionWindowMs (default 8s) are absorbed as caption
+ * only if the album does not already have an intrinsic caption from image payloads.
  */
 export function clusterMessagesIntoRenderItems(
   messages: Message[],
   burstWindowMs = 60000,
-  captionWindowMs = 30000
+  captionWindowMs = 8000
 ): RenderableItem[] {
   if (!messages || messages.length === 0) return [];
 
@@ -164,8 +167,11 @@ export function clusterMessagesIntoRenderItems(
     }
 
     // Check for trailing text caption
+    // 1. Only look for trailing caption if images do not already contain an intrinsic caption
+    const hasIntrinsicCaption = candidateMessages.some(m => hasCustomCaption(m));
+
     let captionMsg: Message | undefined;
-    if (nextIdx < messages.length) {
+    if (!hasIntrinsicCaption && nextIdx < messages.length) {
       const potentialCaption = messages[nextIdx];
       if (
         isValidCaptionCandidate(potentialCaption) &&
@@ -217,6 +223,23 @@ export function clusterMessagesIntoRenderItems(
       continue;
     }
 
+    // Determine album caption:
+    // 1. If trailing caption message was absorbed, use it
+    // 2. Otherwise if any candidate image message had an intrinsic caption, extract it
+    let albumCaption: string | null = null;
+    let albumCaptionMsgId: string | undefined;
+
+    if (captionMsg && !captionMsg.isDeleted) {
+      albumCaption = captionMsg.content;
+      albumCaptionMsgId = captionMsg.id;
+    } else {
+      const intrinsicMsg = candidateMessages.find(m => !m.isDeleted && hasCustomCaption(m));
+      if (intrinsicMsg) {
+        albumCaption = getDisplayCaption(intrinsicMsg);
+        albumCaptionMsgId = intrinsicMsg.id;
+      }
+    }
+
     // Build active album
     result.push({
       type: 'album',
@@ -226,8 +249,8 @@ export function clusterMessagesIntoRenderItems(
       senderName: candidateMessages[0].senderName,
       sentAt: candidateMessages[0].sentAt,
       images: activeImages,
-      caption: captionMsg && !captionMsg.isDeleted ? captionMsg.content : null,
-      captionMessageId: captionMsg && !captionMsg.isDeleted ? captionMsg.id : undefined,
+      caption: albumCaption,
+      captionMessageId: albumCaptionMsgId,
       sourceMessageIds,
       isDeleted: false,
     });
