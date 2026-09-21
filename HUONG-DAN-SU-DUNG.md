@@ -420,3 +420,75 @@ Dành cho Quản trị viên (Owner/Admin) kiểm soát chi phí sử dụng cá
 ### 15.3. Xuất file Excel đối soát
 - Tại tab Chi Phí Sử Dụng, nhấn nút **📥 Xuất Báo Cáo Excel**.
 - Hệ thống sẽ tự động tổng hợp và tải về file `.xlsx` định dạng chuẩn, phục vụ công tác thanh toán và đối soát ngân sách hàng tháng.
+
+---
+
+## 16. Tích Hợp KiotViet & Xuất Hóa Đơn Tự Động
+
+Hệ thống cho phép kết nối trực tiếp với phần mềm quản lý bán hàng KiotViet để đồng bộ danh mục sản phẩm, chọn sản phẩm khi lên đơn, ghi nhận thanh toán thực thu và tự động xuất hóa đơn khi đơn hàng được xác nhận.
+
+### 16.1. Cấu hình tích hợp KiotViet (Dành cho Quản trị viên)
+1. Truy cập **Cài đặt** (Settings) → chọn tab **🛒 KiotViet**.
+2. Nhập các thông tin kết nối từ tài khoản KiotViet (đăng ký trong mục Thiết lập cửa hàng → Quản lý API trên KiotViet):
+   - **Tên gian hàng (Retailer):** Tên gian hàng KiotViet của bạn.
+   - **Client ID:** Mã định danh ứng dụng API.
+   - **Client Secret:** Khóa bí mật (được mã hóa bảo mật chuẩn AES-256-GCM tại máy chủ).
+3. Nhấn **Kiểm tra kết nối** để xác thực thông tin đăng nhập với KiotViet.
+4. Sau khi kết nối thành công, hệ thống sẽ tự động tải danh sách cấu hình để bạn chọn:
+   - **Chi nhánh mặc định:** Chi nhánh KiotViet xuất kho và lập hóa đơn.
+   - **Người bán mặc định:** Nhân viên KiotViet phụ trách đơn hàng.
+   - **Tài khoản thanh toán mặc định:** Tài khoản nhận tiền khi khách chuyển khoản/thẻ.
+   - **Tự động xuất hóa đơn:** Bật tùy chọn này để đơn hàng tự động xuất hóa đơn sang KiotViet ngay khi đơn được chuyển sang trạng thái **Đã xác nhận (Confirmed)**.
+5. Nhấn **Lưu cấu hình**.
+
+### 16.2. Đồng bộ danh mục sản phẩm KiotViet
+- Trong tab **KiotViet** tại Cài đặt, bạn sẽ thấy bảng điều khiển **Đồng bộ danh mục sản phẩm**:
+  - **Số lượng sản phẩm:** Tổng số sản phẩm đã đồng bộ vào cơ sở dữ liệu ZaloCRM.
+  - **Lần đồng bộ gần nhất:** Thời gian và trạng thái lượt đồng bộ trước.
+- **Đồng bộ gia tăng (Incremental Sync):** Nhấn để cập nhật các sản phẩm mới thêm hoặc vừa thay đổi giá/tồn kho kể từ lần đồng bộ trước.
+- **Đồng bộ toàn bộ (Full Sync):** Đồng bộ lại toàn bộ danh mục sản phẩm từ KiotViet.
+- *Lưu ý về phạm vi sản phẩm (v1):* Hệ thống chỉ hỗ trợ **Hàng hóa thông thường (Normal goods)**. Các mặt hàng quản lý theo Số Serial/IMEI, Lô - Hạn sử dụng hoặc Combo/Đóng gói sẽ hiển thị cảnh báo và bị chặn xuất hóa đơn tự động để tránh sai lệch tồn kho.
+
+### 16.3. Lên đơn hàng với sản phẩm & Ghi nhận thanh toán
+Bạn có thể tạo đơn hàng từ giao diện **Đơn hàng (Orders)** hoặc trực tiếp tại bảng đơn hàng trong khung chat (**ChatOrders**):
+1. **Chọn sản phẩm:**
+   - Gõ tên hoặc mã SKU vào ô tìm kiếm sản phẩm.
+   - Danh sách sản phẩm gợi ý sẽ hiển thị tên, mã SKU, giá niêm yết và số lượng tồn kho tại chi nhánh đã chọn.
+   - Chọn sản phẩm, nhập số lượng, điều chỉnh đơn giá và chiết khấu (nếu bạn có quyền Quản trị viên/Chủ cửa hàng; nhân viên thông thường áp dụng theo giá niêm yết).
+   - Hệ thống tự động tính tổng tiền hàng, chiết khấu và tổng giá trị đơn hàng theo chuẩn làm tròn VNĐ.
+2. **Ghi nhận thanh toán độc lập:**
+   - **Số tiền đã thanh toán:** Nhập số tiền thực tế khách đã trả (hỗ trợ 0đ, thanh toán một phần đặt cọc, hoặc thanh toán toàn bộ).
+   - **Phương thức thanh toán:** Chọn `Tiền mặt` (Cash), `Chuyển khoản` (Transfer) hoặc `Thẻ` (Card).
+   - **Tài khoản nhận tiền:** Chọn tài khoản ngân hàng/ví tiếp nhận khi phương thức là Chuyển khoản hoặc Thẻ.
+3. **Đơn hàng chỉ có tổng tiền (Amount-only):**
+   - Đơn tạo nhanh hoặc trích xuất từ Copilot chỉ có tổng tiền vẫn được lưu bình thường trên CRM.
+   - Tuy nhiên, để xuất hóa đơn KiotViet, nhân viên cần bổ sung ít nhất một sản phẩm KiotViet hợp lệ vào đơn.
+
+### 16.4. Xử lý khách hàng KiotViet
+- Khi xuất hóa đơn, hệ thống tự động tìm kiếm khách hàng trên KiotViet dựa theo số điện thoại đã chuẩn hóa của liên hệ Zalo:
+  - **Khớp 1 khách hàng:** Tự động liên kết hóa đơn với khách hàng đó trên KiotViet.
+  - **Khớp nhiều khách hàng trùng SĐT:** Hệ thống hiển thị hộp thoại cho nhân viên chọn đúng hồ sơ khách hàng.
+  - **Chưa có trên KiotViet:** Cho phép nhân viên tạo nhanh hồ sơ khách hàng mới trên KiotViet hoặc xuất hóa đơn cho khách lẻ.
+
+### 16.5. Trạng thái xuất hóa đơn KiotViet
+Tại danh sách đơn hàng, cột **KiotViet** hiển thị trạng thái xử lý:
+- ⚪ **Chưa xuất (None):** Đơn chưa gửi sang KiotViet (chưa xác nhận hoặc chưa có sản phẩm).
+- 🟡 **Đang xuất (Pending):** Đơn hàng đã được đưa vào hàng đợi xử lý bền vững (Durable Outbox Queue) và đang được tiến trình nền gửi sang KiotViet.
+- 🟢 **Đã xuất (Synced):** Hóa đơn đã được tạo thành công trên KiotViet. Mã hóa đơn (ví dụ `HDB000123`) hiển thị kèm nút sao chép nhanh.
+- 🔴 **Thất bại (Failed):** Xuất hóa đơn không thành công (do lỗi dữ liệu, thiếu thông tin...). Rê chuột vào biểu tượng lỗi để xem nguyên nhân chi tiết và bấm **Thử lại**.
+- 🟠 **Cần đối soát (Uncertain):** Trạng thái xuất hiện khi việc gửi yêu cầu gặp sự cố mạng, timeout hoặc KiotViet phản hồi không rõ ràng. Để bảo vệ an toàn tuyệt đối tránh tạo trùng hóa đơn và trừ kho 2 lần, hệ thống sẽ **không tự động gửi lại** mà chuyển sang chế độ chờ đối soát thủ công.
+
+### 16.6. Khóa an toàn tài chính (Financial Immutability)
+- Nhằm đảm bảo số liệu giữa ZaloCRM và KiotViet hoàn toàn đồng nhất:
+  - Khi đơn hàng ở trạng thái **Đang xuất (Pending)**, **Cần đối soát (Uncertain)** hoặc **Đã xuất (Synced)**, toàn bộ các trường tài chính (danh sách sản phẩm, số lượng, đơn giá, chiết khấu, tổng tiền, tiền đã thanh toán, phương thức thanh toán, chi nhánh) sẽ **bị khóa hoàn toàn**.
+  - Không thể hủy (cancel) hoặc xóa (delete) đơn hàng đã xuất hóa đơn trên CRM.
+  - Các thông tin phi tài chính như ghi chú nội bộ hoặc trạng thái giao hàng vẫn được phép cập nhật bình thường.
+  - Nếu cần điều chỉnh sản phẩm hoặc hủy đơn, nhân viên thực hiện thao tác trực tiếp trên phần mềm KiotViet và cập nhật ghi chú trên CRM.
+
+### 16.7. Đối soát hóa đơn bất định (Admin Reconciliation)
+Dành cho Quản trị viên khi đơn hàng ở trạng thái **Cần đối soát (Uncertain)**:
+1. Nhấn nút **Đối soát** (biểu tượng chiếc khiên/cân) trên đơn hàng cần xử lý.
+2. Kiểm tra trên giao diện KiotViet xem hóa đơn của đơn hàng này đã thực sự được tạo hay chưa:
+   - **Nếu hóa đơn ĐÃ TẠO trên KiotViet:** Chọn **Liên kết mã hóa đơn**, nhập mã hóa đơn KiotViet (ví dụ `HDB000123`) → Đơn chuyển sang trạng thái `Đã xuất`.
+   - **Nếu hóa đơn CHƯA TẠO trên KiotViet:** Chọn **Xác nhận chưa tạo trên KiotViet** → Đơn chuyển về trạng thái `Thất bại`, cho phép nhân viên kiểm tra lại và bấm gửi lại an toàn.
+   - **Kiểm tra tự động:** Nhấn **Làm mới trạng thái** để hệ thống truy vấn lại KiotViet và tự động cập nhật nếu đã có kết quả.

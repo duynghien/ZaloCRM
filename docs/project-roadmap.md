@@ -136,3 +136,34 @@ gantt
   - Nén ngữ cảnh hội thoại AI Copilot (Context Pruning): lọc sticker, emoji, gộp tin nhắn liên tiếp nhưng bảo toàn `lastMsg.id` cho cache key.
   - Kế hoạch tái cấu trúc phân rã (Modularization) 6 tệp mã nguồn lớn (> 400 dòng): `AiReportsView.vue`, `MessageThread.vue`, `ai-report-routes.ts`, `report-pdf-service.ts`, `zalo-pool.ts`, `summarizer-service.ts`.
 
+---
+
+### Phase 13: Tích Hợp Đồng Bộ Hóa Đơn & Danh Mục Sản Phẩm KiotViet (ĐÃ HOÀN THÀNH)
+- [x] **Cơ Sở Dữ Liệu & Khóa Phân Tán (Schema & Leases):**
+  - Bổ sung các model: `OrderItem`, `KiotvietProduct`, `KiotvietSyncState`, `KiotvietRateLimitBucket`, `KiotvietRetailerLease`, `KiotvietInvoiceJob` và các trường hóa đơn trên `Order`.
+  - Hỗ trợ phân quyền giá bán và chiết khấu (Admin/Owner được chỉnh sửa, Member áp dụng giá niêm yết).
+  - Khóa tài chính bất biến (`order-invoice-lock.ts`) ngăn chặn chỉnh sửa giá, số lượng, phương thức thanh toán hoặc hủy/xóa đơn khi hóa đơn KiotViet ở trạng thái `pending`, `uncertain` hoặc `synced`.
+- [x] **API Client KiotViet & Quản Lý Danh Mục:**
+  - Triển khai OAuth2 token rotation tự động với single-flight deduplication, TTL safety margin và thử lại 1 lần khi gặp 401.
+  - Quản lý hạn mức gọi API (180 req/phút/retailer) với thuật toán Token Bucket và tự động backoff khi gặp 429.
+  - Worker đồng bộ danh mục sản phẩm nền (`kiotviet-catalog-worker.ts`) theo con trỏ `modifiedDate` kèm cửa sổ gối đầu 5 phút, lưu trữ phân vùng theo `(orgId, retailer, branchId)`.
+  - Tìm kiếm sản phẩm KiotViet 100% trên PostgreSQL nội bộ, không tạo HTTP request sang KiotViet khi gõ tìm kiếm.
+  - Giới hạn phạm vi: Chỉ cho phép xuất hóa đơn các sản phẩm thông thường (`productType: 'normal'`), từ chối sản phẩm dạng lô/serial/combo.
+- [x] **Durable Invoice Outbox & Đối Soát Hóa Đơn:**
+  - Quy trình trạng thái hóa đơn: `queued` → `preparing` → `dispatching` → `succeeded` / `failed` / `uncertain`.
+  - Cam kết bất biến: Commit trạng thái `dispatching` vào PostgreSQL trước khi gửi request tới KiotViet.
+  - Khi gặp lỗi mạng/timeout/5xx, chuyển trạng thái sang `uncertain` và **tuyệt đối không tự động retry**.
+  - Quy trình đối soát hóa đơn dành riêng cho Admin/Owner: `link` (khớp hóa đơn đã có), `confirm-not-created` (xác nhận chưa tạo để mở khóa đơn), `refresh` (cập nhật từ KiotViet).
+- [x] **Nhận Diện Khách Hàng & Tiền Thực Thu Độc Lập:**
+  - Tra cứu khách hàng KiotViet theo số điện thoại chuẩn hóa; tự động khớp nếu tìm thấy 1 khách, hiển thị danh sách chọn nếu trùng nhiều khách, cho phép tạo mới hoặc xuất khách lẻ nếu chưa có.
+  - Quản lý `paidAmount` và `paymentMethod` độc lập với trạng thái đơn hàng (hỗ trợ chưa thu, thu một phần, thu đủ).
+- [x] **Giao Diện Người Dùng Chuẩn CQA Neo-Brutalism:**
+  - Component `OrderItemsSelector.vue`: Tìm kiếm sản phẩm có debounce, điều chỉnh số lượng, giá và chiết khấu, tự động tính tổng tiền VNĐ.
+  - Component `OrderPaymentFields.vue`: Nhập tiền thực thu, chọn hình thức thanh toán và tài khoản nhận tiền.
+  - Component `OrderKiotvietStatus.vue`: Huy hiệu trạng thái, sao chép mã hóa đơn, tooltip lỗi, polling tự động và nút xuất hóa đơn.
+  - Component `KiotvietReconcileDialog.vue`: Hộp thoại đối soát hóa đơn an toàn cho Admin.
+  - Component `KiotvietCustomerPicker.vue`: Tìm và chọn khách hàng KiotViet có hỗ trợ phân xử trùng lặp.
+  - Component `KiotvietSettingsCard.vue` & `KiotvietCatalogSyncPanel.vue`: Quản lý cấu hình, kiểm tra kết nối với thông tin draft, kích hoạt đồng bộ danh mục và theo dõi tiến độ.
+  - Phân quyền giao diện: Tab KiotViet và các tính năng cấu hình/đối soát chỉ hiển thị cho Admin/Owner.
+
+

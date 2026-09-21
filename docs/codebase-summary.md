@@ -56,7 +56,9 @@ ZaloCRM/
 │       │   ├── chat/         # Conversation, Message ingestion, Deduplication, Undo, Outbound Media dispatch
 │       │   │   └── copilot/  # Conversational Copilot (Single-Inference Service, Prompt Builder, Resilient Parser, Debouncer, Anomaly Escalator, Cache)
 │       │   ├── contacts/     # Contact CRM, Pipeline, Appointment & Reminder, Self-healing contacts
-│       │   ├── orders/       # Order management, Atomic sequential code generator (ORD-YYYYMMDD-NNN)
+│       │   ├── orders/       # Order management, Atomic sequential code (ORD-YYYYMMDD-NNN), items breakdown, role pricing, financial locks, response serializer
+│       │   ├── integrations/ # Tích hợp nền tảng ngoại vi
+│       │   │   └── kiotviet/ # KiotViet Public API, OAuth2 token rotation, rate limit bucket, distributed lease, catalog sync worker, invoice outbox worker, customer resolver, reconciliation
 │       │   ├── ai-reports/   # Multi-provider router, Burst sampler, Two-tier audit, Action item broadcast, Cron, Telemetry, Dual-PDF dispatch
 │       │   │   ├── providers/               # AI Adapters: Gemini, OpenAI, DeepSeek, Hybrid Vision Bridge
 │       │   │   ├── attachment-burst-sampler.ts # Khử trùng URL, prompt injection sanitization, pool 4 worker
@@ -141,13 +143,11 @@ ZaloCRM/
 | **zalo** | Đăng nhập QR Code, mã hóa session `AES-256-GCM`, quản lý `ZaloPool` (zca-js 2.x), phân quyền truy cập `ZaloAccountAccess`, gắn thẻ chi nhánh (`branchTag`) và 12 màu nhận diện (`colorTag`), đồng bộ tin nhắn ngoài (`selfListen: true`), rate limiter 2 tầng (hỗ trợ trọng số gửi media x2), quản lý session keepalive 1 giờ (`zalo-session-manager.ts`), đồng bộ cookie tự động và health check. | `zalo-routes.ts`, `zalo-pool.ts`, `zalo-session-manager.ts`, `zalo-socket.ts`, `zalo-access-routes.ts`, `zalo-sync-routes.ts`, `zalo-listener-factory.ts`, `zalo-health-check.ts`, `zalo-rate-limiter.ts` |
 | **chat & copilot** | Quản lý hội thoại, tin nhắn đa phương tiện 2 chiều, khay chờ tệp đính kèm, dán ảnh clipboard, phóng to ảnh lightbox, lọc tin, thu hồi (undo) an toàn, cập nhật ảnh realtime qua `chat:message:attachments-updated`, hiển thị fallback card khi lỗi ảnh; kèm Trợ lý Ảo Bán Hàng (Conversational Copilot: Single-Inference AI Engine với chuỗi failover đa tầng tái sử dụng AiProviderRouter, Smart Turn Debouncer 3.0s, gợi ý phản hồi `Alt+1/2/3`, bóc tách đơn/lịch Human-in-the-Loop, phát hiện bất thường & leo thang quản lý). | `chat-routes.ts`, `message-handler.ts`, `chat-copilot-service.ts`, `chat-turn-debouncer.ts`, `chat-copilot-routes.ts`, `chat-copilot-prompt-builder.ts`, `chat-copilot-parser.ts`, `chat-copilot-anomaly-escalator.ts`, `chat-copilot-cache.ts` |
 | **contacts** | Danh bạ khách hàng, phân loại Pipeline 5 trạng thái (`new` → `lost`), tự lành liên kết hội thoại và cập nhật tên Zalo, lịch hẹn tư vấn và tiến trình tự động nhắc hẹn qua Socket/Zalo. | `contact-routes.ts`, `contact-sub-resource-routes.ts`, `appointment-routes.ts`, `appointment-reminder.ts` |
-| **orders** | Quản lý đơn hàng bán hàng gắn với contact/conversation, cấp mã đơn hàng tuần tự nguyên tử `ORD-YYYYMMDD-NNN` chống race condition bằng `order_code_counters`. | `order-routes.ts`, `order-code-service.ts` |
+| **orders** | Quản lý đơn hàng bán hàng gắn với contact/conversation, cấp mã đơn hàng tuần tự nguyên tử `ORD-YYYYMMDD-NNN`, chi tiết sản phẩm `OrderItem`, phân quyền điều chỉnh giá/chiết khấu, khóa tài chính `order-invoice-lock.ts` khi đã xuất/đối soát hóa đơn KiotViet, làm tròn tiền VNĐ cấp dòng và phân bổ phần dư, serialize an toàn BigInt/Decimal. | `order-routes.ts`, `order-code-service.ts`, `order-item-validation.ts`, `order-item-totals.ts`, `order-invoice-lock.ts`, `order-response-serializer.ts` |
+| **integrations / kiotviet** | Tích hợp KiotViet Public API: OAuth2 token rotation an toàn (`kiotviet-auth-service.ts`), token bucket rate limiting 180 req/m (`kiotviet-rate-limit-service.ts`), distributed optimistic lease (`kiotviet-retailer-lease`), đồng bộ danh mục nền (`kiotviet-catalog-worker.ts`), tìm kiếm sản phẩm phân vùng Postgres (`kiotviet-product-service.ts`), nhận diện khách hàng theo SĐT (`kiotviet-customer-service.ts`), invoice outbox worker với commit pre-dispatch và uncertain reconciliation (`kiotviet-invoice-service.ts`, `kiotviet-invoice-worker.ts`, `kiotviet-invoice-reconciliation.ts`). | `kiotviet-routes.ts`, `kiotviet-client.ts`, `kiotviet-types.ts`, `kiotviet-serializer.ts`, `kiotviet-settings-service.ts`, `kiotviet-auth-service.ts`, `kiotviet-rate-limit-service.ts`, `kiotviet-catalog-worker.ts`, `kiotviet-product-service.ts`, `kiotviet-customer-service.ts`, `kiotviet-invoice-service.ts`, `kiotviet-invoice-mapper.ts`, `kiotviet-invoice-worker.ts`, `kiotviet-invoice-reconciliation.ts` |
 | **ai-reports & telemetry** | Động cơ AI Multi-Provider (DeepSeek Primary, Gemini, OpenAI, Local Gateway) với DeepSeek-V4.1-Flash Native Multimodal, chuỗi failover 3 tầng (DeepSeek -> Gemini -> OpenAI), single-layer budget reservation, Multimodal Burst Sampling (pool 4 worker, trần 12MB), Two-Tier Cross-Verification (Tier 1 đối soát văn bản-ảnh, Tier 2 trích xuất & phát sóng Action Items qua Zalo), Quy tắc giám sát nhóm tự động có advisory lock, và Hệ thống đo lường token usage/chi phí USD/VND theo thời gian thực. | `ai-report-routes.ts`, `ai-audit-rule-routes.ts`, `ai-audit-rule-service.ts`, `ai-audit-evaluator.ts`, `audit-rule-cron-runner.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `ai-usage-tracker.ts`, `ai-pricing-catalog.ts`, `ai-usage-serializer.ts`, `ai-budget-alert-service.ts`, `attachment-burst-sampler.ts`, `attachment-image-loader.ts`, `report-action-item-parser.ts`, `ai-provider-settings-service.ts`, `ai-gateway-validator.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts` |
 | **attachments** | Khay chờ media (staging), tải lên multipart an toàn, phân lập tệp đính kèm theo thư mục tổ chức `attachments/<orgId>/`, đối soát tệp cũ trên đĩa qua toán tử JSONB `@>` có chỉ mục GIN trên `messages.attachments`, di chuyển nguyên tử (.part -> rename) và xóa file gốc dọn đĩa, kiểm tra magic bytes (`image-size`), tạo vé streaming HMAC ngắn hạn (60s) phục vụ Zalo server tải media, cron dọn dẹp tệp mồ côi theo giờ, tải stream có giới hạn byte, kiểm tra SSRF, trích xuất văn bản từ PDF/Excel đa sheet kèm bộ lọc Unicode null byte (Postgres 22P05) đệ quy có chốt chặn an toàn `maxDepth = 20` và try/catch error boundary. | `attachment-routes.ts`, `attachment-validator.ts`, `attachment-ticket-service.ts`, `attachment-legacy-migration.ts`, `orphan-cleanup-task.ts`, `attachment-downloader.ts`, `attachment-parser.ts`, `attachment-processor.ts`, `attachment-parser-worker.ts` |
 | **dashboard & reports** | Thống kê tin nhắn theo ngày, KPI nhân viên bán hàng, Thẻ KPI chi phí AI (`AiCostKpiCard`), Tab báo cáo chi tiết sử dụng AI, biểu đồ tăng trưởng đường ống và nguồn khách, bộ lọc thời gian nâng cao, xuất báo cáo tổng hợp ra file Excel (gồm cả sheet chi phí AI). | `dashboard-routes.ts`, `dashboard-ai-kpi-handler.ts`, `report-routes.ts`, `report-ai-usage-handler.ts`, `excel-sheet-builders.ts`, `ai-report-sheet-builder.ts` |
-| **api** | Cung cấp Public REST API xác thực bằng `X-API-Key` và hệ thống Webhook kích hoạt sự kiện bên ngoài với chữ ký HMAC SHA-256. | `public-api-routes.ts`, `public-api-schemas.ts`, `webhook-settings-routes.ts`, `webhook-service.ts` |
-| **notifications** | Hệ thống thông báo in-app cho người dùng trong tổ chức. | `notification-routes.ts` |
-| **search** | Tìm kiếm toàn văn (Full-text search) đồng thời trên Khách hàng, Tin nhắn hội thoại và Lịch hẹn. | `search-routes.ts` |
 | **api** | Cung cấp Public REST API xác thực bằng `X-API-Key` và hệ thống Webhook kích hoạt sự kiện bên ngoài với chữ ký HMAC SHA-256. | `public-api-routes.ts`, `public-api-schemas.ts`, `webhook-settings-routes.ts`, `webhook-service.ts` |
 | **notifications** | Hệ thống thông báo in-app cho người dùng trong tổ chức. | `notification-routes.ts` |
 | **search** | Tìm kiếm toàn văn (Full-text search) đồng thời trên Khách hàng, Tin nhắn hội thoại và Lịch hẹn. | `search-routes.ts` |
@@ -262,12 +262,31 @@ DELETE /api/v1/appointments/:id              # Xóa lịch hẹn
 
 ### 4.7. Đơn Hàng (Orders)
 ```
-GET    /api/v1/orders                         # Danh sách đơn hàng (lọc theo contact, trạng thái, ngày)
-POST   /api/v1/orders                         # Tạo đơn hàng mới (tự sinh mã nguyên tử ORD-YYYYMMDD-NNN)
-PUT    /api/v1/orders/:id                     # Cập nhật trạng thái / thông tin đơn hàng
-DELETE /api/v1/orders/:id                     # Xóa đơn hàng
+GET    /api/v1/orders                         # Danh sách đơn hàng (lọc theo contact, trạng thái, ngày, serialize BigInt/Decimal)
+GET    /api/v1/orders/:id                     # Chi tiết đơn hàng (kèm items, capabilities editable/canSync, serialize BigInt/Decimal)
+POST   /api/v1/orders                         # Tạo đơn hàng mới (tự sinh mã nguyên tử ORD-YYYYMMDD-NNN, hỗ trợ items, paidAmount, paymentMethod)
+PUT    /api/v1/orders/:id                     # Cập nhật đơn hàng (khóa tài chính nếu invoice pending/uncertain/synced, expectedRevision fence)
+DELETE /api/v1/orders/:id                     # Xóa đơn hàng (khóa nếu invoice pending/uncertain/synced)
+POST   /api/v1/orders/:id/sync-kiotviet       # Kích hoạt xuất hóa đơn KiotViet thủ công (yêu cầu canSync=true)
+POST   /api/v1/orders/:id/reconcile-kiotviet  # Đối soát hóa đơn KiotViet (link / refresh / confirm-not-created, Owner/Admin)
 GET    /api/v1/orders/stats                   # Thống kê doanh thu, số lượng đơn theo trạng thái
 GET    /api/v1/orders/by-staff                # Thống kê doanh thu và đơn hàng theo từng nhân viên
+```
+
+### 4.7.1. Tích Hợp KiotViet (KiotViet Integration)
+```
+GET    /api/v1/kiotviet/config                # Xem cấu hình KiotViet đầy đủ với secret đã giải mã (Owner/Admin)
+GET    /api/v1/kiotviet/config/public         # Xem cấu hình KiotViet an toàn không lộ secret (Owner/Admin)
+PUT    /api/v1/kiotviet/config                # Lưu cấu hình KiotViet (hỗ trợ expectedRevision, clearSecret, Owner/Admin)
+POST   /api/v1/kiotviet/test-connection       # Kiểm tra kết nối KiotViet bằng credentials draft (Owner/Admin)
+GET    /api/v1/kiotviet/branches              # Danh sách chi nhánh từ KiotViet (Owner/Admin)
+GET    /api/v1/kiotviet/sellers               # Danh sách nhân viên bán hàng từ KiotViet (Owner/Admin)
+GET    /api/v1/kiotviet/payment-accounts      # Danh sách tài khoản thanh toán từ KiotViet (Owner/Admin)
+POST   /api/v1/kiotviet/catalog-sync          # Kích hoạt tiến trình đồng bộ danh mục sản phẩm (full: boolean, Owner/Admin)
+GET    /api/v1/kiotviet/catalog-status        # Trạng thái tiến trình đồng bộ danh mục và số lượng sản phẩm (Owner/Admin)
+GET    /api/v1/kiotviet/products              # Tìm kiếm sản phẩm KiotViet trong catalog nội bộ Postgres (query, branchId, limit)
+GET    /api/v1/kiotviet/customers/search      # Tìm kiếm khách hàng KiotViet theo số điện thoại (phone)
+POST   /api/v1/kiotviet/customers             # Tạo khách hàng mới trên KiotViet (name, contactNumber, branchId, address)
 ```
 
 ### 4.8. Báo Cáo Thống Kê & Bảng Điều Khiển (Dashboard & Reports)

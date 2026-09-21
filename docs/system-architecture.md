@@ -262,6 +262,68 @@ sequenceDiagram
 - **Tự động giải quyết thông báo (Auto-Resolution):** Khi nhân viên phản hồi cuộc trò chuyện, `resolveByEntity(orgId, 'conversation', convId)` tự động đánh dấu đã đọc các cảnh báo Chat SLA liên quan. Khi tài khoản Zalo kết nối lại, cảnh báo mất kết nối cũng tự động được giải quyết.
 - **Vòng đời an toàn (TTL Cleanup & SLA Cron):** Tiến trình dọn dẹp thông báo cũ > 30 ngày và cron kiểm tra SLA 5 phút một lần được quản lý chặt chẽ trong lifecycle của `app.ts`, hỗ trợ graceful shutdown hoàn toàn không gây rò rỉ tiến trình.
 
+### 3.1.10. Kiến Trúc Tích Hợp KiotViet (KiotViet Product & Invoice Integration Architecture)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Staff as Nhân viên bán hàng
+    participant UI as OrdersView / ChatOrders
+    participant API as Fastify Backend
+    participant DB as PostgreSQL DB
+    participant Worker as KiotvietInvoiceWorker
+    participant KV as KiotViet Public API
+
+    Staff->>UI: Chọn SP KiotViet, nhập tiền thực thu, Lưu đơn
+    UI->>API: POST /api/v1/orders { items, paidAmount, paymentMethod, ... }
+    API->>DB: BEGIN Transaction: Tạo Order, OrderItems, KiotvietInvoiceJob (queued)
+    DB-->>API: COMMIT
+    API-->>UI: 200 OK { order }
+
+    Note over Worker: Worker poll tìm job 'queued' theo lease
+    Worker->>DB: CAS Claim: state -> 'dispatching' (commit DB TRƯỚC khi POST)
+    DB-->>Worker: Claim thành công
+    Worker->>KV: POST /invoices (payload snapshot)
+    alt KiotViet thành công (200 / 201)
+        KV-->>Worker: { id, code: "HD0001" }
+        Worker->>DB: Update job: 'succeeded', Order: kiotvietSyncStatus='synced'
+    else Lỗi mạng / 5xx / Timeout (Uncertain)
+        Worker->>DB: Update job: 'uncertain', Order: kiotvietSyncStatus='uncertain'
+        Note over DB,UI: Khóa tài chính, yêu cầu Admin đối soát
+    else KiotViet từ chối rõ ràng (400 / 404)
+        KV-->>Worker: { message: "Invalid product" }
+        Worker->>DB: Update job: 'failed', Order: kiotvietSyncStatus='failed'
+    end
+
+    UI->>API: GET /api/v1/orders/:id (Polling mỗi 2s khi pending)
+    API-->>UI: Cập nhật trạng thái 'synced' / 'failed' / 'uncertain'
+```
+
+- **Durable Outbox Pattern & Khóa Chuyển Tiếp (Invoice Job Lifecycle):**
+  - Trạng thái công việc hóa đơn: `queued` → `preparing` → `dispatching` → `succeeded` | `failed` | `uncertain`.
+  - **Bất biến cốt lõi:** Trạng thái `dispatching` bắt buộc phải được commit vào PostgreSQL **trước khi** gửi HTTP request sang KiotViet. Không bao giờ giữ DB transaction mở xuyên qua lời gọi HTTP ngoại vi.
+  - Khi gặp lỗi mạng không xác định (timeout, 5xx, socket reset), hệ thống chuyển job sang trạng thái `uncertain` và **tuyệt đối không tự động retry**. Đơn hàng chuyển sang `uncertain`, kích hoạt quy trình đối soát thủ công của Admin/Owner (`link`, `refresh`, `confirm-not-created`).
+- **Khóa Tài Chính Bất Biến (Financial Field Immutability):**
+  - Đơn hàng có `kiotvietInvoiceStatus` thuộc `['pending', 'uncertain', 'synced']` sẽ bị khóa hoàn toàn các trường tài chính (`totalAmount`, `paidAmount`, `paymentMethod`, `paymentAccountId`, `items`, `branchId`, `kiotvietCustomerId`) và cấm hủy/xóa (`cancel`/`delete`).
+  - Các trường phi tài chính (ghi chú nội bộ, trạng thái giao vận `shipped` / `completed`) vẫn được cập nhật bình thường.
+- **Phân Vùng & Đồng Bộ Danh Mục Sản Phẩm (Catalog Sync):**
+  - Danh mục sản phẩm được đồng bộ từ KiotViet về bảng `kiotviet_products`, phân vùng chặt chẽ theo `(org_id, retailer, branch_id)`.
+  - **Phạm vi Hàng hóa Thông thường (Normal Goods Only):** Chỉ cho phép xuất hóa đơn các sản phẩm có `productType === 'normal'` và không có số serial/lô/combo. Các sản phẩm đặc biệt sẽ bị chặn xuất kèm thông báo rõ ràng.
+  - Phân trang con trỏ `modifiedDate` với cửa sổ gối đầu (overlap window 5 phút) để không bỏ sót bản ghi cập nhật đồng thời. Con trỏ chỉ tiến khi toàn bộ lượt chạy thành công.
+  - Tìm kiếm sản phẩm thực hiện 100% trên PostgreSQL nội bộ, không tạo bất kỳ HTTP request nào sang KiotViet trong quá trình nhân viên gõ tìm kiếm.
+- **Nhận Diện Khách Hàng (Customer Disambiguation):**
+  - Tìm kiếm khách hàng KiotViet dựa trên số điện thoại chuẩn hóa.
+  - Trùng 1 khách: Tự động liên kết.
+  - Trùng nhiều khách (>1): Trả về danh sách ứng viên để nhân viên chọn chính xác trên UI (`needs_customer_selection`).
+  - Không tìm thấy (0): Cung cấp tùy chọn tạo khách hàng mới ngay trên giao diện hoặc xuất dưới dạng khách lẻ.
+- **Tiền Thực Thu Độc Lập (Independent Payments):**
+  - `paidAmount` và `paymentMethod` được theo dõi độc lập với trạng thái đơn hàng (`status`). Hỗ trợ chưa thu (`paidAmount = 0`), thu một phần (`0 < paidAmount < totalAmount`), hoặc thu đủ (`paidAmount = totalAmount`).
+  - Thay đổi tổng tiền đơn hàng không tự động làm tăng `paidAmount`.
+  - Làm tròn tiền theo quy tắc VNĐ không có số thập phân; phân bổ chiết khấu cấp dòng và chia phần dư cho các dòng để bảo đảm tổng chi tiết khớp 100% với tổng hóa đơn KiotViet.
+- **Thuê Mua Phân Tán & Giới Hạn Tần Suất (Tenant Leases & Rate Limiting):**
+  - Bảng `kiotviet_retailer_leases`: Đảm bảo chỉ có tối đa 1 worker xử lý danh mục hoặc hóa đơn cho mỗi `retailer` tại một thời điểm (sử dụng cơ chế CAS optimistic lease).
+  - Bảng `kiotviet_rate_limit_buckets`: Quản lý hạn mức gọi API KiotViet (mặc định 180 req/phút/retailer), tự động backoff khi gặp mã 429 từ nhà cung cấp.
+
 ### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
 1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
 2. Hệ thống gọi `encryptData(sessionData, ENCRYPTION_KEY)` mã hóa chuỗi JSON thành binary bằng thuật toán `AES-256-GCM` với IV ngẫu nhiên và Auth Tag.

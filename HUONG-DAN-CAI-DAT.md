@@ -120,6 +120,15 @@ docker compose ps
 
 🎉 **Hoàn tất!** Bắt đầu nhận tin nhắn real-time.
 
+## Bước 7: Kết nối KiotViet (Tùy chọn)
+
+Nếu doanh nghiệp của bạn sử dụng KiotViet để quản lý kho và xuất hóa đơn:
+1. Vào menu **Cài đặt** (Settings) → chọn tab **KiotViet**.
+2. Nhập thông tin API (Retailer, Client ID, Client Secret) lấy từ KiotViet (mục *Thiết lập cửa hàng* → *Quản lý API*).
+3. Nhấn **Kiểm tra kết nối** để kiểm tra và tải danh sách chi nhánh, người bán, tài khoản ngân hàng.
+4. Chọn chi nhánh mặc định, bật **Tự động xuất hóa đơn** (nếu muốn tự động xuất khi đơn xác nhận), và nhấn **Lưu cấu hình**.
+5. Nhấn **Đồng bộ toàn bộ** để tải danh mục sản phẩm KiotViet về hệ thống ZaloCRM.
+
 ---
 
 ## Bảo mật & Thiết lập Reverse Proxy (Nginx / Cloudflare Tunnel)

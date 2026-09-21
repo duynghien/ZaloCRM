@@ -264,3 +264,35 @@ npm run verify:development-compose
 Scripts dùng cấu hình giả lập trong thư mục tạm, database riêng, không đọc `.env` của operator. Nếu cổng bị chiếm hoặc project fixture đã có tài nguyên, script dừng để kiểm tra chủ sở hữu. Sau test, container/volume/network fixture được dọn; image build được giữ để kiểm inventory. Dev smoke sửa bản sao source riêng và kiểm browser login/reload/refresh/logout, foreign Origin, WebSocket, Vue HMR và backend reload.
 
 Production smoke kiểm dependency inventory, CLI offline, UI/API/socket, readiness khi checksum sai, migrator được tạo mới, migration thất bại, drain exit khác 0 và phục hồi. Một process bỏ qua SIGTERM bị buộc dừng sau 70 giây với exit 137; gate phải giữ nguyên migrator. Smoke cũng dump/restore vào database fixture thứ hai, kiểm dữ liệu và checksum migration trước/sau chạy lại migrator. Inventory nằm trong image tại `/app/runtime-dependencies.json` và `/app/migrator-dependencies.json`.
+
+---
+
+## 8. Vận Hành Tích Hợp KiotViet (KiotViet Integration Operations)
+
+### 8.1. Cấu hình & Bảo mật Thông tin Đăng nhập (Credentials & Secrets)
+- Thông tin xác thực KiotViet (Client ID, Client Secret, Mã gian hàng / Retailer, Chi nhánh / Branch ID) được cấu hình tại mục **Cài đặt -> KiotViet** (chỉ dành cho Owner/Admin).
+- **Mã hóa AES-256-GCM:** Client Secret được mã hóa ngay khi lưu vào cơ sở dữ liệu (`app_settings`), sử dụng `ENCRYPTION_KEY` từ file `.env`. Tuyệt đối không lưu trữ bí mật dạng plaintext hay ghi ra log hệ thống.
+- **Xoay vòng thông tin (Key Rotation):** Khi cập nhật Client Secret, các hóa đơn đã xuất thành công không bị ảnh hưởng. Nếu thay đổi Mã gian hàng (Retailer), hệ thống tự động:
+  - Tăng số hiệu phiên bản cấu hình (`configRevision`).
+  - Hủy các công việc đang chờ xử lý (`queued`/`preparing`) thuộc phiên bản cũ.
+  - Đặt lại con trỏ đồng bộ danh mục (`catalogCursor = null`, `catalogReady = false`) để yêu cầu đồng bộ toàn bộ (Full Sync).
+
+### 8.2. Quy trình Đối Soát Hóa Đơn Trạng Thái Nghi Vấn (Uncertain Invoice Reconciliation)
+- Khi quá trình gửi hóa đơn sang KiotViet gặp sự cố mạng (timeout, lỗi 5xx, ngắt kết nối socket), công việc sẽ chuyển sang trạng thái **Cần đối soát (uncertain)** và **tuyệt đối không tự động gửi lại** để tránh xuất trùng hóa đơn tài chính.
+- Đơn hàng sẽ bị khóa sửa đổi tài chính. Người quản trị (Owner/Admin) cần:
+  1. Kiểm tra trên portal KiotViet xem đơn hàng đã được tạo hóa đơn hay chưa.
+  2. Truy cập màn hình **Quản lý Đơn hàng** trên ZaloCRM, bấm nút **Đối soát** trên đơn hàng có trạng thái nghi vấn.
+  3. Chọn 1 trong 3 hành động:
+     - **Liên kết (Link):** Nhập ID hóa đơn đã tìm thấy trên KiotViet để khớp nối với đơn hàng CRM.
+     - **Xác nhận chưa tạo (Confirm Not Created):** Nhập lý do xác nhận (tối thiểu 5 ký tự) để mở khóa đơn hàng, chuyển trạng thái hóa đơn sang Thất bại để nhân viên có thể sửa đổi hoặc xuất lại.
+     - **Làm mới (Refresh):** Gọi KiotViet để cập nhật lại thông tin mới nhất của hóa đơn đã liên kết.
+
+### 8.3. Chu trình Dừng & Khởi Động An Toàn (Graceful Shutdown & Workers Drain)
+- Ứng dụng tuân thủ chu trình tắt 3 bước nghiêm ngặt:
+  1. **Đóng HTTP Server & Ngắt WebSocket:** Ngừng tiếp nhận mọi request và sự kiện mới từ người dùng.
+  2. **Xả trơn tru các Worker nền (Drain Background Workers):** Chờ các worker đang xử lý hoàn tất công việc hiện tại:
+     - `stopCatalogWorker()`: Nhả lease đồng bộ danh mục sản phẩm.
+     - `stopInvoiceWorker()`: Hoàn tất đợt dispatch hóa đơn hiện hành, trả lease về trạng thái an toàn.
+     - `stopReportJobWorker()`, `stopAppointmentReminder()`, `stopOrphanCleanupTask()`, `stopNotificationCleanupTask()`.
+  3. **Ngắt kết nối Cơ sở dữ liệu:** Thực hiện `prisma.$disconnect()` sau cùng.
+- Cơ chế này loại bỏ hoàn toàn hiện tượng đơn hàng bị kẹt trạng thái dở dang hoặc mất mát dữ liệu tài chính khi restart hệ thống.
