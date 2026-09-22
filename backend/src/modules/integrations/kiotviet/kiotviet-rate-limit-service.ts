@@ -33,7 +33,23 @@ export async function checkAndReserveRateLimit(
   isPriorityWrite = false
 ): Promise<void> {
   const now = new Date();
-  // Truncate to current minute window start
+
+  // 1. Check dedicated vendor cooldown table first (decoupled from minute buckets)
+  const cooldown = await prisma.kiotvietVendorCooldown.findUnique({
+    where: {
+      orgId_retailer: { orgId, retailer },
+    },
+  });
+
+  if (cooldown && cooldown.blockedUntil > now) {
+    const waitSeconds = Math.max(1, Math.ceil((cooldown.blockedUntil.getTime() - now.getTime()) / 1000));
+    throw new KiotvietRateLimitError(
+      `KiotViet API rate limit active. Blocked until ${cooldown.blockedUntil.toISOString()}`,
+      waitSeconds
+    );
+  }
+
+  // 2. Truncate to current minute window start for quota bucket
   const windowStart = new Date(now);
   windowStart.setSeconds(0, 0);
 
@@ -45,25 +61,18 @@ export async function checkAndReserveRateLimit(
     ON CONFLICT ("org_id", "retailer", "window_start")
     DO UPDATE SET "request_count" = "kiotviet_rate_limit_buckets"."request_count" + 1, "updated_at" = NOW()
     WHERE "kiotviet_rate_limit_buckets"."request_count" < ${limit}
-      AND ("kiotviet_rate_limit_buckets"."blocked_until" IS NULL OR "kiotviet_rate_limit_buckets"."blocked_until" <= NOW())
     RETURNING *
   `;
 
   if (!rows || rows.length === 0) {
-    const bucket = await prisma.kiotvietRateLimitBucket.findUnique({
-      where: {
-        orgId_retailer_windowStart: {
-          orgId,
-          retailer,
-          windowStart,
-        },
-      },
+    // Re-check cooldown in case of concurrent 429
+    const latestCooldown = await prisma.kiotvietVendorCooldown.findUnique({
+      where: { orgId_retailer: { orgId, retailer } },
     });
-
-    if (bucket?.blockedUntil && bucket.blockedUntil > now) {
-      const waitSeconds = Math.ceil((bucket.blockedUntil.getTime() - now.getTime()) / 1000);
+    if (latestCooldown && latestCooldown.blockedUntil > now) {
+      const waitSeconds = Math.max(1, Math.ceil((latestCooldown.blockedUntil.getTime() - now.getTime()) / 1000));
       throw new KiotvietRateLimitError(
-        `KiotViet API rate limit active. Blocked until ${bucket.blockedUntil.toISOString()}`,
+        `KiotViet API rate limit active. Blocked until ${latestCooldown.blockedUntil.toISOString()}`,
         waitSeconds
       );
     }
@@ -79,36 +88,22 @@ export async function checkAndReserveRateLimit(
 
 /**
  * Sets blockedUntil timestamp across the organization's retailer when a 429 response is received.
+ * Decoupled from minute buckets and uses GREATEST to preserve longer blocks.
  */
 export async function recordVendorRateLimit429(
   orgId: string,
   retailer: string,
   retryAfterSeconds = 30
 ): Promise<void> {
-  const now = new Date();
-  const windowStart = new Date(now);
-  windowStart.setSeconds(0, 0);
-  const blockedUntil = new Date(now.getTime() + Math.min(retryAfterSeconds, 300) * 1000);
+  const safeSeconds = Math.min(Math.max(retryAfterSeconds, 1), 300);
+  logger.warn(`[kiotviet-rate-limit] Vendor 429 received for ${orgId}/${retailer}. Cooldown ${safeSeconds}s requested.`);
 
-  logger.warn(`[kiotviet-rate-limit] Vendor 429 received for ${orgId}/${retailer}. Blocking until ${blockedUntil.toISOString()}`);
-
-  await prisma.kiotvietRateLimitBucket.upsert({
-    where: {
-      orgId_retailer_windowStart: {
-        orgId,
-        retailer,
-        windowStart,
-      },
-    },
-    create: {
-      orgId,
-      retailer,
-      windowStart,
-      requestCount: MAX_REQUESTS_PER_MINUTE,
-      blockedUntil,
-    },
-    update: {
-      blockedUntil,
-    },
-  });
+  await prisma.$executeRaw`
+    INSERT INTO "kiotviet_vendor_cooldown" ("org_id", "retailer", "blocked_until", "created_at", "updated_at")
+    VALUES (${orgId}, ${retailer}, NOW() + (${safeSeconds} * INTERVAL '1 second'), NOW(), NOW())
+    ON CONFLICT ("org_id", "retailer")
+    DO UPDATE SET
+      "blocked_until" = GREATEST("kiotviet_vendor_cooldown"."blocked_until", EXCLUDED."blocked_until"),
+      "updated_at" = NOW()
+  `;
 }

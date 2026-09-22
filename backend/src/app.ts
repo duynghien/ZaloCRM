@@ -15,11 +15,16 @@ import { decryptData } from './shared/utils/crypto.js';
 import { validateConfiguredGeminiModel, validateConfiguredPrimaryModel } from './modules/ai-reports/ai-client.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { startOrphanCleanupTask, stopOrphanCleanupTask } from './modules/attachments/orphan-cleanup-task.js';
-import { recoverPendingAttachmentDownloads } from './modules/attachments/attachment-processor.js';
+import {
+  recoverPendingAttachmentDownloads,
+  startAttachmentWorker,
+  stopAttachmentWorker,
+} from './modules/attachments/attachment-processor.js';
 import { startNotificationCleanupTask, stopNotificationCleanupTask } from './modules/notifications/notification-service.js';
 import { startChatSlaMonitor, stopChatSlaMonitor } from './modules/chat/chat-sla-monitor.js';
 import { startCatalogWorker, stopCatalogWorker } from './modules/integrations/kiotviet/kiotviet-catalog-worker.js';
 import { startInvoiceWorker, stopInvoiceWorker } from './modules/integrations/kiotviet/kiotviet-invoice-worker.js';
+import { startWebhookWorker, stopWebhookWorker } from './modules/api/webhook-service.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -49,6 +54,8 @@ async function shutdown(exitCode: number, cause: string): Promise<void> {
         stopChatSlaMonitor(),
         stopCatalogWorker(),
         stopInvoiceWorker(),
+        stopAttachmentWorker(),
+        stopWebhookWorker(),
       ]);
       await stopZaloHealthCheck();
       zaloPool.disconnectAll();
@@ -88,6 +95,8 @@ async function bootstrap() {
     startChatSlaMonitor(app.io);
     startCatalogWorker();
     startInvoiceWorker();
+    startAttachmentWorker();
+    startWebhookWorker();
     void recoverPendingAttachmentDownloads();
   } catch (err) {
     logger.error('Failed to start server:', err);

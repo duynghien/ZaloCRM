@@ -39,32 +39,33 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
           const avatar = friend.avatar || '';
           const phone = friend.phoneNumber || '';
 
-          const existing = await prisma.contact.findFirst({
-            where: { zaloUid: uid, orgId: user.orgId },
-          });
-
-          if (existing) {
-            await prisma.contact.update({
-              where: { id: existing.id },
-              data: {
-                fullName: zaloName || existing.fullName,
-                avatarUrl: avatar || existing.avatarUrl,
-                phone: phone || existing.phone,
-              },
-            });
-            updated++;
-          } else {
-            await prisma.contact.create({
-              data: {
-                id: randomUUID(),
+          const upserted = await prisma.contact.upsert({
+            where: {
+              orgId_zaloUid: {
                 orgId: user.orgId,
                 zaloUid: uid,
-                fullName: zaloName || 'Unknown',
-                avatarUrl: avatar || null,
-                phone: phone || null,
               },
-            });
+            },
+            create: {
+              id: randomUUID(),
+              orgId: user.orgId,
+              zaloUid: uid,
+              fullName: zaloName || 'Unknown',
+              avatarUrl: avatar || null,
+              phone: phone || null,
+            },
+            update: {
+              fullName: zaloName || undefined,
+              avatarUrl: avatar || undefined,
+              phone: phone || undefined,
+            },
+            select: { createdAt: true, updatedAt: true },
+          });
+
+          if (Math.abs(upserted.createdAt.getTime() - upserted.updatedAt.getTime()) < 1000) {
             created++;
+          } else {
+            updated++;
           }
         }
 

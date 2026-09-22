@@ -64,7 +64,21 @@ export type KiotvietOrderSyncStatus =
   | 'failed'
   | 'uncertain';
 
-export type KiotvietReconciliationStatus = 'matched' | 'different' | 'remote_cancelled';
+export type KiotvietReconciliationStatus = 'matched' | 'different' | 'remote_cancelled' | 'confirmed_not_created';
+
+export class CatalogTraversalLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CatalogTraversalLimitError';
+  }
+}
+
+export class LostCatalogLeaseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LostCatalogLeaseError';
+  }
+}
 
 export interface KiotvietSnapshotItem {
   kiotvietProductId: string;

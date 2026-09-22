@@ -52,16 +52,20 @@ graph TD
 - **Kiên cường kết nối & Chống Flapping:** Cơ chế retry exponential backoff tường minh `[30s, 2m, 5m]` cho các lỗi mạng tạm thời mà không gán `qr_pending` tức thì; chỉ chuyển `qr_pending` khi vượt quá 3 lần thử thất bại liên tiếp hoặc gặp lỗi fatal auth (`isFatalAuthError`). Duy trì circuit breaker `disconnectHistory` (cửa sổ trượt 5 phút) để bảo vệ tài khoản khi socket bị flapping liên tục.
 
 ### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
-- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 24 Data Models phân tách theo nghiệp vụ:
+- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 37 Data Models phân tách theo nghiệp vụ:
   - *Đa tổ chức & Người dùng:* `Organization`, `Team`, `User`
   - *Phiên xác thực bền vững:* `AuthSession` (lưu SHA-256 hash của refresh token, quản lý xoay vòng và family revocation)
   - *Tài khoản Zalo & Phân quyền:* `ZaloAccount` (hỗ trợ `branchTag`, `colorTag`, lưu session mã hóa AES-256-GCM), `ZaloAccountAccess` (quyền read, chat, admin)
-  - *Khách hàng & Hội thoại:* `Contact`, `Conversation`, `Message` (hỗ trợ deduplication theo `conversationId_zaloMsgId`)
+  - *Khách hàng & Hội thoại:* `Contact` (composite unique key `@@unique([orgId, zaloUid])`), `Conversation`, `Message` (hỗ trợ deduplication theo `conversationId_zaloMsgId`)
   - *Lịch hẹn:* `Appointment`
-  - *Đơn hàng & Cấp mã tuần tự:* `Order`, `OrderCodeCounter` (cấp mã nguyên tử theo org/ngày UTC)
+  - *Đơn hàng & Cấp mã tuần tự:* `Order`, `OrderItem`, `OrderCodeCounter` (cấp mã nguyên tử theo org/ngày UTC)
+  - *Thông báo & Hoạt động:* `Notification`, `ActivityLog`, `DailyMessageStat`
   - *Báo cáo Điều hành AI Digest v2:* `GroupReportConfig`, `GeneratedReport`, `AiReportJob`, `AiReportJobDispatch`, `AiReportBudgetReservation`, `AiReportResend`, `AiReportResendDispatch`
   - *AI Telemetry & Đo lường Chi phí:* `AiUsageLog` (nhật ký giao dịch token từng tác vụ AI), `DailyAiUsageStat` (tổng hợp chi phí ngày atomic UTC+7)
-  - *Vận hành & Kiểm toán:* `AppSetting` (mã hóa AES-256-GCM các secret), `DailyMessageStat`, `ActivityLog`
+  - *KiotViet Integration & Distributed Outbox:* `KiotvietProduct`, `KiotvietSyncState`, `KiotvietRateLimitBucket`, `KiotvietRetailerLease`, `KiotvietInvoiceJob`, `KiotvietVendorCooldown`
+  - *Zalo Distributed Rate & Outbox:* `ZaloAccountRateState` (trạng thái rate limit durable xuyên vòng đời tiến trình), `ZaloOutboundMessage` (outbox gửi tin cậy và chống trùng lặp)
+  - *Vận hành Phân tán & Durable Jobs:* `CronJobLease` (fencing lease phân tán cho cron job), `AttachmentDownloadJob` (durable worker tải media có concurrency và retry), `WebhookOutbox` (durable webhook delivery outbox với backoff & DLQ)
+  - *Cấu hình Hệ thống:* `AppSetting` (mã hóa AES-256-GCM các secret)
 - **Prisma 7 ORM:** Quản lý Schema, khởi tạo Migration có version và tương tác dữ liệu an toàn phòng chống SQL Injection. Tương thích schema được kiểm chứng lúc khởi động bằng `schemaIsCompatible()`.
 
 ---
@@ -340,12 +344,10 @@ sequenceDiagram
 - **Contact Visibility:** Mọi role trong cùng organization được xem contact. `assignedUserId` phục vụ phân công/KPI, không phải ranh giới đọc dữ liệu.
 - **AI Reports:** Mọi role được sử dụng; member bị giới hạn theo Zalo account ACL, còn owner/admin có phạm vi toàn organization và quản lý cấu hình SMTP/automation.
 
-### 4.1. Ghi nhận lịch sử ngày 2026-09-02
+### 4.1. Ghi nhận an ninh & Kiên cường phân tán (Remediation Updates)
 
-Nội dung dưới đây giữ ghi nhận của đợt remediation cũ, **không phải bằng chứng nghiệm thu hiện tại**. Thay đổi realtime/test harness ngày 2026-09-08 vẫn phải hoàn tất ma trận kiểm chứng trong [Phase 1](../plans/260902-1756-post-remediation-audit-fixes/phase-01-start.md); các thay đổi hiện tại được mô tả phía trên, release toàn bộ vẫn chờ bằng chứng revision cuối.
-
-Release remediation đã đưa tenant scoping, RBAC/ACL Zalo, session rotation và SSRF policy vào các ranh giới backend. Access token có hạn 15 phút và chỉ tồn tại trong memory của browser; refresh token opaque được hash ở server, xoay vòng qua HttpOnly cookie, và bị revoke khi đổi mật khẩu, role hoặc trạng thái hoạt động. Socket.IO tái kiểm tra session và quyền account trong lúc kết nối còn sống.
-
-AI report on-demand chạy qua DB-backed job (giới hạn 31 ngày, 20 group, 10 email recipients; idempotency, lease, cancellation và ngân sách message/token). Webhook và attachment chỉ được phép tới HTTPS public sau DNS/redirect validation. SMTP password và webhook secret được mã hóa; public API key vẫn plaintext/recoverable theo residual-risk waiver, chỉ Owner/Admin xem được, `no-store`, audit và không log giá trị key.
-
-Vitest bảo vệ các policy/contract P1 và Playwright smoke kiểm tra browser không lưu bearer token bền vững. GitHub Actions chạy cùng root workspace install, typecheck, test, build, production audit, frontend smoke và Docker build.
+- **Bảo Mật Khóa API Công Khai (Public API Key Hashing):** Toàn bộ `public_api_key` dạng plaintext đã được băm SHA-256 sang `publicApiKeyHash` và làm rỗng (`publicApiKey = null`). Khóa API được hiển thị 1 lần duy nhất lúc tạo, không lưu trữ dạng phục hồi được trong cơ sở dữ liệu.
+- **Durable Outbox & Anti-Drift Rate Limiter:** Khắc phục tình trạng mất nhịp giới hạn tốc độ khi khởi động lại tiến trình thông qua bảng `zalo_account_rate_state` và outbox `zalo_outbound_messages`. Rate reservation được commit nguyên tử, đảm bảo burst và khoảng cách 2 giây không bị bypass kể cả khi kích hoạt cờ khẩn cấp (`force`).
+- **Phân Lập Lease & Fencing:** Tách biệt triệt để mã khóa cron (`CronJobLease`) giữa các tác vụ định kỳ, chấm dứt tình trạng starvation khi nhiều cron chạy đồng thời; áp dụng heartbeat fencing và timeout cho worker KiotViet.
+- **Worker Tải Đính Kèm Bền Vững:** Toàn bộ tiến trình tải media được quản lý qua `AttachmentDownloadJob` với cơ chế kiểm soát đồng thời `pLimit(5)`, cập nhật `jsonb_set` nguyên tử trên PostgreSQL, không bỏ sót tải media sau sự cố crash/restart.
+- **Ranh Giới Input & Toàn Vẹn Dữ Liệu:** Áp dụng kiểm tra định dạng UUID (`uuidInput`), boolean nghiêm ngặt (`strictBooleanInput`), giới hạn độ dài truy vấn tìm kiếm (200 ký tự) và độ dài tin nhắn (10.000 ký tự). Dữ liệu Contact được khóa duy nhất tuyệt đối theo `(orgId, zaloUid)` và `(orgId, id)`.

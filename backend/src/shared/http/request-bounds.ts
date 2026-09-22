@@ -18,3 +18,18 @@ export function validOptionalDate(value: unknown): Date | undefined {
 export function boundedFiniteNumber(value: unknown, minimum: number, maximum: number): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= minimum && value <= maximum ? value : undefined;
 }
+
+export function uuidInput(val: unknown, fieldName = 'ID'): string {
+  const str = String(val || '').trim();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(str)) {
+    throw new RequestValidationError(`${fieldName} phải là định dạng UUID hợp lệ`);
+  }
+  return str;
+}
+
+export function strictBooleanInput(val: unknown, fieldName = 'Trường'): boolean {
+  if (typeof val !== 'boolean') {
+    throw new RequestValidationError(`${fieldName} phải là kiểu boolean (true hoặc false)`);
+  }
+  return val;
+}

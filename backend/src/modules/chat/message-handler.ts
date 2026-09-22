@@ -63,11 +63,11 @@ export async function handleIncomingMessage(
     if (!account) return null;
 
     if (msg.isSelf) {
-      if (msg.msgId && zaloRateLimiter.isRecentMsgId(msg.accountId, msg.msgId)) {
+      if (msg.msgId && zaloRateLimiter.isRecentMsgId(msg.accountId, msg.threadId, msg.msgId)) {
         logger.info(`[message-handler] Skipping echo of recently sent CRM message ${msg.msgId}`);
         return null;
       }
-      zaloRateLimiter.recordSend(msg.accountId, msg.msgId || null, true);
+      zaloRateLimiter.recordSend(msg.accountId, msg.threadId, msg.msgId || null, true);
     }
 
     const persisted = await prisma.$transaction(async tx => {
@@ -85,7 +85,7 @@ export async function handleIncomingMessage(
         senderName: msg.senderName || null, content: msg.content || '', contentType: msg.contentType || 'text',
         attachments: msg.attachments ?? [], sentAt,
       } });
-      await updateConversationAfterMessage(tx, conversation.id, sentAt, msg.isSelf);
+      await updateConversationAfterMessage(tx, conversation.id, account.orgId, sentAt, msg.isSelf);
       return { message, conversation, contactId, createdContact };
     });
     if (!persisted) return null;
@@ -154,78 +154,84 @@ async function upsertContact(db: Prisma.TransactionClient, msg: IncomingMessage,
   createdContact: { contactId: string; fullName: string | null } | null;
 }> {
   let createdContact: { contactId: string; fullName: string | null } | null = null;
+
   // Group messages: create/update a "contact" record representing the group
   if (msg.threadType === 'group') {
-    const groupUid = msg.threadId;
-    let groupContact = await db.contact.findFirst({
-      where: { zaloUid: groupUid, orgId },
-      select: { id: true, fullName: true },
-    });
-
-    if (!groupContact) {
-      groupContact = await db.contact.create({
-        data: {
-          id: randomUUID(),
+    const groupUid = msg.threadId.startsWith('group_') ? msg.threadId : `group_${msg.threadId}`;
+    const groupName = msg.groupName || 'Nhóm';
+    const groupContact = await db.contact.upsert({
+      where: {
+        orgId_zaloUid: {
           orgId,
           zaloUid: groupUid,
-          fullName: msg.groupName || 'Nhóm',
-          metadata: { isGroup: true },
         },
-        select: { id: true, fullName: true },
-      });
+      },
+      create: {
+        id: randomUUID(),
+        orgId,
+        zaloUid: groupUid,
+        fullName: groupName,
+        metadata: { isGroup: true },
+      },
+      update: msg.groupName ? { fullName: msg.groupName } : {},
+      select: { id: true, fullName: true, createdAt: true, updatedAt: true },
+    });
+
+    const isNew = Math.abs(groupContact.createdAt.getTime() - groupContact.updatedAt.getTime()) < 1000;
+    if (isNew) {
       createdContact = { contactId: groupContact.id, fullName: groupContact.fullName };
-    } else if (msg.groupName && groupContact.fullName !== msg.groupName) {
-      await db.contact.update({
-        where: { id: groupContact.id },
-        data: { fullName: msg.groupName },
-      });
     }
     return { contactId: groupContact.id, createdContact };
   }
 
   // User messages (both customer incoming and self outbound from external devices)
   const contactUid = msg.threadId;
-  let contact = await db.contact.findFirst({
-    where: { zaloUid: contactUid, orgId },
-    select: { id: true, fullName: true, avatarUrl: true },
-  });
+  const initialName = (msg.isSelf ? msg.recipientName : msg.senderName) || 'Khách Zalo';
+  const initialAvatar = msg.isSelf ? (msg.recipientAvatar || null) : null;
 
-  if (!contact) {
-    const fullName = (msg.isSelf ? msg.recipientName : msg.senderName) || 'Khách Zalo';
-    const avatarUrl = msg.isSelf ? (msg.recipientAvatar || null) : null;
-    contact = await db.contact.create({
-      data: {
-        id: randomUUID(),
+  const contact = await db.contact.upsert({
+    where: {
+      orgId_zaloUid: {
         orgId,
         zaloUid: contactUid,
-        fullName,
-        avatarUrl,
       },
-      select: { id: true, fullName: true, avatarUrl: true },
-    });
+    },
+    create: {
+      id: randomUUID(),
+      orgId,
+      zaloUid: contactUid,
+      fullName: initialName,
+      avatarUrl: initialAvatar,
+    },
+    update: {},
+    select: { id: true, fullName: true, avatarUrl: true, createdAt: true, updatedAt: true },
+  });
+
+  const isNew = Math.abs(contact.createdAt.getTime() - contact.updatedAt.getTime()) < 1000;
+  if (isNew) {
     createdContact = { contactId: contact.id, fullName: contact.fullName };
-  } else {
-    // Self-healing: if generic name or customer sent updated name
-    const isGeneric = !contact.fullName || contact.fullName === 'Khách Zalo' || contact.fullName === 'Unknown';
-    if (!msg.isSelf && msg.senderName && (isGeneric || contact.fullName !== msg.senderName)) {
-      await db.contact.update({
-        where: { id: contact.id },
-        data: { fullName: msg.senderName },
-      });
-    } else if (msg.isSelf && msg.recipientName && msg.recipientName !== 'Khách Zalo' && isGeneric) {
-      await db.contact.update({
-        where: { id: contact.id },
-        data: {
-          fullName: msg.recipientName,
-          ...(msg.recipientAvatar && !contact.avatarUrl ? { avatarUrl: msg.recipientAvatar } : {}),
-        },
-      });
-    } else if (msg.isSelf && msg.recipientAvatar && !contact.avatarUrl) {
-      await db.contact.update({
-        where: { id: contact.id },
-        data: { avatarUrl: msg.recipientAvatar },
-      });
-    }
+  }
+
+  // Self-healing: if generic name or customer sent updated name
+  const isGeneric = !contact.fullName || contact.fullName === 'Khách Zalo' || contact.fullName === 'Unknown';
+  if (!msg.isSelf && msg.senderName && (isGeneric || contact.fullName !== msg.senderName)) {
+    await db.contact.update({
+      where: { id: contact.id },
+      data: { fullName: msg.senderName },
+    });
+  } else if (msg.isSelf && msg.recipientName && msg.recipientName !== 'Khách Zalo' && isGeneric) {
+    await db.contact.update({
+      where: { id: contact.id },
+      data: {
+        fullName: msg.recipientName,
+        ...(msg.recipientAvatar && !contact.avatarUrl ? { avatarUrl: msg.recipientAvatar } : {}),
+      },
+    });
+  } else if (msg.isSelf && msg.recipientAvatar && !contact.avatarUrl) {
+    await db.contact.update({
+      where: { id: contact.id },
+      data: { avatarUrl: msg.recipientAvatar },
+    });
   }
 
   return { contactId: contact.id, createdContact };
@@ -249,22 +255,31 @@ async function findOrCreateConversation(
   });
 }
 
-// Update conversation metadata after a new message
-async function updateConversationAfterMessage(
+// Update conversation metadata after a new message using chronology-aware raw SQL
+export async function updateConversationAfterMessage(
   db: Prisma.TransactionClient,
   conversationId: string,
+  orgId: string,
   sentAt: Date,
   isSelf: boolean,
 ): Promise<void> {
-  const updateData: any = { lastMessageAt: sentAt };
-  if (isSelf) {
-    updateData.isReplied = true;
-    updateData.unreadCount = 0;
-  } else {
-    updateData.unreadCount = { increment: 1 };
-    updateData.isReplied = false;
-  }
-  await db.conversation.update({ where: { id: conversationId }, data: updateData });
+  await db.$executeRaw`
+    UPDATE conversations
+    SET
+      last_message_at = GREATEST(COALESCE(last_message_at, ${sentAt}), ${sentAt}),
+      is_replied = CASE
+        WHEN ${sentAt} < COALESCE(last_message_at, ${sentAt}) THEN is_replied
+        WHEN ${isSelf} = true THEN true
+        ELSE false
+      END,
+      unread_count = CASE
+        WHEN ${sentAt} < COALESCE(last_message_at, ${sentAt}) THEN unread_count
+        WHEN ${isSelf} = true THEN 0
+        ELSE unread_count + 1
+      END,
+      updated_at = NOW()
+    WHERE id = ${conversationId} AND org_id = ${orgId};
+  `;
 }
 
 // Soft-delete a message by its Zalo message ID

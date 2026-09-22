@@ -22,36 +22,45 @@ export interface ReconcileInvoiceParams {
 export async function reconcileInvoice(params: ReconcileInvoiceParams) {
   const { orgId, orderId, action, remoteInvoiceId, reason, actorId } = params;
 
-  return await prisma.$transaction(async (tx) => {
-    const order = await tx.order.findFirst({
-      where: { id: orderId, orgId },
-      include: { kiotvietJob: true },
-    });
+  const order = await prisma.order.findFirst({
+    where: { id: orderId, orgId },
+    include: { kiotvietJob: true },
+  });
 
-    if (!order) {
-      throw new KiotvietConflictError('Order not found', 'order_not_found');
+  if (!order) {
+    throw new KiotvietConflictError('Order not found', 'order_not_found');
+  }
+
+  const job = order.kiotvietJob;
+  if (!job) {
+    throw new KiotvietConflictError('Order has no KiotViet invoice job to reconcile', 'no_job');
+  }
+
+  const config = await getKiotvietConfig(orgId);
+  if (!config || !config.retailer) {
+    throw new KiotvietConflictError('KiotViet integration not configured', 'not_configured');
+  }
+
+  const now = new Date();
+
+  if (action === 'confirm-not-created') {
+    if (!reason || reason.trim().length < 5) {
+      throw new RequestValidationError('A detailed reason (minimum 5 characters) is required to confirm invoice was not created');
     }
 
-    const job = order.kiotvietJob;
-    if (!job) {
-      throw new KiotvietConflictError('Order has no KiotViet invoice job to reconcile', 'no_job');
-    }
-
-    const config = await getKiotvietConfig(orgId, tx);
-    if (!config || !config.retailer) {
-      throw new KiotvietConflictError('KiotViet integration not configured', 'not_configured');
-    }
-
-    const now = new Date();
-
-    if (action === 'confirm-not-created') {
-      if (!reason || reason.trim().length < 5) {
-        throw new RequestValidationError('A detailed reason (minimum 5 characters) is required to confirm invoice was not created');
-      }
-
-      // Transition job to failed and order to failed, allowing re-confirmation
-      await tx.kiotvietInvoiceJob.update({
-        where: { id: job.id },
+    return await prisma.$transaction(async (tx) => {
+      const res = await tx.kiotvietInvoiceJob.updateMany({
+        where: {
+          id: job.id,
+          orgId,
+          state: 'uncertain',
+          remoteInvoiceId: null,
+          leaseVersion: job.leaseVersion ?? 0,
+          OR: [
+            { leaseOwner: null },
+            { leaseExpiresAt: { lt: now } },
+          ],
+        },
         data: {
           state: 'failed',
           errorCode: 'confirmed_not_created',
@@ -61,8 +70,16 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
           reconciledByUserId: actorId,
           leaseOwner: null,
           leaseExpiresAt: null,
+          leaseVersion: { increment: 1 },
         },
       });
+
+      if (res.count !== 1) {
+        throw new KiotvietConflictError(
+          'Không thể đối soát: Trạng thái job đã thay đổi hoặc đang có tiến trình xử lý',
+          'reconciliation_conflict'
+        );
+      }
 
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
@@ -84,16 +101,26 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
       });
 
       return { order: updatedOrder, action: 'confirm-not-created' };
+    });
+  }
+
+  if (action === 'link') {
+    if (!remoteInvoiceId || !/^\d+$/.test(remoteInvoiceId.trim())) {
+      throw new RequestValidationError('A valid numeric remoteInvoiceId is required to link an existing KiotViet invoice');
     }
 
-    if (action === 'link') {
-      if (!remoteInvoiceId || !/^\d+$/.test(remoteInvoiceId.trim())) {
-        throw new RequestValidationError('A valid numeric remoteInvoiceId is required to link an existing KiotViet invoice');
-      }
+    const remoteInvoice = await getKiotvietInvoice(orgId, config, remoteInvoiceId.trim());
+    if (!remoteInvoice || !remoteInvoice.id) {
+      throw new KiotvietConflictError(
+        `Invoice ID ${remoteInvoiceId} was not found on KiotViet`,
+        'remote_invoice_not_found'
+      );
+    }
 
-      const remoteIdBigInt = BigInt(remoteInvoiceId.trim());
+    const remoteIdBigInt = BigInt(remoteInvoiceId.trim());
+    const remoteCode = remoteInvoice.code || `HD${remoteInvoice.id}`;
 
-      // Check if already linked to another order/job globally for this retailer
+    return await prisma.$transaction(async (tx) => {
       const existingJob = await tx.kiotvietInvoiceJob.findFirst({
         where: {
           retailer: config.retailer,
@@ -109,19 +136,13 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
         );
       }
 
-      // Fetch invoice from KiotViet to verify details
-      const remoteInvoice = await getKiotvietInvoice(orgId, config, remoteInvoiceId.trim());
-      if (!remoteInvoice || !remoteInvoice.id) {
-        throw new KiotvietConflictError(
-          `Invoice ID ${remoteInvoiceId} was not found on KiotViet`,
-          'remote_invoice_not_found'
-        );
-      }
-
-      const remoteCode = remoteInvoice.code || `HD${remoteInvoice.id}`;
-
-      await tx.kiotvietInvoiceJob.update({
-        where: { id: job.id },
+      const updateRes = await tx.kiotvietInvoiceJob.updateMany({
+        where: {
+          id: job.id,
+          orgId,
+          leaseVersion: job.leaseVersion ?? 0,
+          state: { in: ['uncertain', 'failed'] },
+        },
         data: {
           state: 'succeeded',
           remoteInvoiceId: remoteIdBigInt,
@@ -132,8 +153,16 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
           reconciledByUserId: actorId,
           leaseOwner: null,
           leaseExpiresAt: null,
+          leaseVersion: { increment: 1 },
         },
       });
+
+      if (updateRes.count !== 1) {
+        throw new KiotvietConflictError(
+          'Không thể đối soát: Trạng thái job đã thay đổi hoặc đang có tiến trình xử lý',
+          'reconciliation_conflict'
+        );
+      }
 
       const updatedOrder = await tx.order.update({
         where: { id: orderId },
@@ -158,26 +187,40 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
       });
 
       return { order: updatedOrder, action: 'link', remoteInvoiceCode: remoteCode };
+    });
+  }
+
+  if (action === 'refresh') {
+    if (!job.remoteInvoiceId) {
+      throw new KiotvietConflictError('Cannot refresh an order without a linked remote invoice ID', 'no_remote_id');
     }
 
-    if (action === 'refresh') {
-      if (!job.remoteInvoiceId) {
-        throw new KiotvietConflictError('Cannot refresh an order without a linked remote invoice ID', 'no_remote_id');
-      }
+    const remoteInvoice = await getKiotvietInvoice(orgId, config, job.remoteInvoiceId.toString());
+    const isCancelled = remoteInvoice?.status === 2 || remoteInvoice?.statusValue === 'Đã hủy';
+    const statusLabel = isCancelled ? 'remote_cancelled' : 'matched';
 
-      const remoteInvoice = await getKiotvietInvoice(orgId, config, job.remoteInvoiceId.toString());
-      const isCancelled = remoteInvoice?.status === 2 || remoteInvoice?.statusValue === 'Đã hủy';
-      const statusLabel = isCancelled ? 'remote_cancelled' : 'matched';
-
-      await tx.kiotvietInvoiceJob.update({
-        where: { id: job.id },
+    return await prisma.$transaction(async (tx) => {
+      const updateRes = await tx.kiotvietInvoiceJob.updateMany({
+        where: {
+          id: job.id,
+          orgId,
+          leaseVersion: job.leaseVersion ?? 0,
+        },
         data: {
           remoteSnapshot: remoteInvoice as any,
           reconciliationStatus: statusLabel,
           reconciledAt: now,
           reconciledByUserId: actorId,
+          leaseVersion: { increment: 1 },
         },
       });
+
+      if (updateRes.count !== 1) {
+        throw new KiotvietConflictError(
+          'Không thể làm mới: Trạng thái job đã thay đổi hoặc đang có tiến trình xử lý',
+          'reconciliation_conflict'
+        );
+      }
 
       await tx.activityLog.create({
         data: {
@@ -191,8 +234,8 @@ export async function reconcileInvoice(params: ReconcileInvoiceParams) {
       });
 
       return { order, action: 'refresh', status: statusLabel };
-    }
+    });
+  }
 
-    throw new RequestValidationError(`Unsupported reconciliation action: ${action}`);
-  });
+  throw new RequestValidationError(`Unsupported reconciliation action: ${action}`);
 }

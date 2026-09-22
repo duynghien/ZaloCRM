@@ -24,6 +24,8 @@
     "typecheck:frontend": "npm run typecheck --prefix frontend",
     "typecheck": "npm run typecheck:backend && npm run typecheck:frontend",
     "test": "npm run test --workspaces",
+    "test:backend": "npm run test --workspace=backend",
+    "test:frontend": "npm run test --workspace=frontend",
     "test:e2e": "npm run test:e2e --workspace=frontend",
     "audit:production": "node scripts/audit-production-policy.mjs",
     "db:migrate": "npm run db:migrate --prefix backend",

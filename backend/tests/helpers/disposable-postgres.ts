@@ -5,6 +5,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 import { createServiceDatabase } from './ci-postgres-service.js';
+import { resetPrismaClient } from '../../src/shared/database/prisma-client.js';
 
 const ownedDatabaseUrls = new Set<string>();
 const execFileAsync = promisify(execFile);
@@ -69,6 +70,7 @@ export function seedBackendTestEnv(databaseUrl: string): void {
   process.env.ENCRYPTION_KEY = '0123456789abcdef0123456789abcdef';
   process.env.APP_URL = 'http://127.0.0.1:3000';
   process.env.GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+  resetPrismaClient(databaseUrl);
 }
 
 export async function startDisposablePostgres(): Promise<DisposablePostgres> {

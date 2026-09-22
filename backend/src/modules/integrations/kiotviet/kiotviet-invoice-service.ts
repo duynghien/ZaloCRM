@@ -46,6 +46,15 @@ export async function enqueueInvoiceTx(tx: Prisma.TransactionClient, params: Enq
     }
 
     // 2. Check existing job state
+    const existingRemoteId = order.kiotvietInvoiceId ?? order.kiotvietJob?.remoteInvoiceId;
+    if (existingRemoteId != null) {
+      const existingRemoteCode = order.kiotvietInvoiceCode || order.kiotvietJob?.remoteInvoiceCode || String(existingRemoteId);
+      throw new KiotvietConflictError(
+        `Đơn hàng đã có hóa đơn KiotViet tương ứng (${existingRemoteCode})`,
+        'invoice_already_created'
+      );
+    }
+
     if (order.kiotvietSyncStatus === 'synced') {
       return { order, jobId: order.kiotvietJob?.id ?? null, alreadySynced: true };
     }

@@ -1,12 +1,19 @@
 /**
- * attachment-processor.ts — asynchronous downloading and text extraction for message attachments.
+ * attachment-processor.ts — Orchestration and durable job enrollment for message attachments.
  */
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
-import { downloadAttachment } from './attachment-downloader.js';
+import { sanitizeJsonNullBytes } from './attachment-json-sanitizer.js';
+import {
+  tickAttachmentQueue,
+  startAttachmentWorker,
+  stopAttachmentWorker,
+} from './attachment-download-worker.js';
 import { extractAttachmentContent } from './attachment-parser.js';
+
+export { sanitizeJsonNullBytes } from './attachment-json-sanitizer.js';
+export { startAttachmentWorker, stopAttachmentWorker, tickAttachmentQueue } from './attachment-download-worker.js';
 
 async function extractAttachmentSafely(params: Parameters<typeof extractAttachmentContent>[0]) {
   try {
@@ -17,231 +24,94 @@ async function extractAttachmentSafely(params: Parameters<typeof extractAttachme
   }
 }
 
-/**
- * Recursively strips null bytes (\u0000) from strings, arrays, and plain objects.
- * Guarantees safe serialization into PostgreSQL JSONB columns without triggering 22P05.
- * Includes a maxDepth guard (20 levels) with iterative fallback and 1MB size warning.
- */
-export function sanitizeJsonNullBytes(input: any, depth = 0, maxDepth = 20): any {
-  if (input === null || input === undefined) {
-    return input;
-  }
-
-  if (depth === 0) {
-    try {
-      const str = JSON.stringify(input);
-      if (str && str.length > 1024 * 1024) {
-        logger.warn(
-          `[attachment-processor] Large attachment payload detected (${(str.length / 1024 / 1024).toFixed(2)} MB), sanitizing null bytes with care`,
-        );
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  if (typeof input === 'string') {
-    return input.replace(/\u0000/g, '');
-  }
-
-  if (typeof input !== 'object') {
-    return input;
-  }
-
-  if (depth >= maxDepth) {
-    return sanitizeJsonIterative(input);
-  }
-
-  if (Array.isArray(input)) {
-    return input.map((item) => sanitizeJsonNullBytes(item, depth + 1, maxDepth));
-  }
-
-  const result: Record<string, any> = {};
-  for (const [key, val] of Object.entries(input)) {
-    const cleanKey = typeof key === 'string' ? key.replace(/\u0000/g, '') : key;
-    result[cleanKey] = sanitizeJsonNullBytes(val, depth + 1, maxDepth);
-  }
-  return result;
-}
-
-function sanitizeJsonIterative(root: any): any {
-  if (root === null || typeof root !== 'object') {
-    return typeof root === 'string' ? root.replace(/\u0000/g, '') : root;
-  }
-
-  const rootCopy = Array.isArray(root) ? [...root] : { ...root };
-  const stack: Array<{ parent: any; key: string | number; value: any }> = [];
-
-  if (Array.isArray(rootCopy)) {
-    for (let i = 0; i < rootCopy.length; i++) {
-      stack.push({ parent: rootCopy, key: i, value: rootCopy[i] });
-    }
-  } else {
-    for (const [k, v] of Object.entries(rootCopy)) {
-      stack.push({ parent: rootCopy, key: k, value: v });
-    }
-  }
-
-  while (stack.length > 0) {
-    const item = stack.pop()!;
-    const val = item.value;
-    if (typeof val === 'string') {
-      item.parent[item.key] = val.replace(/\u0000/g, '');
-    } else if (val && typeof val === 'object') {
-      const copy = Array.isArray(val) ? [...val] : { ...val };
-      item.parent[item.key] = copy;
-      if (Array.isArray(copy)) {
-        for (let i = 0; i < copy.length; i++) {
-          stack.push({ parent: copy, key: i, value: copy[i] });
-        }
-      } else {
-        for (const [k, v] of Object.entries(copy)) {
-          stack.push({ parent: copy, key: k, value: v });
-        }
-      }
-    }
-  }
-
-  return rootCopy;
-}
-
-const RETRY_DELAYS_MS = [30_000, 120_000, 600_000]; // 30s, 2m, 10m
-
 export async function processMessageAttachmentsAsync(
   messageId: string,
   attachments: any[],
-  attempt = 0,
+  _attempt = 0,
   orgId?: string,
 ): Promise<void> {
   if (!attachments || attachments.length === 0) return;
 
-  let conversationId: string | undefined;
-  let accountId: string | undefined;
-
-  if (!orgId) {
+  let resolvedOrgId = orgId;
+  if (!resolvedOrgId) {
     const msg = await prisma.message.findUnique({
       where: { id: messageId },
-      select: {
-        conversationId: true,
-        conversation: { select: { orgId: true, zaloAccountId: true } },
-      },
+      select: { conversation: { select: { orgId: true } } },
     });
-    if (!orgId) orgId = msg?.conversation?.orgId;
-    conversationId = msg?.conversationId;
-    accountId = msg?.conversation?.zaloAccountId;
-  } else {
-    const msg = await prisma.message.findUnique({
-      where: { id: messageId },
-      select: {
-        conversationId: true,
-        conversation: { select: { zaloAccountId: true } },
-      },
-    });
-    conversationId = msg?.conversationId;
-    accountId = msg?.conversation?.zaloAccountId;
+    resolvedOrgId = msg?.conversation?.orgId;
   }
 
-  const updatedAttachments: any[] = [];
-  let hasPendingDownloads = false;
+  if (!resolvedOrgId) {
+    logger.warn(`[attachment-processor] Cannot process attachments for message ${messageId}: orgId missing`);
+    return;
+  }
 
-  for (const att of attachments) {
-    let localPath = att.localPath;
-    let filename = att.filename;
-    let url = att.url;
-    let extractedText = att.extractedText;
-    let isScanned = att.isScanned;
-    let sheetNames = att.sheetNames;
-    let retryCount = att.retryCount || 0;
+  let hasNewDownloadJobs = false;
 
-    if (url && !localPath) {
-      const downloadRes = await downloadAttachment(url, {
-        originalFilename: att.title || att.name || att.filename,
-        orgId,
-      });
-      if (downloadRes) {
-        localPath = downloadRes.localPath;
-        filename = downloadRes.filename;
-        url = `/api/v1/attachments/${downloadRes.filename}`;
+  for (let i = 0; i < attachments.length; i++) {
+    const att = attachments[i];
+    const isRemote =
+      att?.url &&
+      !att.localPath &&
+      typeof att.url === 'string' &&
+      !att.url.startsWith('/api/v1/attachments/');
 
-        const parseRes = await extractAttachmentSafely({
-          filename: downloadRes.originalName,
-          localPath: downloadRes.localPath,
-          mimeType: downloadRes.mimeType,
-        });
-
-        if (parseRes) {
-          extractedText = parseRes.text;
-          isScanned = parseRes.isScanned;
-          sheetNames = parseRes.sheetNames;
-        }
-      } else {
-        retryCount += 1;
-        if (retryCount < 3) {
-          hasPendingDownloads = true;
-        }
-      }
-    } else if (localPath && !extractedText) {
+    if (isRemote) {
+      await prisma.$executeRaw`
+        INSERT INTO "attachment_download_jobs" (
+          "id", "org_id", "message_id", "attachment_index", "remote_url",
+          "status", "attempt_count", "next_attempt_at", "created_at", "updated_at"
+        )
+        VALUES (gen_random_uuid(), ${resolvedOrgId}, ${messageId}, ${i}, ${att.url}, 'pending', 0, NOW(), NOW(), NOW())
+        ON CONFLICT ("message_id", "attachment_index") DO NOTHING
+      `;
+      hasNewDownloadJobs = true;
+    } else if (att?.localPath && !att?.extractedText) {
       const parseRes = await extractAttachmentSafely({
-        filename: att.title || filename,
-        localPath,
+        filename: att.title || att.filename,
+        localPath: att.localPath,
         mimeType: att.mimeType,
       });
       if (parseRes) {
-        extractedText = parseRes.text;
-        isScanned = parseRes.isScanned;
-        sheetNames = parseRes.sheetNames;
-      }
-    }
-
-    updatedAttachments.push({
-      ...att,
-      url,
-      localPath,
-      filename,
-      extractedText,
-      isScanned,
-      sheetNames,
-      retryCount,
-    });
-  }
-
-  const safeAttachments = sanitizeJsonNullBytes(updatedAttachments);
-
-  try {
-    await prisma.message.update({
-      where: { id: messageId },
-      data: { attachments: safeAttachments },
-    });
-
-    if (accountId && conversationId) {
-      const io = zaloPool.getIO();
-      if (io) {
-        await emitAccountEvent(io, accountId, 'chat:message:attachments-updated', {
-          accountId,
-          conversationId,
-          messageId,
-          attachments: safeAttachments,
+        const updated = sanitizeJsonNullBytes({
+          ...att,
+          extractedText: parseRes.text,
+          isScanned: parseRes.isScanned,
+          sheetNames: parseRes.sheetNames,
         });
+        await prisma.$executeRaw`
+          UPDATE "messages"
+          SET "attachments" = jsonb_set(
+            COALESCE("attachments", '[]'::jsonb),
+            ARRAY[${i}::text],
+            ${JSON.stringify(updated)}::jsonb,
+            true
+          )
+          WHERE "id" = ${messageId}
+        `;
       }
     }
-  } catch (err: any) {
-    logger.error(
-      `[attachment-processor] Failed to update message ${messageId} attachments in database: ${err?.message || err}`,
-    );
   }
 
-  if (hasPendingDownloads && attempt < RETRY_DELAYS_MS.length) {
-    const delay = RETRY_DELAYS_MS[attempt];
-    logger.info(`[attachment-processor] Scheduling retry ${attempt + 1} for message ${messageId} in ${delay}ms`);
-    setTimeout(() => {
-      processMessageAttachmentsAsync(messageId, updatedAttachments, attempt + 1, orgId).catch(() => {});
-    }, delay).unref();
+  if (hasNewDownloadJobs) {
+    setImmediate(() => {
+      tickAttachmentQueue().catch((err) => {
+        logger.error('[attachment-processor] Error triggering queue tick:', err);
+      });
+    });
   }
 }
 
 export async function recoverPendingAttachmentDownloads(): Promise<void> {
   try {
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // 1. Reclaim stalled downloading jobs whose leases expired
+    await prisma.$executeRaw`
+      UPDATE "attachment_download_jobs"
+      SET "status" = 'pending', "lease_owner" = NULL, "lease_expires_at" = NULL, "updated_at" = NOW()
+      WHERE "status" = 'downloading' AND "lease_expires_at" < NOW()
+    `;
+
+    // 2. Scan for legacy or missed messages with remote attachments
     const batchSize = 100;
     let cursor: string | undefined = undefined;
     let recoveredCount = 0;
@@ -254,7 +124,7 @@ export async function recoverPendingAttachmentDownloads(): Promise<void> {
         conversation: { orgId: string } | null;
       }> = await prisma.message.findMany({
         where: {
-          createdAt: { gte: oneDayAgo },
+          attachments: { not: Prisma.JsonNull },
         },
         select: {
           id: true,
@@ -272,16 +142,29 @@ export async function recoverPendingAttachmentDownloads(): Promise<void> {
 
       for (const msg of messages) {
         if (!Array.isArray(msg.attachments) || msg.attachments.length === 0) continue;
-        const hasPending = (msg.attachments as any[]).some(
-          (att) =>
+        const orgId = msg.conversation?.orgId;
+        if (!orgId) continue;
+
+        for (let i = 0; i < msg.attachments.length; i++) {
+          const att = msg.attachments[i];
+          const hasPending =
             att &&
             typeof att.url === 'string' &&
+            !att.localPath &&
             (att.url.includes('zalo') || att.url.includes('zdn.vn') || att.url.includes('zadn.vn')) &&
-            !att.url.startsWith('/api/v1/attachments/'),
-        );
-        if (hasPending) {
-          recoveredCount++;
-          processMessageAttachmentsAsync(msg.id, msg.attachments as any[], 0, msg.conversation?.orgId).catch(() => {});
+            !att.url.startsWith('/api/v1/attachments/');
+
+          if (hasPending) {
+            recoveredCount++;
+            await prisma.$executeRaw`
+              INSERT INTO "attachment_download_jobs" (
+                "id", "org_id", "message_id", "attachment_index", "remote_url",
+                "status", "attempt_count", "next_attempt_at", "created_at", "updated_at"
+              )
+              VALUES (gen_random_uuid(), ${orgId}, ${msg.id}, ${i}, ${att.url}, 'pending', 0, NOW(), NOW(), NOW())
+              ON CONFLICT ("message_id", "attachment_index") DO NOTHING
+            `;
+          }
         }
       }
 
@@ -293,10 +176,12 @@ export async function recoverPendingAttachmentDownloads(): Promise<void> {
     }
 
     if (recoveredCount > 0) {
-      logger.info(`[attachment-processor] Recovered ${recoveredCount} pending attachment downloads from startup sweep`);
+      logger.info(`[attachment-processor] Enrolled ${recoveredCount} pending attachment downloads from recovery sweep`);
     }
+
+    // Trigger queue processing
+    void tickAttachmentQueue();
   } catch (err: any) {
     logger.warn(`[attachment-processor] Startup attachment recovery sweep failed: ${err?.message || err}`);
   }
 }
-

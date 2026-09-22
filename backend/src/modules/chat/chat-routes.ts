@@ -8,16 +8,9 @@ import path from 'node:path';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
 import { requireZaloAccess } from '../zalo/zalo-access-middleware.js';
-import { zaloPool } from '../zalo/zalo-pool.js';
-import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { logger } from '../../shared/utils/logger.js';
-import { randomUUID } from 'node:crypto';
-import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
 import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
-import { emitWebhook } from '../api/webhook-service.js';
-import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
-import { getAttachmentsBaseDir, getOrgAttachmentsDir } from '../attachments/attachment-routes.js';
-import { resolveByEntity } from '../notifications/notification-service.js';
+import { getAttachmentsBaseDir } from '../attachments/attachment-routes.js';
 import { messageDeliveryService } from '../zalo/message-delivery-service.js';
 
 type QueryParams = Record<string, string>;
@@ -143,17 +136,18 @@ export async function chatRoutes(app: FastifyInstance) {
   app.post('/api/v1/conversations/:id/messages', { preHandler: requireZaloAccess('chat') }, async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
     const { id } = request.params as { id: string };
-    const { content, attachmentIds, force } = (request.body || {}) as {
-      content?: string;
-      attachmentIds?: string[];
-      force?: boolean;
-    };
+    const body = ((request.body as any) || {}) as Record<string, any>;
+    const { content, attachmentIds, force } = body;
 
     const hasText = Boolean(content && content.trim());
     const hasAttachments = Boolean(attachmentIds && attachmentIds.length > 0);
 
     if (!hasText && !hasAttachments) {
       return reply.status(400).send({ error: 'Nội dung tin nhắn hoặc tệp đính kèm là bắt buộc' });
+    }
+
+    if (content && typeof content === 'string' && content.length > 10_000) {
+      return reply.status(400).send({ error: 'Nội dung tin nhắn không được vượt quá 10,000 ký tự' });
     }
 
     if (attachmentIds && attachmentIds.length > 5) {
@@ -166,13 +160,9 @@ export async function chatRoutes(app: FastifyInstance) {
     });
     if (!conversation) return reply.status(404).send({ error: 'Conversation not found' });
 
-    const instance = zaloPool.getInstance(conversation.zaloAccountId);
-    if (!instance?.api) return reply.status(400).send({ error: 'Zalo account not connected' });
-
     // Resolve staged files if attachments are present
     const baseDir = getAttachmentsBaseDir();
     const stagedDir = path.join(baseDir, 'staged');
-    const orgDir = getOrgAttachmentsDir(user.orgId);
 
     const resolvedStagedFiles: Array<{
       id: string;
@@ -233,179 +223,37 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
-    if (resolvedStagedFiles.length === 0) {
-      try {
-        const result = await messageDeliveryService.sendText({
-          orgId: user.orgId,
-          zaloAccountId: conversation.zaloAccountId,
-          threadId: conversation.externalThreadId || '',
-          threadType: conversation.threadType as any,
-          content: content!.trim(),
-          source: 'chat_ui',
-          senderUserId: user.id,
-          senderName: user.fullName || 'Staff',
-          force,
-        });
-        return result.message;
-      } catch (err: any) {
-        if (err.statusCode === 429) {
-          return reply.status(429).send({ error: err.message, canForce: err.canForce });
-        }
-        logger.error('[chat] Send text message error:', err);
-        return reply.status(err.statusCode || 502).send({
-          error: 'Gửi tin nhắn sang Zalo thất bại',
-          details: err?.message || String(err),
-        });
-      }
-    }
-
-    // Rate limit check — media has higher weight (2x) to prevent account blocking
-    const weight = resolvedStagedFiles.length > 0 ? resolvedStagedFiles.length * 2 : 1;
-    const limits = zaloRateLimiter.checkLimits(conversation.zaloAccountId, weight);
-    if (!limits.allowed && !force) {
-      return reply.status(429).send({ error: limits.reason, canForce: limits.canForce });
-    }
+    const idempotencyKey =
+      (request.headers['idempotency-key'] as string | undefined) ||
+      (request.headers['x-idempotency-key'] as string | undefined) ||
+      (body as any).idempotencyKey ||
+      (body as any).clientMessageId;
 
     try {
-      const threadId = conversation.externalThreadId || '';
-      const threadType = conversation.threadType === 'group' ? 1 : 0;
-
-      // Atomic send to Zalo API
-      let res: any;
-      if (resolvedStagedFiles.length > 0) {
-        res = await instance.api.sendMessage(
-          {
-            msg: content?.trim() || '',
-            attachments: resolvedStagedFiles.map((f) => f.stagedPath),
-          },
-          threadId,
-          threadType,
-        );
-      } else {
-        res = await instance.api.sendMessage({ msg: content!.trim() }, threadId, threadType);
-      }
-
-      // Check for explicit Zalo error response
-      if (res?.error || (typeof res?.code === 'number' && res.code !== 0)) {
-        throw new Error(res.message || res.error || 'Zalo rejected message delivery');
-      }
-
-      // Move staged files to permanent org attachments folder
-      const movedAttachments: Array<{
-        url: string;
-        filename: string;
-        originalName: string;
-        size: number;
-        mimeType: string;
-      }> = [];
-
-      for (const file of resolvedStagedFiles) {
-        const destPath = path.join(orgDir, file.filename);
-        try {
-          await fs.promises.rename(file.stagedPath, destPath);
-        } catch {
-          await fs.promises.copyFile(file.stagedPath, destPath);
-          await fs.promises.unlink(file.stagedPath).catch(() => {});
-        }
-
-        movedAttachments.push({
-          url: `/api/v1/attachments/${file.filename}`,
-          filename: file.filename,
-          originalName: file.originalName,
-          size: file.size,
-          mimeType: file.mimeType,
-        });
-      }
-
-      // Collect all msgIds (text + all media parts) for anti-echo deduplication
-      const allMsgIds: string[] = [];
-      if (res?.message?.msgId) allMsgIds.push(String(res.message.msgId));
-      if (Array.isArray(res?.attachment)) {
-        for (const att of res.attachment) {
-          if (att?.msgId) allMsgIds.push(String(att.msgId));
-        }
-      }
-      if (res?.data?.msgId) allMsgIds.push(String(res.data.msgId));
-      if (res?.msgId) allMsgIds.push(String(res.msgId));
-
-      const primaryZaloMsgId =
-        res?.message?.msgId ? String(res.message.msgId) :
-        (res?.attachment && res.attachment[0]?.msgId) ? String(res.attachment[0].msgId) :
-        (allMsgIds[0] || null);
-
-      zaloRateLimiter.recordSend(
-        conversation.zaloAccountId,
-        allMsgIds.length > 0 ? allMsgIds : primaryZaloMsgId,
-        false,
-        weight,
-      );
-
-      let contentType = 'text';
-      if (movedAttachments.length > 0) {
-        contentType = resolvedStagedFiles.every((f) => f.fileType === 'image') ? 'image' : 'file';
-      }
-
-      const senderName = user.fullName || 'Staff';
-      let message;
-      try {
-        message = await prisma.message.create({
-          data: {
-            id: randomUUID(),
-            conversationId: id,
-            zaloMsgId: primaryZaloMsgId,
-            senderType: 'self',
-            senderUid: conversation.zaloAccount.zaloUid || '',
-            senderName,
-            content: content?.trim() || (movedAttachments.length > 0 ? null : ''),
-            contentType,
-            attachments: movedAttachments,
-            sentAt: new Date(),
-            repliedByUserId: user.id,
-          },
-        });
-      } catch (err: any) {
-        if (err?.code === 'P2002' && primaryZaloMsgId) {
-          message = await prisma.message.update({
-            where: { conversationId_zaloMsgId: { conversationId: id, zaloMsgId: primaryZaloMsgId } },
-            data: { repliedByUserId: user.id, senderName, attachments: movedAttachments },
-          });
-        } else throw err;
-      }
-
-      await prisma.conversation.update({
-        where: { id },
-        data: { lastMessageAt: new Date(), isReplied: true, unreadCount: 0 },
-      });
-
-      void resolveByEntity(user.orgId, 'conversation', id).catch(() => {});
-
-      chatTurnDebouncer.handleMessageTurn({
-        conversationId: id,
-        accountId: conversation.zaloAccountId,
+      const result = await messageDeliveryService.sendMessage({
         orgId: user.orgId,
-        isSelf: true,
+        zaloAccountId: conversation.zaloAccountId,
+        threadId: conversation.externalThreadId || '',
         threadType: conversation.threadType as any,
-      }).catch(() => {});
-
-      await emitAccountEvent(app.io, conversation.zaloAccountId, 'chat:message', {
-        accountId: conversation.zaloAccountId,
-        message,
-        conversationId: id,
+        conversationId: conversation.id,
+        content: content?.trim() || '',
+        source: 'chat_ui',
+        senderUserId: user.id,
+        senderName: user.fullName || 'Staff',
+        force,
+        mediaFiles: resolvedStagedFiles.length > 0 ? resolvedStagedFiles : undefined,
+        idempotencyKey,
       });
-
-      emitWebhook(conversation.zaloAccount.orgId, 'message.sent', {
-        messageId: message.id,
-        conversationId: id,
-        senderUid: conversation.zaloAccount.zaloUid || '',
-        content: message.content,
-        contentType: message.contentType,
-        sentAt: message.sentAt,
-      });
-
-      return message;
+      return result.message;
     } catch (err: any) {
+      if (err.statusCode === 429) {
+        return reply.status(429).send({ error: err.message, canForce: err.canForce });
+      }
+      if (err.statusCode === 409) {
+        return reply.status(409).send({ error: err.message, code: err.code });
+      }
       logger.error('[chat] Send message error:', err);
-      return reply.status(502).send({
+      return reply.status(err.statusCode || 502).send({
         error: 'Gửi tin nhắn hoặc tệp đính kèm sang Zalo thất bại',
         details: err?.message || String(err),
       });

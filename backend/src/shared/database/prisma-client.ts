@@ -1,15 +1,16 @@
 /**
  * Prisma client singleton.
  * Prisma 7 requires an adapter for database connection.
- * Reuses the same client instance across hot-reloads in development.
+ * Reuses the same client instance across hot-reloads in development,
+ * and allows isolated re-instantiation in integration test environments.
  */
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
-const globalForPrisma = globalThis as unknown as { prisma: PrismaClient };
+const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-function createPrismaClient(): PrismaClient {
-  const connectionString = process.env.DATABASE_URL;
+export function createPrismaClient(url?: string): PrismaClient {
+  const connectionString = url || process.env.DATABASE_URL;
   if (!connectionString) {
     throw new Error('DATABASE_URL environment variable is not set');
   }
@@ -25,6 +26,25 @@ function createPrismaClient(): PrismaClient {
   });
 }
 
-export const prisma = globalForPrisma.prisma || createPrismaClient();
+let activeClient: PrismaClient = globalForPrisma.prisma || createPrismaClient();
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+export function resetPrismaClient(url?: string): PrismaClient {
+  if (activeClient) {
+    void activeClient.$disconnect().catch(() => {});
+  }
+  activeClient = createPrismaClient(url);
+  globalForPrisma.prisma = activeClient;
+  return activeClient;
+}
+
+export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
+  get(_target, prop) {
+    const value = Reflect.get(activeClient as any, prop, activeClient);
+    if (typeof value === 'function') {
+      return value.bind(activeClient);
+    }
+    return value;
+  },
+});
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = activeClient;

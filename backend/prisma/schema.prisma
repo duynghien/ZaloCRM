@@ -37,6 +37,7 @@ model Organization {
   kiotvietRetailerLeases   KiotvietRetailerLease[]
   kiotvietInvoiceJobs      KiotvietInvoiceJob[]
   orderItems               OrderItem[]
+  zaloOutboundMessages     ZaloOutboundMessage[]
 
   @@map("organizations")
 }
@@ -82,6 +83,7 @@ model User {
   aiUsageLogs      AiUsageLog[]
   notifications    Notification[]
 
+  @@unique([orgId, id])
   @@map("users")
 }
 
@@ -130,6 +132,8 @@ model ZaloAccount {
   access        ZaloAccountAccess[]
   conversations Conversation[]
   dailyStats    DailyMessageStat[]
+  rateState     ZaloAccountRateState?
+  outboundMessages ZaloOutboundMessage[]
 
   @@map("zalo_accounts")
 }
@@ -176,6 +180,8 @@ model Contact {
   appointments  Appointment[]
   orders        Order[]
 
+  @@unique([orgId, zaloUid])
+  @@unique([orgId, id])
   @@map("contacts")
 }
 
@@ -199,6 +205,7 @@ model Conversation {
   orders      Order[]
 
   @@unique([zaloAccountId, externalThreadId])
+  @@unique([orgId, id])
   @@index([orgId, zaloAccountId])
   @@map("conversations")
 }
@@ -767,4 +774,103 @@ model KiotvietInvoiceJob {
   @@index([orgId, state])
   @@map("kiotviet_invoice_jobs")
 }
+
+model ZaloAccountRateState {
+  accountId   String      @id @map("account_id")
+  dateVn      String      @map("date_vn") @db.VarChar(10)
+  dailyCount  Int         @default(0) @map("daily_count")
+  lastSendAt  DateTime?   @map("last_send_at")
+  recentSends DateTime[]  @default([]) @map("recent_sends")
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at")
+
+  account     ZaloAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("zalo_account_rate_state")
+}
+
+model ZaloOutboundMessage {
+  id             String       @id @default(uuid())
+  orgId          String       @map("org_id")
+  accountId      String       @map("account_id")
+  threadId       String       @map("thread_id")
+  conversationId String?      @map("conversation_id")
+  messageId      String?      @map("message_id")
+  idempotencyKey String?      @map("idempotency_key")
+  content        String?
+  attachments    Json?
+  state          String       @default("preparing") // preparing, dispatching, succeeded, uncertain, failed_before_dispatch
+  remoteMsgIds   String[]     @default([]) @map("remote_msg_ids")
+  lastError      String?      @map("last_error")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  account        ZaloAccount  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, accountId, threadId, idempotencyKey])
+  @@index([orgId, accountId, state])
+  @@map("zalo_outbound_messages")
+}
+
+model CronJobLease {
+  lockId         BigInt    @id @map("lock_id")
+  jobName        String    @map("job_name")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("cron_job_leases")
+}
+
+model KiotvietVendorCooldown {
+  orgId        String   @map("org_id")
+  retailer     String   @map("retailer")
+  blockedUntil DateTime @map("blocked_until")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@id([orgId, retailer])
+  @@map("kiotviet_vendor_cooldown")
+}
+
+model AttachmentDownloadJob {
+  id              String    @id @default(uuid())
+  orgId           String    @map("org_id")
+  messageId       String    @map("message_id")
+  attachmentIndex Int       @map("attachment_index")
+  remoteUrl       String    @map("remote_url")
+  status          String    @default("pending") // pending, downloading, completed, failed
+  attemptCount    Int       @default(0) @map("attempt_count")
+  nextAttemptAt   DateTime  @default(now()) @map("next_attempt_at")
+  leaseOwner      String?   @map("lease_owner")
+  leaseExpiresAt  DateTime? @map("lease_expires_at")
+  lastError       String?   @map("last_error")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@unique([messageId, attachmentIndex])
+  @@index([status, nextAttemptAt])
+  @@map("attachment_download_jobs")
+}
+
+model WebhookOutbox {
+  id             String    @id @default(uuid())
+  orgId          String    @map("org_id")
+  eventType      String    @map("event_type")
+  payload        Json
+  status         String    @default("pending") // pending, dispatching, delivered, failed
+  attemptCount   Int       @default(0) @map("attempt_count")
+  nextAttemptAt  DateTime  @default(now()) @map("next_attempt_at")
+  leaseOwner     String?   @map("lease_owner")
+  leaseExpiresAt DateTime? @map("lease_expires_at")
+  responseStatus Int?      @map("response_status")
+  lastError      String?   @map("last_error")
+  deliveredAt    DateTime? @map("delivered_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([status, nextAttemptAt])
+  @@map("webhook_outbox")
+}
+
 

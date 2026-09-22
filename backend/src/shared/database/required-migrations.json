@@ -46,5 +46,21 @@
   {
     "name": "20260921000000_kiotviet_sync_and_order_items",
     "checksum": "da445be319c179c45eb8761979185697bc90e955e2b593db2b11371d99783b50"
+  },
+  {
+    "name": "20260922000001_zalo_durable_rate_and_outbox",
+    "checksum": "290cd288cb93867566b06d30e767d61146f92d0913a1a62b1fcb87af6ecf971a"
+  },
+  {
+    "name": "20260922000002_cron_leases",
+    "checksum": "c046514eaf7dd9ba3e65d2d1b57c1d2f6d8b0285a66c461d887f7b1bc4d4da8c"
+  },
+  {
+    "name": "20260922000003_vendor_cooldown_and_attachment_jobs",
+    "checksum": "57e3fc16dd292e6744aeb69ef80b8bbf135a48de57b7f6443e063353df08f263"
+  },
+  {
+    "name": "20260922000004_data_integrity_and_webhook_outbox",
+    "checksum": "b92ad3287b5a3414913899962a1cac020c28c0e3dbae8c8f00090b1ec033087d"
   }
 ]

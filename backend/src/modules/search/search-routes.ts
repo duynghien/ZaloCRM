@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { authMiddleware } from '../auth/auth-middleware.js';
+import { RequestValidationError } from '../../shared/http/request-schemas.js';
 
 export async function searchRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -12,6 +13,9 @@ export async function searchRoutes(app: FastifyInstance) {
   app.get('/api/v1/search', async (request) => {
     const user = request.user!;
     const { q = '' } = request.query as { q: string };
+    if (typeof q === 'string' && q.length > 200) {
+      throw new RequestValidationError('Từ khóa tìm kiếm không được vượt quá 200 ký tự');
+    }
     if (!q || q.length < 2) return { contacts: [], messages: [], appointments: [] };
 
     const searchTerm = q.trim();

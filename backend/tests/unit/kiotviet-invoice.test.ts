@@ -29,6 +29,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
     kiotvietInvoiceJob: {
       findFirst: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
     kiotvietSyncState: {
       findUnique: vi.fn(),
@@ -251,7 +252,7 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
       (prisma.order.findFirst as any).mockResolvedValueOnce({
         id: orderId,
         orgId,
-        kiotvietJob: { id: 'job-1', remoteInvoiceId: null },
+        kiotvietJob: { id: 'job-1', remoteInvoiceId: null, leaseVersion: 0 },
       });
       (prisma.kiotvietInvoiceJob.findFirst as any).mockResolvedValueOnce(null); // not already linked
 
@@ -259,6 +260,8 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
         id: 9999,
         code: 'HD009999',
       } as any);
+
+      (prisma.kiotvietInvoiceJob.updateMany as any).mockResolvedValueOnce({ count: 1 });
 
       (prisma.order.update as any).mockResolvedValueOnce({
         id: orderId,
@@ -276,9 +279,13 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
 
       expect(result.action).toBe('link');
       expect(result.remoteInvoiceCode).toBe('HD009999');
-      expect(prisma.kiotvietInvoiceJob.update).toHaveBeenCalledWith(
+      expect(prisma.kiotvietInvoiceJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'job-1' },
+          where: expect.objectContaining({
+            id: 'job-1',
+            orgId,
+            state: { in: ['uncertain', 'failed'] },
+          }),
           data: expect.objectContaining({
             state: 'succeeded',
             remoteInvoiceId: BigInt(9999),
@@ -297,8 +304,10 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
       (prisma.order.findFirst as any).mockResolvedValueOnce({
         id: orderId,
         orgId,
-        kiotvietJob: { id: 'job-1' },
+        kiotvietJob: { id: 'job-1', leaseVersion: 0 },
       });
+
+      (prisma.kiotvietInvoiceJob.updateMany as any).mockResolvedValueOnce({ count: 1 });
 
       (prisma.order.update as any).mockResolvedValueOnce({
         id: orderId,
@@ -314,9 +323,14 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
       });
 
       expect(result.action).toBe('confirm-not-created');
-      expect(prisma.kiotvietInvoiceJob.update).toHaveBeenCalledWith(
+      expect(prisma.kiotvietInvoiceJob.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'job-1' },
+          where: expect.objectContaining({
+            id: 'job-1',
+            orgId,
+            state: 'uncertain',
+            remoteInvoiceId: null,
+          }),
           data: expect.objectContaining({
             state: 'failed',
             reconciliationStatus: 'confirmed_not_created',

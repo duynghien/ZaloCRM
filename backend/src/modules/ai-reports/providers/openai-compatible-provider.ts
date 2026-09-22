@@ -47,8 +47,8 @@ export class OpenAiCompatibleProvider implements AiProvider {
     });
   }
 
-  async estimateTokens(prompt: string | ContentPart[]): Promise<number> {
-    return estimateTokensHeuristic(prompt);
+  async estimateTokens(prompt: string | ContentPart[], systemInstruction?: string): Promise<number> {
+    return estimateTokensHeuristic(prompt, systemInstruction);
   }
 
   private formatMessages(prompt: string | ContentPart[], systemInstruction?: string): OpenAI.Chat.ChatCompletionMessageParam[] {
@@ -87,89 +87,81 @@ export class OpenAiCompatibleProvider implements AiProvider {
   }
 
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
-    let lastError: any = null;
     const start = Date.now();
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        if (options.signal?.aborted) throw new Error('Generation aborted');
-        await runReportExecutionGuard(options.executionGuard);
+    try {
+      if (options.signal?.aborted) throw new Error('Generation aborted');
+      await runReportExecutionGuard(options.executionGuard);
 
-        const messages = this.formatMessages(prompt, options.systemInstruction);
-        const completion = await this.client.chat.completions.create(
-          {
-            model: this.model,
-            messages,
-            temperature: options.temperature ?? 0.2,
-            max_tokens: options.maxOutputTokens ?? 4096,
-          },
-          { signal: options.signal },
-        );
+      const messages = this.formatMessages(prompt, options.systemInstruction);
+      const completion = await this.client.chat.completions.create(
+        {
+          model: this.model,
+          messages,
+          temperature: options.temperature ?? 0.2,
+          max_tokens: options.maxOutputTokens ?? 4096,
+        },
+        { signal: options.signal },
+      );
 
-        const inputTokens = completion.usage?.prompt_tokens ?? 0;
-        const outputTokens = completion.usage?.completion_tokens ?? 0;
-        const cachedTokens = (completion.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
-        const totalTokens = completion.usage?.total_tokens ?? (inputTokens + outputTokens);
-        const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
+      const inputTokens = completion.usage?.prompt_tokens ?? 0;
+      const outputTokens = completion.usage?.completion_tokens ?? 0;
+      const cachedTokens = (completion.usage as any)?.prompt_tokens_details?.cached_tokens ?? 0;
+      const totalTokens = completion.usage?.total_tokens ?? (inputTokens + outputTokens);
+      const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
 
-        options.onUsage?.(usageTelemetry);
+      options.onUsage?.(usageTelemetry);
 
-        // GUARD: Check finish_reason BEFORE extracting content — treats CoT token exhaustion
-        // as a hard failure regardless of whether content is empty or partially generated.
-        if (completion.choices[0]?.finish_reason === 'length') {
-          throw new IncompleteAiGenerationError();
-        }
-
-        const message = completion.choices[0]?.message;
-        const text = message?.content || '';
-        if (!text.trim()) throw new Error(`Empty response received from ${this.type} API`);
-
-        if (options.orgId && options.taskType) {
-          recordAiUsage({
-            orgId: options.orgId,
-            taskType: options.taskType,
-            provider: this.type,
-            model: this.model,
-            usage: usageTelemetry,
-            durationMs: Date.now() - start,
-            status: 'success',
-          });
-        }
-
-        if (options.attemptKey) {
-          await options.budget.complete(options.attemptKey, {
-            inputTokens,
-            outputTokens,
-          });
-        }
-
-        return text;
-      } catch (err: any) {
-        if (isReportControlError(err) || err instanceof IncompleteAiGenerationError) {
-          throw err; // Fail-fast: exit immediately for Router failover, no 3s sleep, no attempt 2
-        }
-        lastError = err;
-        logger.warn(`[openai-provider:${this.type}] Attempt ${attempt} failed for model ${this.model}: ${err?.message || err}`);
-        if (attempt === 1 && !options.signal?.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, 3000));
-        }
+      // GUARD: Check finish_reason BEFORE extracting content — treats CoT token exhaustion
+      // as a hard failure regardless of whether content is empty or partially generated.
+      if (completion.choices[0]?.finish_reason === 'length') {
+        throw new IncompleteAiGenerationError();
       }
-    }
 
-    if (options.orgId && options.taskType) {
-      recordAiUsage({
-        orgId: options.orgId,
-        taskType: options.taskType,
-        provider: this.type,
-        model: this.model,
-        usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
-        durationMs: Date.now() - start,
-        status: 'failed',
-        metadata: { error: lastError?.message || String(lastError) },
-      });
-    }
+      const message = completion.choices[0]?.message;
+      const text = message?.content || '';
+      if (!text.trim()) throw new Error(`Empty response received from ${this.type} API`);
 
-    throw lastError || new Error(`${this.type} API call failed after retries for model ${this.model}`);
+      if (options.orgId && options.taskType) {
+        recordAiUsage({
+          orgId: options.orgId,
+          taskType: options.taskType,
+          provider: this.type,
+          model: this.model,
+          usage: usageTelemetry,
+          durationMs: Date.now() - start,
+          status: 'success',
+        });
+      }
+
+      if (options.attemptKey) {
+        await options.budget.complete(options.attemptKey, {
+          inputTokens,
+          outputTokens,
+        });
+      }
+
+      return text;
+    } catch (err: any) {
+      if (isReportControlError(err) || err instanceof IncompleteAiGenerationError) {
+        throw err;
+      }
+
+      if (options.orgId && options.taskType) {
+        recordAiUsage({
+          orgId: options.orgId,
+          taskType: options.taskType,
+          provider: this.type,
+          model: this.model,
+          usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
+          durationMs: Date.now() - start,
+          status: 'failed',
+          metadata: { error: err?.message || String(err) },
+        });
+      }
+
+      throw err;
+    }
   }
 
   async testConnection(): Promise<TestConnectionResult> {

@@ -31,10 +31,14 @@ export function getAttachmentsDirectory(): string {
   return targetDir;
 }
 
+export type DownloadDetailedResult =
+  | { success: true; result: DownloadResult }
+  | { success: false; status?: number; error: string };
+
 /**
- * Download an attachment file from a URL (e.g. Zalo CDN) safely.
+ * Download an attachment file from a URL with full outcome and status details.
  */
-export async function downloadAttachment(
+export async function downloadAttachmentDetailed(
   url: string,
   options?: {
     originalFilename?: string;
@@ -42,11 +46,11 @@ export async function downloadAttachment(
     timeoutMs?: number;
     orgId?: string;
   },
-): Promise<DownloadResult | null> {
+): Promise<DownloadDetailedResult> {
   try {
     if (!url || typeof url !== 'string') {
       logger.warn(`[attachment-downloader] Invalid URL provided: ${url}`);
-      return null;
+      return { success: false, error: 'Invalid URL provided' };
     }
 
     const defaultHeaders: Record<string, string> = {
@@ -79,36 +83,55 @@ export async function downloadAttachment(
         timeoutMs: options?.timeoutMs || 30_000,
         maxResponseBytes: MAX_FILE_SIZE_BYTES,
       });
-    } catch (error) {
+    } catch (error: any) {
       await fs.promises.unlink(partialPath).catch(() => undefined);
-      throw error;
+      return { success: false, error: error?.message || String(error) };
     }
 
     if (!response.ok) {
       await fs.promises.unlink(partialPath).catch(() => undefined);
       logger.warn(`[attachment-downloader] Failed to download from ${url}: status ${response.status}`);
-      return null;
+      return { success: false, status: response.status, error: `HTTP ${response.status}` };
     }
 
     try {
       await fs.promises.rename(partialPath, localPath);
-    } catch (error) {
+    } catch (error: any) {
       await fs.promises.unlink(partialPath).catch(() => undefined);
-      throw error;
+      return { success: false, error: error?.message || String(error) };
     }
 
     const mimeType = response.headers.get('content-type') || 'application/octet-stream';
     logger.info(`[attachment-downloader] Saved attachment to ${localPath} (${response.bytes} bytes)`);
 
     return {
-      localPath,
-      filename: uniqueFilename,
-      originalName: sanitizedFilename,
-      size: response.bytes,
-      mimeType,
+      success: true,
+      result: {
+        localPath,
+        filename: uniqueFilename,
+        originalName: sanitizedFilename,
+        size: response.bytes,
+        mimeType,
+      },
     };
   } catch (err: any) {
     logger.error(`[attachment-downloader] Error downloading attachment from ${url}:`, err?.message || err);
-    return null;
+    return { success: false, error: err?.message || String(err) };
   }
+}
+
+/**
+ * Download an attachment file from a URL (e.g. Zalo CDN) safely.
+ */
+export async function downloadAttachment(
+  url: string,
+  options?: {
+    originalFilename?: string;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    orgId?: string;
+  },
+): Promise<DownloadResult | null> {
+  const res = await downloadAttachmentDetailed(url, options);
+  return res.success ? res.result : null;
 }

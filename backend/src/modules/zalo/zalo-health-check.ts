@@ -11,7 +11,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { config } from '../../config/index.js';
 import { decryptData } from '../../shared/utils/crypto.js';
 import { syncAccountCredentials } from './zalo-session-manager.js';
-import { withCronLock, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
+import { withDurableCronLease, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
 
 let zaloHealthTasks: ReturnType<typeof cron.schedule>[] = [];
 let shutdownController = new AbortController();
@@ -23,11 +23,13 @@ function isStopping(): boolean {
 
 function waitOrStop(milliseconds: number): Promise<void> {
   return new Promise((resolve) => {
+    if (isStopping()) return resolve();
     const timer = setTimeout(resolve, milliseconds);
-    shutdownController.signal.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timer);
       resolve();
-    }, { once: true });
+    };
+    shutdownController.signal.addEventListener('abort', onAbort, { once: true });
   });
 }
 
@@ -39,8 +41,8 @@ function track(run: () => Promise<void>): Promise<void> {
 
 async function runConnectionCheck(): Promise<void> {
   try {
-    await withCronLock(CRON_LOCKS.ZALO_HEALTH_CHECK, async (tx) => {
-      const accounts = await tx.zaloAccount.findMany({
+    await withDurableCronLease(CRON_LOCKS.ZALO_CONNECTION_CHECK, 'zalo-connection-check', 5 * 60_000, async () => {
+      const accounts = await prisma.zaloAccount.findMany({
         where: { sessionData: { not: Prisma.JsonNull } },
         select: { id: true, displayName: true, sessionData: true },
       });
@@ -66,8 +68,8 @@ async function runConnectionCheck(): Promise<void> {
 async function runDailySessionRefresh(): Promise<void> {
   logger.info('[health-check] Daily session refresh starting...');
   try {
-    await withCronLock(CRON_LOCKS.ZALO_HEALTH_CHECK, async (tx) => {
-      const accounts = await tx.zaloAccount.findMany({
+    await withDurableCronLease(CRON_LOCKS.ZALO_DAILY_SESSION_REFRESH, 'zalo-daily-session-refresh', 30 * 60_000, async () => {
+      const accounts = await prisma.zaloAccount.findMany({
         where: { sessionData: { not: Prisma.JsonNull } },
         select: { id: true, sessionData: true },
       });

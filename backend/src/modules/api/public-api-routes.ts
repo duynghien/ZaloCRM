@@ -39,9 +39,9 @@ async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
   if (legacySetting) {
     (request as any).orgId = legacySetting.orgId;
 
-    // Asynchronously upgrade without deleting legacy key during in-flight request
+    // Atomically upgrade and purge legacy plaintext key
     const prefix = apiKey.slice(0, 10);
-    Promise.all([
+    prisma.$transaction([
       prisma.appSetting.upsert({
         where: { orgId_settingKey: { orgId: legacySetting.orgId, settingKey: 'public_api_key_hash' } },
         create: { orgId: legacySetting.orgId, settingKey: 'public_api_key_hash', valuePlain: incomingHash },
@@ -52,8 +52,11 @@ async function apiKeyAuth(request: FastifyRequest, reply: FastifyReply) {
         create: { orgId: legacySetting.orgId, settingKey: 'public_api_key_prefix', valuePlain: prefix },
         update: { valuePlain: prefix },
       }),
+      prisma.appSetting.deleteMany({
+        where: { orgId: legacySetting.orgId, settingKey: 'public_api_key' },
+      }),
     ]).catch((err) => {
-      logger.warn(`[public-api] Failed to lazy upgrade legacy API key for org ${legacySetting.orgId}:`, err);
+      logger.warn(`[public-api] Failed to lazy upgrade and purge legacy API key for org ${legacySetting.orgId}:`, err);
     });
 
     return;
@@ -310,14 +313,25 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'zaloAccountId, threadId, and content are required' });
       }
 
-      const result = await messageDeliveryService.sendText({
+      if (typeof body.content === 'string' && body.content.length > 10_000) {
+        return reply.status(400).send({ error: 'Nội dung tin nhắn không được vượt quá 10,000 ký tự' });
+      }
+
+      const idempotencyKey =
+        (request.headers['idempotency-key'] as string | undefined) ||
+        (request.headers['x-idempotency-key'] as string | undefined) ||
+        body.idempotencyKey ||
+        body.clientMessageId;
+
+      const result = await messageDeliveryService.sendMessage({
         orgId,
         zaloAccountId: body.zaloAccountId,
         threadId: body.threadId,
         threadType: body.threadType,
         content: body.content,
         source: 'public_api',
-        force: Boolean(body.force),
+        force: body.force === true,
+        idempotencyKey,
       });
 
       return {
@@ -332,6 +346,7 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
       return reply.status(statusCode).send({
         error: err?.message || 'Failed to send message',
         canForce: err?.canForce,
+        code: err?.code,
       });
     }
   });

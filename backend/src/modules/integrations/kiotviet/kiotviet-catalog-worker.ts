@@ -11,7 +11,13 @@ import { logger } from '../../../shared/utils/logger.js';
 import { getKiotvietConfig } from './kiotviet-settings-service.js';
 import { getKiotvietProductsPage } from './kiotviet-client.js';
 import { KiotvietConflictError } from './kiotviet-settings-service.js';
-import type { KiotvietCatalogRunMode } from './kiotviet-types.js';
+import {
+  type KiotvietCatalogRunMode,
+  CatalogTraversalLimitError,
+  LostCatalogLeaseError,
+} from './kiotviet-types.js';
+import { zaloPool } from '../../zalo/zalo-pool.js';
+import { emitManagerEvent } from '../../../shared/realtime/socket-event-delivery.js';
 
 const LEASE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 const WORKER_ID = `catalog-worker-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -109,21 +115,45 @@ async function processCatalogJob(orgId: string): Promise<void> {
   const configuredBranchId = claimed.branchId!;
   const retailer = claimed.retailer!;
 
+  const fence = {
+    orgId,
+    runId,
+    status: 'running',
+    leaseOwner: WORKER_ID,
+    leaseVersion: claimed.leaseVersion,
+  };
+
   logger.info(`[kiotviet-catalog] Starting ${mode} catalog sync for org ${orgId}, runId: ${runId}`);
 
   currentAbortController = new AbortController();
   const signal = currentAbortController.signal;
 
+  let renewTimer: NodeJS.Timeout | null = null;
+  let totalProducts = 0;
+  let currentItem = 0;
+  let pageCount = 0;
+  let processedCount = 0;
+
   try {
+    renewTimer = setInterval(async () => {
+      try {
+        await prisma.kiotvietSyncState.updateMany({
+          where: fence,
+          data: {
+            leaseExpiresAt: new Date(Date.now() + LEASE_DURATION_MS),
+          },
+        });
+      } catch (err) {
+        logger.warn(`[kiotviet-catalog] Lease renewal heartbeat failed:`, err);
+      }
+    }, Math.floor(LEASE_DURATION_MS / 3));
+    renewTimer.unref();
+
     const config = await getKiotvietConfig(orgId);
     if (!config || !config.retailer || !config.branchId) {
       throw new Error('KiotViet configuration is invalid or missing');
     }
 
-    let currentItem = 0;
-    let pageCount = 0;
-    let totalProducts = 0;
-    let processedCount = 0;
     const runStartTime = new Date();
 
     let lastModifiedFrom: string | undefined;
@@ -147,7 +177,7 @@ async function processCatalogJob(orgId: string): Promise<void> {
         liveState.leaseVersion !== claimed.leaseVersion ||
         liveState.configRevision !== configRevision
       ) {
-        throw new Error('Lost lease or config revision changed during catalog sync');
+        throw new LostCatalogLeaseError('Lost lease or config revision changed during catalog sync');
       }
 
       const pageResult = await getKiotvietProductsPage(orgId, config, {
@@ -236,13 +266,16 @@ async function processCatalogJob(orgId: string): Promise<void> {
         }
 
         processedCount += products.length;
-        await tx.kiotvietSyncState.update({
-          where: { orgId },
+        const progressUpdate = await tx.kiotvietSyncState.updateMany({
+          where: fence,
           data: {
             processedCount,
             totalProducts,
           },
         });
+        if (progressUpdate.count !== 1) {
+          throw new LostCatalogLeaseError(`Lost lease fence during progress update for org ${orgId}`);
+        }
       });
 
       currentItem += products.length;
@@ -252,25 +285,41 @@ async function processCatalogJob(orgId: string): Promise<void> {
       }
     }
 
+    const hitPageLimit = pageCount >= MAX_PAGES && currentItem < totalProducts;
+    if (hitPageLimit) {
+      throw new CatalogTraversalLimitError(
+        `Catalog size (${totalProducts}) exceeds safety limit (${MAX_PAGES * PAGE_SIZE}). Sync aborted to prevent mass deactivation.`
+      );
+    }
+
     // Full sync sweep: mark unvisited products in partition as inactive/unavailable
     if (mode === 'full') {
-      await prisma.kiotvietProduct.updateMany({
-        where: {
-          orgId,
-          retailer,
-          branchId: configuredBranchId,
-          lastSeenRunId: { not: runId },
-        },
-        data: {
-          isActive: false,
-          allowsSale: false,
-        },
+      await prisma.$transaction(async (tx) => {
+        const fenceCheck = await tx.kiotvietSyncState.findFirst({
+          where: fence,
+          select: { orgId: true },
+        });
+        if (!fenceCheck) {
+          throw new LostCatalogLeaseError(`Lost lease fence before full sync deactivation for org ${orgId}`);
+        }
+        await tx.kiotvietProduct.updateMany({
+          where: {
+            orgId,
+            retailer,
+            branchId: configuredBranchId,
+            lastSeenRunId: { not: runId },
+          },
+          data: {
+            isActive: false,
+            allowsSale: false,
+          },
+        });
       });
     }
 
     // Final successful commit
-    await prisma.kiotvietSyncState.update({
-      where: { orgId },
+    const finalUpdate = await prisma.kiotvietSyncState.updateMany({
+      where: fence,
       data: {
         status: 'succeeded',
         catalogReady: true,
@@ -283,19 +332,65 @@ async function processCatalogJob(orgId: string): Promise<void> {
       },
     });
 
+    if (finalUpdate.count !== 1) {
+      throw new LostCatalogLeaseError(`Lost lease fence on final commit for org ${orgId}`);
+    }
+
     logger.info(`[kiotviet-catalog] Completed ${mode} catalog sync for org ${orgId}: ${processedCount}/${totalProducts} products processed`);
   } catch (err: any) {
+    if (err instanceof CatalogTraversalLimitError) {
+      logger.error(`[kiotviet-catalog] Traversal safety limit hit for org ${orgId}: ${err.message}`);
+      try {
+        await prisma.kiotvietSyncState.updateMany({
+          where: fence,
+          data: {
+            status: 'failed',
+            error: err.message.slice(0, 500),
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          },
+        });
+      } catch {}
+
+      const io = zaloPool.getIO();
+      if (io) {
+        try {
+          await emitManagerEvent(io, orgId, 'kiotviet:catalog:alert', {
+            orgId,
+            runId,
+            totalProducts: totalProducts || 0,
+            limit: MAX_PAGES * PAGE_SIZE,
+            message: `Danh mục vượt quá ${(MAX_PAGES * PAGE_SIZE).toLocaleString()} sản phẩm (${(totalProducts || 0).toLocaleString()} sản phẩm). Tiến trình đồng bộ đã dừng an toàn để tránh vô hiệu hóa hàng loạt.`,
+          });
+        } catch (e) {
+          logger.warn('[kiotviet-catalog] Failed to emit kiotviet:catalog:alert:', e);
+        }
+      }
+      return;
+    }
+
+    if (err instanceof LostCatalogLeaseError) {
+      logger.warn(`[kiotviet-catalog] Worker lease was superseded for org ${orgId}: ${err.message}`);
+      return;
+    }
+
     logger.error(`[kiotviet-catalog] Error during sync for org ${orgId}:`, err);
-    await prisma.kiotvietSyncState.update({
-      where: { orgId },
-      data: {
-        status: 'failed',
-        error: err?.message ? String(err.message).slice(0, 500) : 'Catalog sync failed',
-        leaseOwner: null,
-        leaseExpiresAt: null,
-      },
-    }).catch(() => {});
+    try {
+      await prisma.kiotvietSyncState.updateMany({
+        where: fence,
+        data: {
+          status: 'failed',
+          error: err?.message ? String(err.message).slice(0, 500) : 'Catalog sync failed',
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
+      });
+    } catch {}
   } finally {
+    if (renewTimer) {
+      clearInterval(renewTimer);
+      renewTimer = null;
+    }
     currentAbortController = null;
   }
 }

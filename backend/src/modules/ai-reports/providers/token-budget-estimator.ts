@@ -14,12 +14,12 @@ const TOKENS_PER_IMAGE_ATTACHMENT = 1200;
 /**
  * Estimate token count safely for text and multimodal content parts.
  */
-export function estimateTokensHeuristic(prompt: string | ContentPart[]): number {
-  let textCharCount = 0;
+export function estimateTokensHeuristic(prompt: string | ContentPart[], systemInstruction?: string): number {
+  let textCharCount = systemInstruction ? systemInstruction.length : 0;
   let imageCount = 0;
 
   if (typeof prompt === 'string') {
-    textCharCount = prompt.length;
+    textCharCount += prompt.length;
   } else if (Array.isArray(prompt)) {
     for (const part of prompt) {
       if (part.text) {

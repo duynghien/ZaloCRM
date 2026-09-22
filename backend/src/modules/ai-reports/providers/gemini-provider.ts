@@ -3,7 +3,7 @@
  */
 import { GoogleGenAI, type ContentListUnion } from '@google/genai';
 import { logger } from '../../../shared/utils/logger.js';
-import { isReportControlError, runReportExecutionGuard } from '../report-job-budget.js';
+import { isReportControlError, ReportControlError, runReportExecutionGuard } from '../report-job-budget.js';
 import type {
   AiProvider,
   AiProviderConfig,
@@ -39,18 +39,19 @@ export class GeminiProvider implements AiProvider {
     return this.client;
   }
 
-  async estimateTokens(prompt: string | ContentPart[]): Promise<number> {
+  async estimateTokens(prompt: string | ContentPart[], systemInstruction?: string): Promise<number> {
     try {
       const ai = this.getClient();
-      const contents = this.formatContents(prompt);
+      const contents = this.formatContents(prompt, systemInstruction);
       const res = await ai.models.countTokens({ model: this.model, contents, config: {} });
       if (Number.isSafeInteger(res.totalTokens) && res.totalTokens! > 0) {
         return res.totalTokens!;
       }
     } catch (err: any) {
-      logger.warn(`[gemini-provider] countTokens API failed, falling back to heuristic: ${err?.message}`);
+      if (isReportControlError(err)) throw err;
+      throw new ReportControlError(`Report token count unavailable: ${err?.message || err}`, { cause: err });
     }
-    return estimateTokensHeuristic(prompt);
+    return estimateTokensHeuristic(prompt, systemInstruction);
   }
 
   private formatContents(prompt: string | ContentPart[], systemInstruction?: string): ContentListUnion {
@@ -73,88 +74,70 @@ export class GeminiProvider implements AiProvider {
 
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
     const ai = this.getClient();
-    let lastError: any = null;
     const start = Date.now();
 
-    for (let attempt = 1; attempt <= 2; attempt++) {
-      try {
-        if (options.signal?.aborted) throw new Error('Generation aborted');
-        await runReportExecutionGuard(options.executionGuard);
+    try {
+      if (options.signal?.aborted) throw new Error('Generation aborted');
+      await runReportExecutionGuard(options.executionGuard);
 
-        const contents = this.formatContents(prompt, options.systemInstruction);
-        const response = await ai.models.generateContent({
-          model: this.model,
-          contents,
-          config: {
-            temperature: options.temperature ?? 0.2,
-            maxOutputTokens: options.maxOutputTokens ?? 8192,
-          },
-        });
-
-        const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
-        const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
-        const cachedTokens = response.usageMetadata?.cachedContentTokenCount ?? 0;
-        const totalTokens = response.usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
-        const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
-
-        options.onUsage?.(usageTelemetry);
-
-        if (options.orgId && options.taskType) {
-          recordAiUsage({
-            orgId: options.orgId,
-            taskType: options.taskType,
-            provider: this.type,
-            model: this.model,
-            usage: usageTelemetry,
-            durationMs: Date.now() - start,
-            status: 'success',
-          });
-        }
-
-        if (options.attemptKey) {
-          await options.budget.complete(options.attemptKey, {
-            inputTokens,
-            outputTokens,
-          });
-        }
-
-        const text = response.text || '';
-        if (!text) throw new Error('Empty response received from Gemini API');
-        return text;
-      } catch (err: any) {
-        if (isReportControlError(err)) throw err;
-        lastError = err;
-        logger.warn(`[gemini-provider] Attempt ${attempt} failed for model ${this.model}: ${err?.message || err}`);
-
-        // Detect daily quota exhaustion — fail fast for immediate failover, no point in waiting
-        const errMsg = String(err?.message || '');
-        const isQuotaExhausted = /GenerateRequestsPerDayPerProjectPerModel-FreeTier|RESOURCE_EXHAUSTED/i.test(errMsg);
-        if (isQuotaExhausted) {
-          logger.warn(`[gemini-provider] Daily quota exhausted for model ${this.model}. Short-circuiting retry loop for immediate failover.`);
-          break; // Exit retry loop immediately — do not waste 3s waiting
-        }
-
-        // Transient RPM rate limit — short retry (1.5s)
-        if (attempt === 1 && !options.signal?.aborted) {
-          await new Promise((resolve) => setTimeout(resolve, 1500));
-        }
-      }
-    }
-
-    if (options.orgId && options.taskType) {
-      recordAiUsage({
-        orgId: options.orgId,
-        taskType: options.taskType,
-        provider: this.type,
+      const contents = this.formatContents(prompt, options.systemInstruction);
+      const response = await ai.models.generateContent({
         model: this.model,
-        usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
-        durationMs: Date.now() - start,
-        status: 'failed',
-        metadata: { error: lastError?.message || String(lastError) },
+        contents,
+        config: {
+          temperature: options.temperature ?? 0.2,
+          maxOutputTokens: options.maxOutputTokens ?? 8192,
+        },
       });
-    }
 
-    throw lastError || new Error(`Gemini API call failed after retries for model ${this.model}`);
+      const inputTokens = response.usageMetadata?.promptTokenCount ?? 0;
+      const outputTokens = response.usageMetadata?.candidatesTokenCount ?? 0;
+      const cachedTokens = response.usageMetadata?.cachedContentTokenCount ?? 0;
+      const totalTokens = response.usageMetadata?.totalTokenCount ?? (inputTokens + outputTokens);
+      const usageTelemetry = { inputTokens, outputTokens, cachedTokens, totalTokens };
+
+      options.onUsage?.(usageTelemetry);
+
+      if (options.orgId && options.taskType) {
+        recordAiUsage({
+          orgId: options.orgId,
+          taskType: options.taskType,
+          provider: this.type,
+          model: this.model,
+          usage: usageTelemetry,
+          durationMs: Date.now() - start,
+          status: 'success',
+        });
+      }
+
+      if (options.attemptKey) {
+        await options.budget.complete(options.attemptKey, {
+          inputTokens,
+          outputTokens,
+        });
+      }
+
+      const text = response.text || '';
+      if (!text) throw new Error('Empty response received from Gemini API');
+      return text;
+    } catch (err: any) {
+      if (isReportControlError(err)) throw err;
+
+      if (options.orgId && options.taskType) {
+        recordAiUsage({
+          orgId: options.orgId,
+          taskType: options.taskType,
+          provider: this.type,
+          model: this.model,
+          usage: { inputTokens: 0, outputTokens: 0, cachedTokens: 0, totalTokens: 0 },
+          durationMs: Date.now() - start,
+          status: 'failed',
+          metadata: { error: err?.message || String(err) },
+        });
+      }
+
+      throw err;
+    }
   }
 
   async testConnection(): Promise<TestConnectionResult> {

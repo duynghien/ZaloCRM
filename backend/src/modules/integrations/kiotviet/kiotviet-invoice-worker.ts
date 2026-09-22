@@ -349,7 +349,35 @@ async function processInvoiceJob(jobId: string): Promise<void> {
           });
           logger.warn(`[kiotviet-invoice-worker] Late response recorded for uncertain job ${jobId} (KiotViet Code: ${response.code})`);
         } else {
-          logger.error(`[kiotviet-invoice-worker] Lease fencing failed and job ${jobId} not uncertain. Response discarded.`);
+          const lateReconciled = await tx.kiotvietInvoiceJob.updateMany({
+            where: {
+              id: jobId,
+              reconciliationStatus: 'confirmed_not_created',
+            },
+            data: {
+              remoteInvoiceId: remoteIdBigInt,
+              remoteInvoiceCode: response.code,
+              errorMessage: 'Late HTTP response received after confirmed_not_created reconciliation; invoice actually created on KiotViet',
+              reconciliationStatus: 'matched',
+            },
+          });
+
+          if (lateReconciled.count === 1) {
+            await tx.order.updateMany({
+              where: { id: orderId },
+              data: {
+                kiotvietInvoiceId: remoteIdBigInt,
+                kiotvietInvoiceCode: response.code,
+                kiotvietSyncError: 'Late invoice confirmation received after confirmed_not_created. Remote code: ' + response.code,
+              },
+            });
+            logger.error(
+              { jobId, orderId, remoteInvoiceCode: response.code },
+              '[kiotviet-invoice-worker] reconciliation_late_remote_match: Late response received for job marked confirmed_not_created'
+            );
+          } else {
+            logger.error(`[kiotviet-invoice-worker] Lease fencing failed and job ${jobId} not uncertain or confirmed_not_created. Response discarded.`);
+          }
         }
       }
     });

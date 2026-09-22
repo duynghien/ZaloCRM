@@ -1,4 +1,6 @@
+import type { Prisma } from '@prisma/client';
 import { getVnDateString } from '../../shared/utils/date-utils.js';
+import { reserveAccountSendSlot } from './zalo-account-rate-reservation.js';
 
 const DAILY_LIMIT = 200;
 const BURST_LIMIT = 3;            // max messages in BURST_WINDOW_MS
@@ -54,40 +56,92 @@ class ZaloRateLimiter {
   }
 
   /** Check if a message ID was recently sent from CRM (for echo loop prevention) */
-  isRecentMsgId(accountId: string, zaloMsgId: string): boolean {
+  isRecentMsgId(accountId: string, threadIdOrMsgId: string, maybeZaloMsgId?: string): boolean {
+    const threadId = maybeZaloMsgId ? threadIdOrMsgId : '';
+    const zaloMsgId = maybeZaloMsgId || threadIdOrMsgId;
     if (!zaloMsgId) return false;
+
+    if (maybeZaloMsgId) {
+      // Thread-scoped check: if threadId is absent, bypass
+      if (!threadId) return false;
+      const msgKey = `${accountId}:${threadId}:${zaloMsgId}`;
+      const cachedAt = this.recentMsgIds.get(msgKey);
+      return !!(cachedAt && Date.now() - cachedAt < DEDUP_TTL_MS);
+    }
+
+    // Legacy fallback without threadId
     const msgKey = `${accountId}:${zaloMsgId}`;
     const cachedAt = this.recentMsgIds.get(msgKey);
-    if (cachedAt && Date.now() - cachedAt < DEDUP_TTL_MS) {
-      return true;
-    }
-    return false;
+    return !!(cachedAt && Date.now() - cachedAt < DEDUP_TTL_MS);
   }
 
   /** Record a successful send for rate tracking */
-  recordSend(accountId: string, zaloMsgId?: string | null | string[], isExternal: boolean = false, weight: number = 1): void {
+  recordSend(
+    accountId: string,
+    threadIdOrMsgId?: string | null | string[],
+    zaloMsgIdOrIsExternal?: string | null | string[] | boolean,
+    isExternal: boolean = false,
+    weight: number = 1
+  ): void {
     const now = Date.now();
     const today = getVnDateString();
 
+    let threadId = '';
+    let rawIds: string | null | string[] | undefined;
+    let actualIsExternal = false;
+    let actualWeight = 1;
+
+    if (typeof zaloMsgIdOrIsExternal === 'boolean') {
+      // Legacy signature: recordSend(accountId, msgId, isExternal, weight)
+      threadId = '';
+      rawIds = threadIdOrMsgId;
+      actualIsExternal = zaloMsgIdOrIsExternal;
+      actualWeight = typeof isExternal === 'number' ? isExternal : 1;
+    } else if (
+      typeof zaloMsgIdOrIsExternal === 'string' ||
+      Array.isArray(zaloMsgIdOrIsExternal) ||
+      (zaloMsgIdOrIsExternal === null && (typeof isExternal === 'boolean' || typeof weight === 'number'))
+    ) {
+      // 5-parameter signature: recordSend(accountId, threadId, msgId, isExternal, weight)
+      threadId = typeof threadIdOrMsgId === 'string' ? threadIdOrMsgId : '';
+      rawIds = zaloMsgIdOrIsExternal;
+      actualIsExternal = typeof isExternal === 'boolean' ? isExternal : false;
+      actualWeight = typeof weight === 'number' ? weight : 1;
+    } else {
+      threadId = typeof threadIdOrMsgId === 'string' ? threadIdOrMsgId : '';
+      rawIds = undefined;
+      actualIsExternal = false;
+      actualWeight = 1;
+    }
+
     const idsToCache: string[] = [];
-    if (Array.isArray(zaloMsgId)) {
-      for (const id of zaloMsgId) {
+    if (Array.isArray(rawIds)) {
+      for (const id of rawIds) {
         if (id) idsToCache.push(id);
       }
-    } else if (zaloMsgId) {
-      idsToCache.push(zaloMsgId);
+    } else if (rawIds) {
+      idsToCache.push(rawIds);
     }
 
     // Deduplication check via recentMsgIds
     let isDuplicate = false;
     for (const id of idsToCache) {
-      const msgKey = `${accountId}:${id}`;
-      const cachedAt = this.recentMsgIds.get(msgKey);
-      if (cachedAt && now - cachedAt < DEDUP_TTL_MS) {
-        isDuplicate = true;
-      } else {
-        this.recentMsgIds.set(msgKey, now);
+      if (threadId) {
+        const threadMsgKey = `${accountId}:${threadId}:${id}`;
+        const cachedAt = this.recentMsgIds.get(threadMsgKey);
+        if (cachedAt && now - cachedAt < DEDUP_TTL_MS) {
+          isDuplicate = true;
+        } else {
+          this.recentMsgIds.set(threadMsgKey, now);
+        }
       }
+      // Also cache global key for legacy 2-arg lookups
+      const globalMsgKey = `${accountId}:${id}`;
+      const globalCached = this.recentMsgIds.get(globalMsgKey);
+      if (!threadId && globalCached && now - globalCached < DEDUP_TTL_MS) {
+        isDuplicate = true;
+      }
+      this.recentMsgIds.set(globalMsgKey, now);
     }
 
     if (this.recentMsgIds.size > 2000) {
@@ -97,10 +151,10 @@ class ZaloRateLimiter {
     }
 
     // Update pacing timestamps only for internal sends (Dashboard / AI)
-    if (!isExternal) {
+    if (!actualIsExternal) {
       this.lastSendTime.set(accountId, now);
       const recent = (this.recentSends.get(accountId) || []).filter((t) => now - t < BURST_WINDOW_MS);
-      for (let i = 0; i < weight; i++) {
+      for (let i = 0; i < actualWeight; i++) {
         recent.push(now);
       }
       this.recentSends.set(accountId, recent);
@@ -109,7 +163,7 @@ class ZaloRateLimiter {
     // Update daily count only if not duplicate
     if (!isDuplicate) {
       const daily = this.dailyCounts.get(accountId);
-      const increment = Math.max(1, weight);
+      const increment = Math.max(1, actualWeight);
       if (daily && daily.date === today) {
         daily.count += increment;
       } else {
@@ -122,6 +176,20 @@ class ZaloRateLimiter {
     const today = getVnDateString();
     const daily = this.dailyCounts.get(accountId);
     return daily && daily.date === today ? daily.count : 0;
+  }
+
+  /**
+   * Atomic PostgreSQL reservation of a send slot before calling remote Zalo API.
+   * Guarantees persistence of rate limits across process restarts and replicas.
+   */
+  async reserveSendSlot(
+    tx: Prisma.TransactionClient,
+    accountId: string,
+    weight: number = 1,
+    force?: boolean
+  ): Promise<void> {
+    await reserveAccountSendSlot(tx, accountId, weight, force);
+    this.recordSend(accountId, '', null, false, weight);
   }
 }
 

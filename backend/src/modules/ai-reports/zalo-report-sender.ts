@@ -349,7 +349,7 @@ export async function sendReportToZalo(options: SendZaloReportOptions): Promise<
       }
       if (!limits.allowed) throw new Error(`Chạm giới hạn gửi tin Zalo: ${limits.reason}`);
 
-      zaloRateLimiter.recordSend(accountId);
+      zaloRateLimiter.recordSend(accountId, destId);
       deliveryUncertain = true;
       const timeoutMs = options.messageTimeoutMs ?? ZALO_MESSAGE_TIMEOUT_MS;
       if (attachmentPath && i === parts.length - 1) {

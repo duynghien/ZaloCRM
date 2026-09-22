@@ -77,14 +77,14 @@ export class AiProviderRouter implements AiProvider {
     return null;
   }
 
-  async estimateTokens(prompt: string | ContentPart[]): Promise<number> {
+  async estimateTokens(prompt: string | ContentPart[], systemInstruction?: string): Promise<number> {
     const primary = this.providers.get(this.primaryProviderKey);
     if (primary) {
-      return primary.estimateTokens(prompt);
+      return primary.estimateTokens(prompt, systemInstruction);
     }
     // Fallback: use first available provider or heuristic
     const first = this.providers.values().next().value;
-    return first ? first.estimateTokens(prompt) : 1000;
+    return first ? first.estimateTokens(prompt, systemInstruction) : 1000;
   }
 
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
@@ -93,16 +93,6 @@ export class AiProviderRouter implements AiProvider {
     const primary = this.providers.get(this.primaryProviderKey);
     if (!primary && this.providers.size === 0) {
       throw new Error(`No AI provider configured for primary type "${this.primaryProviderKey}"`);
-    }
-
-    // Single Budget Reservation across failover chain
-    let attemptKey = options.attemptKey;
-    let maxOutputTokens = options.maxOutputTokens ?? 8192;
-    if (!attemptKey) {
-      const estimatedInputTokens = await this.estimateTokens(prompt);
-      const reservation = await options.budget.reserve(estimatedInputTokens, maxOutputTokens);
-      attemptKey = reservation.attemptKey;
-      maxOutputTokens = reservation.maxOutputTokens;
     }
 
     const chain: { key: string; provider: AiProvider }[] = [];
@@ -130,30 +120,50 @@ export class AiProviderRouter implements AiProvider {
       throw new Error('No vision-capable AI provider configured for image fact extraction');
     }
 
+    // Build list of sequential attempts:
+    // Primary provider gets 2 attempts (initial + 1 retry for transient failure)
+    // Secondary/fallback providers get 1 attempt each
+    const attempts: Array<{ key: string; provider: AiProvider; isFallback: boolean }> = [];
+    for (let i = 0; i < chain.length; i++) {
+      const c = chain[i];
+      if (i === 0) {
+        attempts.push({ key: c.key, provider: c.provider, isFallback: false });
+        attempts.push({ key: c.key, provider: c.provider, isFallback: false });
+      } else {
+        attempts.push({ key: c.key, provider: c.provider, isFallback: true });
+      }
+    }
+
     let lastError: any = null;
 
-    for (let i = 0; i < chain.length; i++) {
-      const { key, provider } = chain[i];
-      const isFallback = i > 0;
+    for (let attemptIdx = 0; attemptIdx < attempts.length; attemptIdx++) {
+      const { key, provider, isFallback } = attempts[attemptIdx];
+
+      if (options.signal?.aborted) throw new Error('Generation aborted');
+      await runReportExecutionGuard(options.executionGuard);
+
+      // Preprocess prompt if provider does not support vision
+      const failedTypes = attempts.slice(0, attemptIdx).map((a) => a.provider.type);
+      const effectiveVisionProvider = this.getVisionProvider(failedTypes);
+      const preprocessedPrompt = await preprocessMultimodalPrompt(
+        prompt,
+        provider,
+        effectiveVisionProvider,
+        options,
+      );
+
+      // Explicit per-attempt token estimation & budget reservation
+      const inputTokens = await provider.estimateTokens(preprocessedPrompt, options.systemInstruction);
+      const requestedOutputTokens = options.maxOutputTokens ?? 8192;
+      const reservation = await options.budget.reserve(inputTokens, requestedOutputTokens);
+      const currentAttemptKey = reservation.attemptKey;
+      const currentMaxOutputTokens = reservation.maxOutputTokens;
 
       try {
-        if (options.signal?.aborted) throw new Error('Generation aborted');
-        await runReportExecutionGuard(options.executionGuard);
-
-        // Preprocess prompt if provider does not support vision
-        const failedTypes = chain.slice(0, i).map((c) => c.provider.type);
-        const effectiveVisionProvider = this.getVisionProvider(failedTypes);
-        const preprocessedPrompt = await preprocessMultimodalPrompt(
-          prompt,
-          provider,
-          effectiveVisionProvider,
-          options,
-        );
-
         const result = await provider.generateContent(preprocessedPrompt, {
           ...options,
-          attemptKey,
-          maxOutputTokens,
+          attemptKey: currentAttemptKey,
+          maxOutputTokens: currentMaxOutputTokens,
         });
 
         // Validate output structure if caller provided a validator (e.g. isValidAuditJson)
@@ -181,7 +191,8 @@ export class AiProviderRouter implements AiProvider {
         }
 
         lastError = err;
-        logger.warn(`[ai-provider-router] Provider ${key} failed: ${err?.message || err}. Attempting next provider in chain.`);
+        logger.warn(`[ai-provider-router] Provider ${key} attempt ${attemptIdx + 1} failed: ${err?.message || err}. Releasing output tokens.`);
+        await options.budget.failAttempt(currentAttemptKey, { inputTokens }).catch(() => {});
       }
     }
 

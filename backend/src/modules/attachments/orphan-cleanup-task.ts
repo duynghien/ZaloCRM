@@ -9,8 +9,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import cron from 'node-cron';
 import { config } from '../../config/index.js';
+import { withDurableCronLease, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
+import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
-import { withCronLock, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
 
 let cleanupCronTask: ReturnType<typeof cron.schedule> | undefined;
 const activeCleanupRuns = new Set<Promise<any>>();
@@ -25,9 +26,14 @@ export interface CleanupReport {
 
 /**
  * Scan attachments/staged/ and unlink files older than maxAgeMs.
+ * Also prunes expired Zalo outbound outbox records.
  */
 export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promise<CleanupReport> {
-  const lockResult = await withCronLock(CRON_LOCKS.ORPHAN_CLEANUP, async () => {
+  const lockResult = await withDurableCronLease(CRON_LOCKS.ORPHAN_CLEANUP, 'orphan-cleanup', 30 * 60_000, async () => {
+    // 1. Prune expired outbox messages
+    await pruneZaloOutboundMessages().catch((err) =>
+      logger.warn('[cleanup] Failed to prune outbound messages:', err)
+    );
     const stagedDir = path.join(config.uploadDir, 'attachments', 'staged');
     const report: CleanupReport = {
       scannedCount: 0,
@@ -118,3 +124,40 @@ export async function stopOrphanCleanupTask(): Promise<void> {
   cleanupCronTask = undefined;
   await Promise.allSettled(activeCleanupRuns);
 }
+
+/**
+ * Prunes outbound outbox messages according to the retention policy:
+ * - 30 days for 'succeeded' records
+ * - 90 days for 'uncertain' and 'failed_before_dispatch' records
+ */
+export async function pruneZaloOutboundMessages(): Promise<{ succeededPruned: number; failedPruned: number }> {
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+
+  const succeededResult = await prisma.zaloOutboundMessage.deleteMany({
+    where: {
+      state: 'succeeded',
+      createdAt: { lt: thirtyDaysAgo },
+    },
+  });
+
+  const failedResult = await prisma.zaloOutboundMessage.deleteMany({
+    where: {
+      state: { in: ['uncertain', 'failed_before_dispatch'] },
+      createdAt: { lt: ninetyDaysAgo },
+    },
+  });
+
+  if (succeededResult.count > 0 || failedResult.count > 0) {
+    logger.info(
+      { succeededPruned: succeededResult.count, failedPruned: failedResult.count },
+      '[cleanup] Pruned expired Zalo outbound messages'
+    );
+  }
+
+  return {
+    succeededPruned: succeededResult.count,
+    failedPruned: failedResult.count,
+  };
+}
+

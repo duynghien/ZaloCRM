@@ -83,5 +83,5 @@ export interface AiProvider {
   readonly supportsVision: boolean;
   generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string>;
   testConnection(): Promise<TestConnectionResult>;
-  estimateTokens(prompt: string | ContentPart[]): Promise<number>;
+  estimateTokens(prompt: string | ContentPart[], systemInstruction?: string): Promise<number>;
 }
