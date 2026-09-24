@@ -145,8 +145,17 @@ async function verify() {
     assert.equal(docker(['inspect', stuckApp, '--format', '{{.State.ExitCode}}'], { capture: true }), '137');
     assert.equal(f.run(['ps', '-aq', 'migrator'], { capture: true }), beforeDrainFailure);
     f.run(['rm', '-f', 'app']);
+
+    // Multi-replica scaling must be rejected before cutover (Decision 4)
+    const multiReplica = join(f.dir, 'multi-replica.json');
+    writeFileSync(multiReplica, JSON.stringify({ services: { app: { deploy: { replicas: 2 } } } }));
+    assert.throws(
+      () => deploy({ ...f, composeArgs: [...f.composeArgs, '-f', multiReplica], build: false, backup: false }),
+      /exactly 1 app replica/,
+    );
+
     deploy({ ...f, build: false, backup: false });
-    console.log('PASS backup restore, schema mismatch readiness, failed and timed-out drain abort, production inventory, offline CLI, fresh migration, rerun, failed migration gate, recovery, UI/API/socket/health');
+    console.log('PASS backup restore, schema mismatch readiness, failed and timed-out drain abort, single-replica gate, production inventory, offline CLI, fresh migration, rerun, failed migration gate, recovery, UI/API/socket/health');
   } finally { f.cleanup(); }
 }
 

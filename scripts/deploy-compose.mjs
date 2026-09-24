@@ -15,6 +15,10 @@ export function deploy({ composeArgs = [], env = process.env, build = true, back
   let activeArgs = composeArgs;
   const run = (args, options = {}) => docker(['compose', ...activeArgs, ...args], { env, ...options });
   const config = JSON.parse(run(['config', '--format', 'json'], { capture: true }));
+  const replicas = config.services?.app?.deploy?.replicas;
+  if (replicas !== undefined && replicas !== 1) {
+    throw new Error(`Production supports exactly 1 app replica (Decision 4); found ${replicas}. Multi-replica scaling is not supported.`);
+  }
   const lock = join(tmpdir(), `zalocrm-deploy-${config.name}.lock`);
   // A concurrent or interrupted deployment requires operator reconciliation.
   mkdirSync(lock);
@@ -30,6 +34,10 @@ export function deploy({ composeArgs = [], env = process.env, build = true, back
     // Supplying -f requires retaining the default base file explicitly.
     activeArgs = [...(composeArgs.length ? composeArgs : ['-f', 'docker-compose.yml']), '-f', pinnedImages];
     const oldApps = run(['ps', '--all', '--quiet', 'app'], { capture: true }).split(/\s+/).filter(Boolean);
+    const runningApps = run(['ps', '--status', 'running', '--quiet', 'app'], { capture: true }).split(/\s+/).filter(Boolean);
+    if (runningApps.length > 1) {
+      throw new Error(`Detected ${runningApps.length} running app containers before cutover. Production supports exactly 1 replica.`);
+    }
     if (oldApps.length) {
       run(['stop', '--timeout', '70', 'app'], { timeout: 80_000 });
       for (const id of oldApps) {
@@ -48,7 +56,12 @@ export function deploy({ composeArgs = [], env = process.env, build = true, back
     const exit = docker(['wait', migrationId], { capture: true, timeout: 300_000, env });
     if (exit !== '0') throw new Error(`Migration failed (${exit}); app remains stopped`);
     run(['up', '-d', '--no-deps', '--force-recreate', '--wait', '--wait-timeout', '120', 'app']);
-    const appId = run(['ps', '--quiet', 'app'], { capture: true });
+    const appIds = run(['ps', '--quiet', 'app'], { capture: true }).split(/\s+/).filter(Boolean);
+    if (appIds.length !== 1) {
+      run(['stop', '--timeout', '70', 'app']);
+      throw new Error(`Expected exactly 1 running app container after deployment; found ${appIds.length}.`);
+    }
+    const appId = appIds[0];
     const appImage = docker(['inspect', appId, '--format', '{{.Image}}'], { capture: true, env });
     if (appImage !== images.app) {
       run(['stop', '--timeout', '70', 'app']);
