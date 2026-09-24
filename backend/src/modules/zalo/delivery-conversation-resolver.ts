@@ -18,10 +18,18 @@ export async function resolveOrCreateDeliveryConversation(params: ResolveConvers
       where: {
         id: params.conversationId,
         orgId: params.orgId,
+        zaloAccountId: params.zaloAccountId,
+        externalThreadId: params.threadId,
       },
       include: { zaloAccount: true },
     });
-    if (conv) return conv;
+    if (!conv) {
+      throw Object.assign(new Error('Conversation does not match account/thread'), {
+        statusCode: 409,
+        code: 'conversation_mismatch',
+      });
+    }
+    return conv;
   }
 
   let conversation = await prisma.conversation.findFirst({

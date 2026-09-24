@@ -17,7 +17,7 @@ export async function runReportExecutionGuard(guard: () => Promise<void>): Promi
 export interface ReportJobBudget {
   reserve(inputTokens: number, requestedOutputTokens: number): Promise<{ attemptKey: string; maxOutputTokens: number }>;
   complete(attemptKey: string, usage: { inputTokens?: number; outputTokens?: number }): Promise<void>;
-  failAttempt(attemptKey: string, usage?: { inputTokens?: number }): Promise<void>;
+  failAttempt(attemptKey: string, usage?: { inputTokens?: number; outputTokens?: number }): Promise<void>;
 }
 
 export function createReportJobBudget(jobId: string, leaseOwner: string, executionGuard: () => Promise<void>): ReportJobBudget {
@@ -73,14 +73,24 @@ export function createReportJobBudget(jobId: string, leaseOwner: string, executi
         await prisma.$transaction(async tx => {
           await lockLiveJob(tx);
           const usedInputTokens = Number.isSafeInteger(usage?.inputTokens) && usage!.inputTokens! >= 0 ? usage!.inputTokens : undefined;
+          const hasValidOutput = Number.isSafeInteger(usage?.outputTokens) && usage!.outputTokens! >= 0;
+
+          const data: Prisma.AiReportBudgetReservationUpdateManyMutationInput = {
+            outcome: 'failed',
+            usedInputTokens,
+          };
+
+          if (hasValidOutput) {
+            data.outputTokens = usage!.outputTokens!;
+            data.usedOutputTokens = usage!.outputTokens!;
+          } else {
+            // Keep the full reservation initially reserved; do not zero out outputTokens
+            data.usedOutputTokens = undefined;
+          }
+
           const result = await tx.aiReportBudgetReservation.updateMany({
             where: { jobId, attemptKey, leaseOwner, outcome: 'reserved' },
-            data: {
-              outcome: 'failed',
-              outputTokens: 0,
-              usedOutputTokens: 0,
-              usedInputTokens,
-            },
+            data,
           });
           if (result.count !== 1) throw new ReportControlError('Report token reservation ownership lost');
         });

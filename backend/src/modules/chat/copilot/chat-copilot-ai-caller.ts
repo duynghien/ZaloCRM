@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import OpenAI from 'openai';
 import { recordAiUsage } from '../../ai-reports/ai-usage-tracker.js';
 import type { AiProviderConfig, AiProviderType } from '../../ai-reports/providers/ai-provider-interface.js';
+import { validateAiGatewayUrl } from '../../ai-reports/ai-gateway-validator.js';
 
 export function getFastestCopilotModel(type: AiProviderType, config: AiProviderConfig): string {
   if (type === 'gemini') {
@@ -90,6 +91,10 @@ export async function callCopilotAiProvider(
   let baseURL = cfg.baseUrl;
   if (providerType === 'deepseek') baseURL = cfg.baseUrl || 'https://api.deepseek.com';
   else if (providerType === 'openai') baseURL = cfg.baseUrl || 'https://api.openai.com/v1';
+
+  if (baseURL) {
+    await validateAiGatewayUrl(baseURL);
+  }
 
   const client = new OpenAI({ apiKey: cfg.apiKey, baseURL, timeout: 15_000 });
   try {

@@ -292,16 +292,30 @@ async function processCatalogJob(orgId: string): Promise<void> {
       );
     }
 
-    // Full sync sweep: mark unvisited products in partition as inactive/unavailable
-    if (mode === 'full') {
-      await prisma.$transaction(async (tx) => {
+    // Full sync sweep and final successful commit in a single fenced transaction
+    await prisma.$transaction(async (tx) => {
+      if (typeof (tx as any).$queryRaw === 'function') {
+        const rows = await tx.$queryRaw<any[]>`
+          SELECT org_id, run_id, status, lease_owner, lease_version
+          FROM kiotviet_sync_states
+          WHERE org_id = ${orgId} AND run_id = ${runId} AND status = 'running'
+            AND lease_owner = ${WORKER_ID} AND lease_version = ${claimed.leaseVersion}
+          FOR UPDATE;
+        `;
+        if (!rows || rows.length === 0) {
+          throw new LostCatalogLeaseError(`Lost lease fence before catalog finalization for org ${orgId}`);
+        }
+      } else {
         const fenceCheck = await tx.kiotvietSyncState.findFirst({
           where: fence,
           select: { orgId: true },
         });
         if (!fenceCheck) {
-          throw new LostCatalogLeaseError(`Lost lease fence before full sync deactivation for org ${orgId}`);
+          throw new LostCatalogLeaseError(`Lost lease fence before catalog finalization for org ${orgId}`);
         }
+      }
+
+      if (mode === 'full') {
         await tx.kiotvietProduct.updateMany({
           where: {
             orgId,
@@ -314,27 +328,27 @@ async function processCatalogJob(orgId: string): Promise<void> {
             allowsSale: false,
           },
         });
+      }
+
+      // Final successful commit
+      const finalUpdate = await tx.kiotvietSyncState.updateMany({
+        where: fence,
+        data: {
+          status: 'succeeded',
+          catalogReady: true,
+          lastSuccessfulAt: runStartTime,
+          lastSuccessfulRunId: runId,
+          catalogCursor: runStartTime,
+          error: null,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        },
       });
-    }
 
-    // Final successful commit
-    const finalUpdate = await prisma.kiotvietSyncState.updateMany({
-      where: fence,
-      data: {
-        status: 'succeeded',
-        catalogReady: true,
-        lastSuccessfulAt: runStartTime,
-        lastSuccessfulRunId: runId,
-        catalogCursor: runStartTime,
-        error: null,
-        leaseOwner: null,
-        leaseExpiresAt: null,
-      },
+      if (finalUpdate.count !== 1) {
+        throw new LostCatalogLeaseError(`Lost lease fence on final commit for org ${orgId}`);
+      }
     });
-
-    if (finalUpdate.count !== 1) {
-      throw new LostCatalogLeaseError(`Lost lease fence on final commit for org ${orgId}`);
-    }
 
     logger.info(`[kiotviet-catalog] Completed ${mode} catalog sync for org ${orgId}: ${processedCount}/${totalProducts} products processed`);
   } catch (err: any) {

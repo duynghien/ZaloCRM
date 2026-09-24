@@ -73,7 +73,7 @@ export async function zaloSyncRoutes(app: FastifyInstance) {
         return { success: true, created, updated, total: friends.length };
       } catch (err) {
         logger.error('[sync] Zalo contacts error:', err);
-        return reply.status(500).send({ error: 'Sync failed: ' + String(err) });
+        return reply.status(500).send({ error: 'Failed to sync Zalo contacts' });
       }
     }
   );

@@ -191,8 +191,15 @@ export class AiProviderRouter implements AiProvider {
         }
 
         lastError = err;
-        logger.warn(`[ai-provider-router] Provider ${key} attempt ${attemptIdx + 1} failed: ${err?.message || err}. Releasing output tokens.`);
-        await options.budget.failAttempt(currentAttemptKey, { inputTokens }).catch(() => {});
+        const actualUsage = err?.usage ?? (err?.response?.usage ? {
+          inputTokens: err.response.usage.prompt_tokens ?? err.response.usage.input_tokens,
+          outputTokens: err.response.usage.completion_tokens ?? err.response.usage.output_tokens,
+        } : undefined);
+        const actualOutput = Number.isSafeInteger(actualUsage?.outputTokens) && actualUsage.outputTokens >= 0 ? actualUsage.outputTokens : undefined;
+        const actualInput = Number.isSafeInteger(actualUsage?.inputTokens) && actualUsage.inputTokens >= 0 ? actualUsage.inputTokens : inputTokens;
+
+        logger.warn(`[ai-provider-router] Provider ${key} attempt ${attemptIdx + 1} failed: ${err?.message || err}.`);
+        await Promise.resolve(options.budget.failAttempt?.(currentAttemptKey, { inputTokens: actualInput, outputTokens: actualOutput })).catch(() => {});
       }
     }
 

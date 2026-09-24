@@ -6,7 +6,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { logger } from '../../shared/utils/logger.js';
 import { randomUUID } from 'node:crypto';
-import { emitWebhook } from '../api/webhook-service.js';
+import { enqueueWebhook, tickWebhookQueue } from '../api/webhook-service.js';
 import { zaloRateLimiter } from '../zalo/zalo-rate-limiter.js';
 import { processMessageAttachmentsAsync } from '../attachments/attachment-processor.js';
 import { chatTurnDebouncer } from './copilot/chat-turn-debouncer.js';
@@ -86,16 +86,29 @@ export async function handleIncomingMessage(
         attachments: msg.attachments ?? [], sentAt,
       } });
       await updateConversationAfterMessage(tx, conversation.id, account.orgId, sentAt, msg.isSelf);
+
+      if (createdContact) {
+        await enqueueWebhook(tx, account.orgId, 'contact.created', createdContact);
+      }
+      await enqueueWebhook(tx, account.orgId, msg.isSelf ? 'message.sent' : 'message.received', {
+        messageId: message.id,
+        conversationId: conversation.id,
+        senderUid: msg.senderUid,
+        content: msg.content,
+        contentType: msg.contentType,
+        sentAt: message.sentAt,
+      });
+
       return { message, conversation, contactId, createdContact };
     });
     if (!persisted) return null;
     const { message, conversation, contactId } = persisted;
 
-    // External notifications must describe committed rows, including contacts
-    // created in the same transaction as the incoming message.
-    if (persisted.createdContact) {
-      emitWebhook(account.orgId, 'contact.created', persisted.createdContact);
-    }
+    setImmediate(() => {
+      tickWebhookQueue().catch((err) => {
+        logger.warn('[message-handler] Outbox trigger error:', err);
+      });
+    });
 
     // Process attachments asynchronously in the background (fire-and-forget)
     if (msg.attachments && msg.attachments.length > 0) {
@@ -114,16 +127,6 @@ export async function handleIncomingMessage(
       }
       void resolveByEntity(account.orgId, 'conversation', conversation.id).catch(() => {});
     }
-
-    // Emit webhook for message event (fire-and-forget)
-    emitWebhook(account.orgId, msg.isSelf ? 'message.sent' : 'message.received', {
-      messageId: message.id,
-      conversationId: conversation.id,
-      senderUid: msg.senderUid,
-      content: msg.content,
-      contentType: msg.contentType,
-      sentAt: message.sentAt,
-    });
 
     // Inbound conversation turn debouncer for Copilot (fire-and-forget)
     chatTurnDebouncer.handleMessageTurn({
@@ -159,29 +162,40 @@ async function upsertContact(db: Prisma.TransactionClient, msg: IncomingMessage,
   if (msg.threadType === 'group') {
     const groupUid = msg.threadId.startsWith('group_') ? msg.threadId : `group_${msg.threadId}`;
     const groupName = msg.groupName || 'Nhóm';
-    const groupContact = await db.contact.upsert({
+    const existingGroup = await db.contact.findUnique({
       where: {
         orgId_zaloUid: {
           orgId,
           zaloUid: groupUid,
         },
       },
-      create: {
-        id: randomUUID(),
-        orgId,
-        zaloUid: groupUid,
-        fullName: groupName,
-        metadata: { isGroup: true },
-      },
-      update: msg.groupName ? { fullName: msg.groupName } : {},
-      select: { id: true, fullName: true, createdAt: true, updatedAt: true },
+      select: { id: true, fullName: true },
     });
 
-    const isNew = Math.abs(groupContact.createdAt.getTime() - groupContact.updatedAt.getTime()) < 1000;
-    if (isNew) {
+    let contactId: string;
+    if (!existingGroup) {
+      const groupContact = await db.contact.create({
+        data: {
+          id: randomUUID(),
+          orgId,
+          zaloUid: groupUid,
+          fullName: groupName,
+          metadata: { isGroup: true },
+        },
+        select: { id: true, fullName: true },
+      });
+      contactId = groupContact.id;
       createdContact = { contactId: groupContact.id, fullName: groupContact.fullName };
+    } else {
+      contactId = existingGroup.id;
+      if (msg.groupName && msg.groupName !== existingGroup.fullName) {
+        await db.contact.update({
+          where: { id: existingGroup.id },
+          data: { fullName: msg.groupName },
+        });
+      }
     }
-    return { contactId: groupContact.id, createdContact };
+    return { contactId, createdContact };
   }
 
   // User messages (both customer incoming and self outbound from external devices)
@@ -189,27 +203,31 @@ async function upsertContact(db: Prisma.TransactionClient, msg: IncomingMessage,
   const initialName = (msg.isSelf ? msg.recipientName : msg.senderName) || 'Khách Zalo';
   const initialAvatar = msg.isSelf ? (msg.recipientAvatar || null) : null;
 
-  const contact = await db.contact.upsert({
+  const existingContact = await db.contact.findUnique({
     where: {
       orgId_zaloUid: {
         orgId,
         zaloUid: contactUid,
       },
     },
-    create: {
-      id: randomUUID(),
-      orgId,
-      zaloUid: contactUid,
-      fullName: initialName,
-      avatarUrl: initialAvatar,
-    },
-    update: {},
-    select: { id: true, fullName: true, avatarUrl: true, createdAt: true, updatedAt: true },
+    select: { id: true, fullName: true, avatarUrl: true },
   });
 
-  const isNew = Math.abs(contact.createdAt.getTime() - contact.updatedAt.getTime()) < 1000;
-  if (isNew) {
+  let contact: { id: string; fullName: string | null; avatarUrl: string | null };
+  if (!existingContact) {
+    contact = await db.contact.create({
+      data: {
+        id: randomUUID(),
+        orgId,
+        zaloUid: contactUid,
+        fullName: initialName,
+        avatarUrl: initialAvatar,
+      },
+      select: { id: true, fullName: true, avatarUrl: true },
+    });
     createdContact = { contactId: contact.id, fullName: contact.fullName };
+  } else {
+    contact = existingContact;
   }
 
   // Self-healing: if generic name or customer sent updated name
@@ -268,13 +286,15 @@ export async function updateConversationAfterMessage(
     SET
       last_message_at = GREATEST(COALESCE(last_message_at, ${sentAt}), ${sentAt}),
       is_replied = CASE
-        WHEN ${sentAt} < COALESCE(last_message_at, ${sentAt}) THEN is_replied
+        WHEN last_message_at IS NOT NULL AND ${sentAt} < last_message_at THEN is_replied
         WHEN ${isSelf} = true THEN true
+        WHEN last_message_at IS NOT NULL AND ${sentAt} = last_message_at AND is_replied = true THEN true
         ELSE false
       END,
       unread_count = CASE
-        WHEN ${sentAt} < COALESCE(last_message_at, ${sentAt}) THEN unread_count
+        WHEN last_message_at IS NOT NULL AND ${sentAt} < last_message_at THEN unread_count
         WHEN ${isSelf} = true THEN 0
+        WHEN last_message_at IS NOT NULL AND ${sentAt} = last_message_at AND is_replied = true THEN unread_count
         ELSE unread_count + 1
       END,
       updated_at = NOW()

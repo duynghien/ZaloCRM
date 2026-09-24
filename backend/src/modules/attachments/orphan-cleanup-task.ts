@@ -11,7 +11,9 @@ import cron from 'node-cron';
 import { config } from '../../config/index.js';
 import { withDurableCronLease, CRON_LOCKS } from '../../shared/utils/lock-registry.js';
 import { prisma } from '../../shared/database/prisma-client.js';
+import { Prisma } from '@prisma/client';
 import { logger } from '../../shared/utils/logger.js';
+import { recoverExpiredOutboundDispatches } from '../zalo/zalo-outbound-outbox.js';
 
 let cleanupCronTask: ReturnType<typeof cron.schedule> | undefined;
 const activeCleanupRuns = new Set<Promise<any>>();
@@ -29,8 +31,13 @@ export interface CleanupReport {
  * Also prunes expired Zalo outbound outbox records.
  */
 export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promise<CleanupReport> {
-  const lockResult = await withDurableCronLease(CRON_LOCKS.ORPHAN_CLEANUP, 'orphan-cleanup', 30 * 60_000, async () => {
-    // 1. Prune expired outbox messages
+  const lockResult = await withDurableCronLease(CRON_LOCKS.ORPHAN_CLEANUP, 'orphan-cleanup', 30 * 60_000, async (signal: AbortSignal) => {
+    // 1. Recover expired dispatching outbox messages to uncertain
+    await recoverExpiredOutboundDispatches().catch((err) =>
+      logger.warn('[cleanup] Failed to recover expired outbound dispatches:', err)
+    );
+
+    // 2. Prune expired outbox messages
     await pruneZaloOutboundMessages().catch((err) =>
       logger.warn('[cleanup] Failed to prune outbound messages:', err)
     );
@@ -59,6 +66,9 @@ export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promis
   const cutoff = Date.now() - maxAgeMs;
 
   for (const entry of entries) {
+    if (signal?.aborted) {
+      throw new Error('Orphan cleanup aborted due to lost lease');
+    }
     // Skip hidden files (.DS_Store, etc.)
     if (entry.startsWith('.')) continue;
 
@@ -126,11 +136,19 @@ export async function stopOrphanCleanupTask(): Promise<void> {
 }
 
 /**
- * Prunes outbound outbox messages according to the retention policy:
- * - 30 days for 'succeeded' records
- * - 90 days for 'uncertain' and 'failed_before_dispatch' records
+ * Prunes and redacts outbound outbox messages according to retention policy (Decisions 2 & 3):
+ * - 30 days for 'succeeded' records (deleted)
+ * - 90 days for 'failed_before_dispatch' records (deleted)
+ * - 'uncertain' records are KEPT PERMANENTLY as tombstones to prevent duplicate sends lifetime.
+ *   After 90 days, their payload (content and attachments) is redacted (set to NULL) to save space,
+ *   while preserving id, orgId, accountId, threadId, idempotencyKey, requestHash, state.
+ *   Media files are preserved for reconciliation and NOT deleted by orphan cleanup.
  */
-export async function pruneZaloOutboundMessages(): Promise<{ succeededPruned: number; failedPruned: number }> {
+export async function pruneZaloOutboundMessages(): Promise<{
+  succeededPruned: number;
+  failedPruned: number;
+  uncertainRedacted: number;
+}> {
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
 
@@ -143,21 +161,41 @@ export async function pruneZaloOutboundMessages(): Promise<{ succeededPruned: nu
 
   const failedResult = await prisma.zaloOutboundMessage.deleteMany({
     where: {
-      state: { in: ['uncertain', 'failed_before_dispatch'] },
+      state: 'failed_before_dispatch',
       createdAt: { lt: ninetyDaysAgo },
     },
   });
 
-  if (succeededResult.count > 0 || failedResult.count > 0) {
+  const redactedResult = await prisma.zaloOutboundMessage.updateMany({
+    where: {
+      state: 'uncertain',
+      createdAt: { lt: ninetyDaysAgo },
+      OR: [
+        { content: { not: null } },
+        { attachments: { not: Prisma.DbNull } },
+      ],
+    },
+    data: {
+      content: null,
+      attachments: Prisma.DbNull,
+    },
+  });
+
+  if (succeededResult.count > 0 || failedResult.count > 0 || redactedResult.count > 0) {
     logger.info(
-      { succeededPruned: succeededResult.count, failedPruned: failedResult.count },
-      '[cleanup] Pruned expired Zalo outbound messages'
+      {
+        succeededPruned: succeededResult.count,
+        failedPruned: failedResult.count,
+        uncertainRedacted: redactedResult.count,
+      },
+      '[cleanup] Pruned and redacted Zalo outbound messages'
     );
   }
 
   return {
     succeededPruned: succeededResult.count,
     failedPruned: failedResult.count,
+    uncertainRedacted: redactedResult.count,
   };
 }
 

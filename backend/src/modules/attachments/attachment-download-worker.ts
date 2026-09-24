@@ -61,9 +61,11 @@ interface RawJobRow {
   attachment_index: number;
   remote_url: string;
   attempt_count: number;
+  lease_owner?: string;
 }
 
 export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> {
+  const jobOwner = job.lease_owner || workerId;
   try {
     const message = await prisma.message.findUnique({
       where: { id: job.message_id },
@@ -78,8 +80,8 @@ export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> 
     if (!message) {
       await prisma.$executeRaw`
         UPDATE "attachment_download_jobs"
-        SET "status" = 'failed', "last_error" = 'Message not found', "updated_at" = NOW()
-        WHERE "id" = ${job.id}
+        SET "status" = 'failed', "last_error" = 'Message not found', "lease_owner" = NULL, "lease_expires_at" = NULL, "updated_at" = NOW()
+        WHERE "id" = ${job.id} AND "lease_owner" = ${jobOwner} AND "status" = 'downloading'
       `;
       return;
     }
@@ -122,23 +124,35 @@ export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> 
         retryCount: job.attempt_count,
       });
 
-      const updatedRows = await prisma.$queryRaw<Array<{ attachments: any }>>`
-        UPDATE "messages"
-        SET "attachments" = jsonb_set(
-          COALESCE("attachments", '[]'::jsonb),
-          ARRAY[${attIndex}::text],
-          ${JSON.stringify(updatedAttachment)}::jsonb,
-          true
-        )
-        WHERE "id" = ${job.message_id}
-        RETURNING "attachments"
-      `;
+      let updatedRows: Array<{ attachments: any }> = [];
+      const fenceSuccess = await prisma.$transaction(async (tx) => {
+        const jobUpdateCount = await tx.$executeRaw`
+          UPDATE "attachment_download_jobs"
+          SET "status" = 'completed', "lease_owner" = NULL, "lease_expires_at" = NULL, "updated_at" = NOW()
+          WHERE "id" = ${job.id} AND "lease_owner" = ${jobOwner} AND "status" = 'downloading'
+        `;
+        if (jobUpdateCount !== 1) {
+          logger.warn(`[attachment-worker] Lost lease fence completing job ${job.id}`);
+          return false;
+        }
 
-      await prisma.$executeRaw`
-        UPDATE "attachment_download_jobs"
-        SET "status" = 'completed', "lease_owner" = NULL, "lease_expires_at" = NULL, "updated_at" = NOW()
-        WHERE "id" = ${job.id}
-      `;
+        updatedRows = await tx.$queryRaw<Array<{ attachments: any }>>`
+          UPDATE "messages"
+          SET "attachments" = jsonb_set(
+            COALESCE("attachments", '[]'::jsonb),
+            ARRAY[${attIndex}::text],
+            ${JSON.stringify(updatedAttachment)}::jsonb,
+            true
+          )
+          WHERE "id" = ${job.message_id}
+          RETURNING "attachments"
+        `;
+        return true;
+      });
+
+      if (!fenceSuccess) {
+        return;
+      }
 
       const accountId = message.conversation?.zaloAccountId;
       const conversationId = message.conversationId;
@@ -159,21 +173,25 @@ export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> 
       if (isPermanent) {
         const errorMsg = `Permanent CDN failure (HTTP ${status})`;
         logger.warn(`[attachment-worker] Permanent failure for job ${job.id}: ${errorMsg}`);
-        await prisma.$executeRaw`
+        const jobUpdateCount = await prisma.$executeRaw`
           UPDATE "attachment_download_jobs"
           SET "status" = 'failed',
               "last_error" = ${errorMsg},
               "lease_owner" = NULL,
               "lease_expires_at" = NULL,
               "updated_at" = NOW()
-          WHERE "id" = ${job.id}
+          WHERE "id" = ${job.id} AND "lease_owner" = ${jobOwner} AND "status" = 'downloading'
         `;
+        if (jobUpdateCount !== 1) {
+          logger.warn(`[attachment-worker] Lost lease fence marking failed job ${job.id}`);
+          return;
+        }
       } else {
         const nextAttempt = Number(job.attempt_count) + 1;
         const errorMsg = downloadRes.error || `Download failed (HTTP ${status || 'unknown'})`;
         if (nextAttempt >= 5) {
           logger.warn(`[attachment-worker] Job ${job.id} exceeded max retries (5): ${errorMsg}`);
-          await prisma.$executeRaw`
+          const jobUpdateCount = await prisma.$executeRaw`
             UPDATE "attachment_download_jobs"
             SET "status" = 'failed',
                 "attempt_count" = ${nextAttempt},
@@ -181,12 +199,16 @@ export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> 
                 "lease_owner" = NULL,
                 "lease_expires_at" = NULL,
                 "updated_at" = NOW()
-            WHERE "id" = ${job.id}
+            WHERE "id" = ${job.id} AND "lease_owner" = ${jobOwner} AND "status" = 'downloading'
           `;
+          if (jobUpdateCount !== 1) {
+            logger.warn(`[attachment-worker] Lost lease fence marking max retries failed job ${job.id}`);
+            return;
+          }
         } else {
           const backoffMinutes = Math.pow(2, nextAttempt);
           logger.info(`[attachment-worker] Scheduling retry ${nextAttempt} for job ${job.id} in ${backoffMinutes}m`);
-          await prisma.$executeRaw`
+          const jobUpdateCount = await prisma.$executeRaw`
             UPDATE "attachment_download_jobs"
             SET "status" = 'pending',
                 "attempt_count" = ${nextAttempt},
@@ -195,8 +217,12 @@ export async function processSingleAttachmentJob(job: RawJobRow): Promise<void> 
                 "lease_owner" = NULL,
                 "lease_expires_at" = NULL,
                 "updated_at" = NOW()
-            WHERE "id" = ${job.id}
+            WHERE "id" = ${job.id} AND "lease_owner" = ${jobOwner} AND "status" = 'downloading'
           `;
+          if (jobUpdateCount !== 1) {
+            logger.warn(`[attachment-worker] Lost lease fence scheduling retry job ${job.id}`);
+            return;
+          }
         }
       }
     }
@@ -213,7 +239,7 @@ export async function tickAttachmentQueue(): Promise<void> {
       UPDATE "attachment_download_jobs"
       SET "status" = 'downloading',
           "lease_owner" = ${workerId},
-          "lease_expires_at" = NOW() + INTERVAL '2 minutes',
+          "lease_expires_at" = NOW() + INTERVAL '5 minutes',
           "updated_at" = NOW()
       WHERE "id" IN (
         SELECT "id" FROM "attachment_download_jobs"
@@ -221,10 +247,10 @@ export async function tickAttachmentQueue(): Promise<void> {
           AND "attempt_count" < 5
           AND "next_attempt_at" <= NOW()
         ORDER BY "next_attempt_at" ASC
-        LIMIT 10
+        LIMIT 5
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING "id", "org_id", "message_id", "attachment_index", "remote_url", "attempt_count"
+      RETURNING "id", "org_id", "message_id", "attachment_index", "remote_url", "attempt_count", "lease_owner"
     `;
 
     if (!claimedRows || claimedRows.length === 0) {

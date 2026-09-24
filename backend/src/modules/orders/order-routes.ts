@@ -34,6 +34,7 @@ import {
   getKiotvietConfig,
   KiotvietConflictError,
 } from '../integrations/kiotviet/kiotviet-settings-service.js';
+import { enqueueWebhook } from '../api/webhook-service.js';
 
 export async function orderRoutes(app: FastifyInstance) {
   app.addHook('preHandler', authMiddleware);
@@ -79,6 +80,11 @@ export async function orderRoutes(app: FastifyInstance) {
     if (create) identifierInput(body.contactId);
     if (body.conversationId !== undefined && body.conversationId !== null) {
       identifierInput(body.conversationId);
+    }
+    if (body.totalAmount !== undefined && body.totalAmount !== null) {
+      if (boundedFiniteNumber(body.totalAmount, 0, 100_000_000_000) === undefined) {
+        throw new RequestValidationError('totalAmount must be a finite amount between 0 and 100000000000');
+      }
     }
     if (body.notes !== undefined) stringInput(body.notes, 10_000, true);
     if (body.status !== undefined) enumInput(body.status, statuses);
@@ -138,7 +144,9 @@ export async function orderRoutes(app: FastifyInstance) {
     });
 
     if (!order) return reply.status(404).send({ error: 'Order not found' });
-    return serializeOrderResponse({ order });
+    const editable = !isOrderFinancialLocked(order);
+    const canSync = (order.items?.length ?? 0) > 0 && !isOrderFinancialLocked(order);
+    return serializeOrderResponse({ order: { ...order, editable, canSync } });
   });
 
   // ── Create order (preserves HTTP 200) ─────────────────────────────────────
@@ -281,6 +289,8 @@ export async function orderRoutes(app: FastifyInstance) {
             }
           }
 
+          await enqueueWebhook(tx, user.orgId, 'order.created', serializeOrderResponse(createdOrder));
+
           return createdOrder;
         })
       );
@@ -328,9 +338,9 @@ export async function orderRoutes(app: FastifyInstance) {
         }
 
         // Check financial locks
-        if (isOrderFinancialLocked(existing.kiotvietSyncStatus)) {
+        if (isOrderFinancialLocked(existing)) {
           if (body.status === 'cancelled') {
-            assertOrderNotLockedForFinancialChanges(existing.kiotvietSyncStatus, 'cancel');
+            assertOrderNotLockedForFinancialChanges(existing, 'cancel');
           }
           if (
             body.items !== undefined ||
@@ -338,7 +348,7 @@ export async function orderRoutes(app: FastifyInstance) {
             body.paidAmount !== undefined ||
             body.paymentMethod !== undefined
           ) {
-            assertOrderNotLockedForFinancialChanges(existing.kiotvietSyncStatus, 'financial_update');
+            assertOrderNotLockedForFinancialChanges(existing, 'financial_update');
           }
         }
 
@@ -479,6 +489,10 @@ export async function orderRoutes(app: FastifyInstance) {
           }
         }
 
+        if (updated) {
+          await enqueueWebhook(tx, user.orgId, 'order.updated', serializeOrderResponse(updated));
+        }
+
         return updated;
       });
 
@@ -510,8 +524,8 @@ export async function orderRoutes(app: FastifyInstance) {
 
         if (!existing) return reply.status(404).send({ error: 'Order not found' });
 
-        if (isOrderFinancialLocked(existing.kiotvietSyncStatus)) {
-          assertOrderNotLockedForFinancialChanges(existing.kiotvietSyncStatus, 'delete');
+        if (isOrderFinancialLocked(existing)) {
+          assertOrderNotLockedForFinancialChanges(existing, 'delete');
         }
 
         // If job exists and failed, delete job first so restrict constraint does not block
@@ -521,6 +535,11 @@ export async function orderRoutes(app: FastifyInstance) {
 
         await tx.orderItem.deleteMany({ where: { orderId: id, orgId: user.orgId } });
         await tx.order.delete({ where: { id } });
+
+        await enqueueWebhook(tx, user.orgId, 'order.deleted', {
+          id: existing.id,
+          orderCode: existing.orderCode,
+        });
 
         return { success: true };
       });

@@ -11,6 +11,7 @@ import { boundedPositiveInt, boundedString, validOptionalDate } from '../../shar
 import crypto from 'node:crypto';
 import { validatePublicRequest } from './public-api-schemas.js';
 import { messageDeliveryService } from '../zalo/message-delivery-service.js';
+import { validateIdempotencyKey } from '../../shared/http/idempotency-key.js';
 
 // ── API key auth middleware ────────────────────────────────────────────────────
 
@@ -317,11 +318,14 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(400).send({ error: 'Nội dung tin nhắn không được vượt quá 10,000 ký tự' });
       }
 
-      const idempotencyKey =
-        (request.headers['idempotency-key'] as string | undefined) ||
-        (request.headers['x-idempotency-key'] as string | undefined) ||
-        body.idempotencyKey ||
-        body.clientMessageId;
+      let idempotencyKey: string;
+      try {
+        idempotencyKey = validateIdempotencyKey(request.headers['idempotency-key']);
+      } catch {
+        return reply.status(400).send({
+          error: 'Header Idempotency-Key là bắt buộc (1-256 ký tự, chỉ chứa chữ cái, số, ., _, :, -)',
+        });
+      }
 
       const result = await messageDeliveryService.sendMessage({
         orgId,
@@ -330,7 +334,6 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
         threadType: body.threadType,
         content: body.content,
         source: 'public_api',
-        force: body.force === true,
         idempotencyKey,
       });
 
@@ -343,6 +346,13 @@ export async function publicApiRoutes(app: FastifyInstance): Promise<void> {
     } catch (err: any) {
       logger.error('[public-api] POST /messages/send error:', err);
       const statusCode = err?.statusCode || (err?.message?.includes('not found') ? 404 : 500);
+      if (statusCode >= 500) {
+        return reply.status(500).send({
+          error: 'Internal server error',
+          canForce: err?.canForce,
+          code: err?.code,
+        });
+      }
       return reply.status(statusCode).send({
         error: err?.message || 'Failed to send message',
         canForce: err?.canForce,

@@ -18,6 +18,7 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:studio": "prisma studio",
     "ai:smoke": "tsx src/modules/ai-reports/gemini-model-smoke.ts",
+    "operator:reset-cron-leases": "tsx scripts/reset-cron-leases.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -44,6 +45,7 @@
     "fastify": "^5.8.4",
     "image-size": "^2.0.4",
     "jsonwebtoken": "^9.0.3",
+    "lru-cache": "^11.5.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^9.1.1",
     "openai": "^4.104.0",

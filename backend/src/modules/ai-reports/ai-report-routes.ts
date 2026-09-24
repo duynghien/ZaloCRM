@@ -204,7 +204,7 @@ export async function aiReportRoutes(app: FastifyInstance) {
       return reply.status(202).send({ jobId: job.id, status: job.status, replay });
     } catch (err: any) {
       if (err instanceof ReportJobValidationError) return reply.status(err.statusCode).send({ error: err.message });
-      if (Number.isInteger(err?.statusCode)) return reply.status(err.statusCode).send({ error: err.message });
+      if (Number.isInteger(err?.statusCode) && err.statusCode < 500) return reply.status(err.statusCode).send({ error: err.message });
       logger.error('[ai-report-routes] Job enqueue failed:', err);
       return reply.status(500).send({ error: 'Unable to queue AI report' });
     }

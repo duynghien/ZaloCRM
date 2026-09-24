@@ -189,7 +189,6 @@ class ZaloRateLimiter {
     force?: boolean
   ): Promise<void> {
     await reserveAccountSendSlot(tx, accountId, weight, force);
-    this.recordSend(accountId, '', null, false, weight);
   }
 }
 

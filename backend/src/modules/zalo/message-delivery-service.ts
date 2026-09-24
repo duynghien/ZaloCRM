@@ -4,19 +4,25 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { zaloPool } from './zalo-pool.js';
 import { zaloRateLimiter } from './zalo-rate-limiter.js';
 import { emitAccountEvent } from '../../shared/realtime/socket-event-delivery.js';
-import { emitWebhook } from '../api/webhook-service.js';
+import { enqueueWebhook } from '../api/webhook-service.js';
 import { chatTurnDebouncer } from '../chat/copilot/chat-turn-debouncer.js';
 import { resolveByEntity } from '../notifications/notification-service.js';
 import { logger } from '../../shared/utils/logger.js';
 import {
   claimOutboxSlot,
+  claimDispatchSlot,
   commitOutboxSuccess,
   commitOutboxUncertain,
   commitOutboxFailedBeforeDispatch,
+  OutboxConflictError,
   type StagedMediaFile,
 } from './zalo-outbound-outbox.js';
 import { resolveOrCreateDeliveryConversation } from './delivery-conversation-resolver.js';
-import { moveStagedMediaToPermanentStorage } from './delivery-media-stager.js';
+import {
+  moveStagedMediaToPermanentStorage,
+  rollbackMovedMediaToStaged,
+  type MovedAttachment,
+} from './delivery-media-stager.js';
 
 export type { StagedMediaFile };
 
@@ -32,7 +38,7 @@ export interface SendMessageParams {
   senderName?: string;
   force?: boolean;
   mediaFiles?: StagedMediaFile[];
-  idempotencyKey?: string;
+  idempotencyKey: string;
 }
 
 export interface DeliveryResult {
@@ -65,6 +71,9 @@ export class MessageDeliveryService {
     if (!params.zaloAccountId || !params.threadId) {
       throw Object.assign(new Error('zaloAccountId và threadId là bắt buộc'), { statusCode: 400 });
     }
+    if (!params.idempotencyKey || typeof params.idempotencyKey !== 'string' || !params.idempotencyKey.trim()) {
+      throw Object.assign(new Error('idempotencyKey là bắt buộc'), { statusCode: 400 });
+    }
 
     const account = await prisma.zaloAccount.findFirst({
       where: { id: params.zaloAccountId, orgId: params.orgId },
@@ -90,8 +99,8 @@ export class MessageDeliveryService {
       conversationId: params.conversationId,
     });
 
-    const movedAttachments = await moveStagedMediaToPermanentStorage(params.orgId, params.mediaFiles || []);
-    const weight = movedAttachments.length > 0 ? movedAttachments.length * 2 : 1;
+    const mediaCount = (params.mediaFiles || []).length;
+    const weight = mediaCount > 0 ? mediaCount * 2 : 1;
 
     const limits = zaloRateLimiter.checkLimits(params.zaloAccountId, weight);
     const canOverride = params.force === true && limits.canForce === true;
@@ -102,6 +111,18 @@ export class MessageDeliveryService {
       });
     }
 
+    // Prepare attachment descriptors while files are still staged
+    const stagedAttachments = (params.mediaFiles || []).map((f) => ({
+      url: `/api/v1/attachments/${f.filename}`,
+      filename: f.filename,
+      originalName: f.originalName,
+      size: f.size,
+      mimeType: f.mimeType,
+      fileType: f.fileType,
+      stagedPath: f.stagedPath,
+    }));
+
+    // Step 1: Claim Outbox Slot BEFORE media move
     const claim = await prisma.$transaction(async (tx) => {
       return claimOutboxSlot(tx, {
         orgId: params.orgId,
@@ -109,13 +130,7 @@ export class MessageDeliveryService {
         threadId: params.threadId,
         conversationId: conversation.id,
         content: params.content,
-        attachments: movedAttachments.length > 0 ? movedAttachments.map((a) => ({
-          url: a.url,
-          filename: a.filename,
-          originalName: a.originalName,
-          size: a.size,
-          mimeType: a.mimeType,
-        })) : undefined,
+        attachments: stagedAttachments.length > 0 ? stagedAttachments : undefined,
         idempotencyKey: params.idempotencyKey,
         mediaFiles: params.mediaFiles,
       });
@@ -132,14 +147,39 @@ export class MessageDeliveryService {
           zaloMsgId: cachedMessage.zaloMsgId,
         };
       }
+      throw new Error(`Outbox message record marked succeeded but message ${claim.messageId} was deleted`);
     }
 
+    // Step 2: Now that outbox is claimed, move staged media
+    let movedAttachments: MovedAttachment[] = [];
+    try {
+      movedAttachments = await moveStagedMediaToPermanentStorage(params.orgId, params.mediaFiles || []);
+    } catch (moveErr: any) {
+      await commitOutboxFailedBeforeDispatch({
+        outboxId: claim.outboxId,
+        lastError: `Failed to move media: ${moveErr?.message || moveErr}`,
+        leaseVersion: claim.leaseVersion,
+      });
+      throw moveErr;
+    }
+
+    const workerId = randomUUID();
+    let leaseVersion = claim.leaseVersion;
+
+    // Step 3: Reserve rate slot
     try {
       await prisma.$transaction(async (tx) => {
         await zaloRateLimiter.reserveSendSlot(tx, params.zaloAccountId, weight, params.force);
       });
     } catch (rateErr: any) {
-      await commitOutboxFailedBeforeDispatch(claim.outboxId, rateErr?.message || String(rateErr));
+      if (movedAttachments.length > 0) {
+        await rollbackMovedMediaToStaged(movedAttachments);
+      }
+      await commitOutboxFailedBeforeDispatch({
+        outboxId: claim.outboxId,
+        lastError: rateErr?.message || String(rateErr),
+        leaseVersion,
+      });
       throw rateErr;
     }
 
@@ -148,6 +188,29 @@ export class MessageDeliveryService {
         { accountId: params.zaloAccountId, source: params.source },
         'Zalo rate limit overridden via authorized force flag'
       );
+    }
+
+    // Step 4: Acquire dispatch lease before remote invocation (CAS preparing -> dispatching)
+    try {
+      const dispatchSlot = await prisma.$transaction(async (tx) => {
+        return claimDispatchSlot(tx, {
+          outboxId: claim.outboxId,
+          workerId,
+          leaseVersion,
+          durationMs: 30_000,
+        });
+      });
+      leaseVersion = dispatchSlot.leaseVersion;
+    } catch (dispatchErr: any) {
+      if (movedAttachments.length > 0) {
+        await rollbackMovedMediaToStaged(movedAttachments);
+      }
+      await commitOutboxFailedBeforeDispatch({
+        outboxId: claim.outboxId,
+        lastError: dispatchErr?.message || String(dispatchErr),
+        leaseVersion,
+      });
+      throw dispatchErr;
     }
 
     const normalizedThreadType =
@@ -174,7 +237,12 @@ export class MessageDeliveryService {
       }
     } catch (sendErr: any) {
       logger.error(`[message-delivery] Send error to thread ${params.threadId}:`, sendErr);
-      await commitOutboxUncertain(claim.outboxId, sendErr?.message || String(sendErr));
+      await commitOutboxUncertain({
+        outboxId: claim.outboxId,
+        lastError: sendErr?.message || String(sendErr),
+        leaseOwner: workerId,
+        leaseVersion,
+      });
       throw Object.assign(
         new Error(`Failed to send message to Zalo: ${sendErr?.message || sendErr}`),
         { statusCode: 504, code: 'outbox_uncertain' },
@@ -198,7 +266,13 @@ export class MessageDeliveryService {
 
     if (res?.error || (typeof res?.code === 'number' && res.code !== 0)) {
       const errMsg = res.message || res.error || 'Zalo rejected message delivery';
-      await commitOutboxUncertain(claim.outboxId, errMsg, allMsgIds);
+      await commitOutboxUncertain({
+        outboxId: claim.outboxId,
+        lastError: errMsg,
+        remoteMsgIds: allMsgIds,
+        leaseOwner: workerId,
+        leaseVersion,
+      });
       throw Object.assign(new Error(errMsg), { statusCode: 502, code: 'outbox_uncertain' });
     }
 
@@ -261,11 +335,29 @@ export class MessageDeliveryService {
         }
       }
 
-      await commitOutboxSuccess(tx, claim.outboxId, createdMsg.id, allMsgIds);
+      const committed = await commitOutboxSuccess(tx, {
+        outboxId: claim.outboxId,
+        messageId: createdMsg.id,
+        remoteMsgIds: allMsgIds,
+        leaseOwner: workerId,
+        leaseVersion,
+      });
+      if (!committed) {
+        throw new OutboxConflictError('Outbox lease fencing failed during commit');
+      }
 
       await tx.conversation.update({
         where: { id: conversation.id },
         data: { lastMessageAt: sentAt, isReplied: true, unreadCount: 0 },
+      });
+
+      await enqueueWebhook(tx, params.orgId, 'message.sent', {
+        messageId: createdMsg.id,
+        conversationId: conversation.id,
+        senderUid: account.zaloUid || '',
+        content: createdMsg.content,
+        contentType: createdMsg.contentType,
+        sentAt: createdMsg.sentAt,
       });
 
       return createdMsg;
@@ -297,15 +389,6 @@ export class MessageDeliveryService {
       isSelf: true,
       threadType: conversation.threadType as any,
     }).catch(() => {});
-
-    emitWebhook(params.orgId, 'message.sent', {
-      messageId: message.id,
-      conversationId: conversation.id,
-      senderUid: account.zaloUid || '',
-      content: message.content,
-      contentType: message.contentType,
-      sentAt: message.sentAt,
-    });
 
     return {
       message,

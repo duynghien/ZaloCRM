@@ -33,8 +33,8 @@ function messageBody(value: unknown) {
   identifierInput(body.threadId);
   if (!stringInput(body.content, 10000)) throw new RequestValidationError('content is required');
   if (body.threadType !== undefined) enumInput(body.threadType, ['user', 'group']);
-  if (body.force !== undefined && typeof body.force !== 'boolean') {
-    throw new RequestValidationError('Trường force phải là kiểu boolean (true hoặc false)');
+  if (body.force !== undefined) {
+    throw new RequestValidationError('Trường force không được hỗ trợ trên Public API');
   }
 }
 

@@ -1,7 +1,7 @@
-/** Auth identity and server-side refresh-session operations. */
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
+import { LRUCache } from 'lru-cache';
 import { prisma } from '../../shared/database/prisma-client.js';
 import { config } from '../../config/index.js';
 import { logger } from '../../shared/utils/logger.js';
@@ -11,6 +11,13 @@ export interface AuthIdentity { id: string; email: string; role: string; orgId: 
 export interface SessionTokens { accessToken: string; refreshToken: string; expiresAt: Date; sessionId: string; }
 type RefreshLookup = { id: string; familyId: string; refreshTokenHash: string; expiresAt: Date; revokedAt: Date | null; replacedBySessionId: string | null; user: AuthIdentity & { isActive: boolean }; };
 type SessionRevocationListener = (sessionIds: string[]) => void;
+
+export const sessionCache = {
+  clear: () => {},
+  delete: (_key: string) => {},
+  get: (_key: string) => undefined,
+  set: () => {},
+};
 
 const sessionRevocationListeners = new Set<SessionRevocationListener>();
 
@@ -45,7 +52,12 @@ export function registerSessionRevocationListener(listener: SessionRevocationLis
 }
 
 function notifySessionRevocations(sessionIds: string[]): void {
-  if (sessionIds.length) for (const listener of sessionRevocationListeners) listener(sessionIds);
+  if (sessionIds.length) {
+    for (const id of sessionIds) {
+      sessionCache.delete(id);
+    }
+    for (const listener of sessionRevocationListeners) listener(sessionIds);
+  }
 }
 
 export async function checkSetupStatus(): Promise<{ needsSetup: boolean }> { return { needsSetup: (await prisma.user.count()) === 0 }; }
@@ -130,8 +142,12 @@ export async function revokeSessionFamily(familyId: string, reason: string): Pro
 }
 
 export async function validateSessionUser(sessionId: string, userId: string): Promise<AuthIdentity> {
-  const session = await prisma.authSession.findFirst({ where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } }, include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true, fullName: true } } } });
+  const session = await prisma.authSession.findFirst({
+    where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    include: { user: { select: { id: true, email: true, role: true, orgId: true, isActive: true, fullName: true } } },
+  });
   if (!session || !session.user.isActive) throw authError('Session is no longer valid', 401);
+
   return identityOf(session.user);
 }
 

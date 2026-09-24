@@ -41,14 +41,14 @@ function track(run: () => Promise<void>): Promise<void> {
 
 async function runConnectionCheck(): Promise<void> {
   try {
-    await withDurableCronLease(CRON_LOCKS.ZALO_CONNECTION_CHECK, 'zalo-connection-check', 5 * 60_000, async () => {
+    await withDurableCronLease(CRON_LOCKS.ZALO_CONNECTION_CHECK, 'zalo-connection-check', 5 * 60_000, async (signal: AbortSignal) => {
       const accounts = await prisma.zaloAccount.findMany({
         where: { sessionData: { not: Prisma.JsonNull } },
         select: { id: true, displayName: true, sessionData: true },
       });
 
       for (const acc of accounts) {
-        if (isStopping()) return;
+        if (isStopping() || signal.aborted) return;
         if (zaloPool.isReconnectScheduled(acc.id)) continue;
         const status = zaloPool.getStatus(acc.id);
         if (status !== 'connected' && status !== 'connecting' && status !== 'qr_pending') {
@@ -68,14 +68,14 @@ async function runConnectionCheck(): Promise<void> {
 async function runDailySessionRefresh(): Promise<void> {
   logger.info('[health-check] Daily session refresh starting...');
   try {
-    await withDurableCronLease(CRON_LOCKS.ZALO_DAILY_SESSION_REFRESH, 'zalo-daily-session-refresh', 30 * 60_000, async () => {
+    await withDurableCronLease(CRON_LOCKS.ZALO_DAILY_SESSION_REFRESH, 'zalo-daily-session-refresh', 30 * 60_000, async (signal: AbortSignal) => {
       const accounts = await prisma.zaloAccount.findMany({
         where: { sessionData: { not: Prisma.JsonNull } },
         select: { id: true, sessionData: true },
       });
 
       for (const acc of accounts) {
-        if (isStopping()) return;
+        if (isStopping() || signal.aborted) return;
         const session = decryptData<any>(acc.sessionData, config.encryptionKey);
         const currentStatus = zaloPool.getStatus(acc.id);
 

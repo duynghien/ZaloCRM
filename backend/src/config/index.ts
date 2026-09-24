@@ -15,6 +15,8 @@ const aiReportMaxMessages = Number.parseInt(process.env.AI_REPORT_MAX_MESSAGES |
 const aiReportMaxTokens = Number.parseInt(process.env.AI_REPORT_MAX_TOKENS || '200000', 10);
 const aiPrimaryProvider = process.env.AI_PRIMARY_PROVIDER || 'deepseek';
 const geminiModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+const rawHops = Number.parseInt(process.env.TRUSTED_PROXY_HOPS || '1', 10);
+const trustedProxyHops = Number.isFinite(rawHops) ? Math.max(0, rawHops) : 1;
 
 if (aiPrimaryProvider === 'gemini' && (!/^gemini-(?:2\.5|3\.)[a-z0-9.-]+$/i.test(geminiModel) || geminiModel.startsWith('gemini-2.0-'))) {
   throw new Error(`GEMINI_MODEL must name a supported Gemini 2.5+ stable model; received ${geminiModel}.`);
@@ -85,5 +87,6 @@ export const config = {
   allowPrivateAiGateways: process.env.ALLOW_PRIVATE_AI_GATEWAYS === 'true',
   aiReportMaxMessages: Math.max(1, Number.isFinite(aiReportMaxMessages) ? aiReportMaxMessages : 10_000),
   aiReportMaxTokens: Math.max(1, Number.isFinite(aiReportMaxTokens) ? aiReportMaxTokens : 200_000),
+  trustedProxyHops,
   isProduction,
 };

@@ -3,6 +3,7 @@
  * All routes require JWT auth and are scoped to the user's org.
  */
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from '../../shared/database/prisma-client.js';
@@ -12,6 +13,7 @@ import { logger } from '../../shared/utils/logger.js';
 import { boundedPositiveInt, boundedString } from '../../shared/http/request-bounds.js';
 import { getAttachmentsBaseDir } from '../attachments/attachment-routes.js';
 import { messageDeliveryService } from '../zalo/message-delivery-service.js';
+import { validateIdempotencyKey } from '../../shared/http/idempotency-key.js';
 
 type QueryParams = Record<string, string>;
 
@@ -137,7 +139,15 @@ export async function chatRoutes(app: FastifyInstance) {
     const user = request.user!;
     const { id } = request.params as { id: string };
     const body = ((request.body as any) || {}) as Record<string, any>;
-    const { content, attachmentIds, force } = body;
+    const { content, attachmentIds } = body;
+
+    if (body.force !== undefined && typeof body.force !== 'boolean') {
+      return reply.status(400).send({ error: 'force must be boolean' });
+    }
+    if (body.force === true && !['owner', 'admin'].includes(user.role)) {
+      return reply.status(403).send({ error: 'force requires owner or admin role' });
+    }
+    const force = body.force === true;
 
     const hasText = Boolean(content && content.trim());
     const hasAttachments = Boolean(attachmentIds && attachmentIds.length > 0);
@@ -223,11 +233,14 @@ export async function chatRoutes(app: FastifyInstance) {
       }
     }
 
-    const idempotencyKey =
-      (request.headers['idempotency-key'] as string | undefined) ||
-      (request.headers['x-idempotency-key'] as string | undefined) ||
-      (body as any).idempotencyKey ||
-      (body as any).clientMessageId;
+    let idempotencyKey: string;
+    try {
+      idempotencyKey = validateIdempotencyKey(body?.clientMessageId);
+    } catch {
+      return reply.status(400).send({
+        error: 'clientMessageId là bắt buộc (1-256 ký tự, chỉ chứa chữ cái, số, ., _, :, -)',
+      });
+    }
 
     try {
       const result = await messageDeliveryService.sendMessage({
@@ -252,10 +265,12 @@ export async function chatRoutes(app: FastifyInstance) {
       if (err.statusCode === 409) {
         return reply.status(409).send({ error: err.message, code: err.code });
       }
+      if (err.statusCode && err.statusCode < 500) {
+        return reply.status(err.statusCode).send({ error: err.message });
+      }
       logger.error('[chat] Send message error:', err);
       return reply.status(err.statusCode || 502).send({
         error: 'Gửi tin nhắn hoặc tệp đính kèm sang Zalo thất bại',
-        details: err?.message || String(err),
       });
     }
   });

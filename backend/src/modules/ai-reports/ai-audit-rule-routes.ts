@@ -126,7 +126,7 @@ export async function aiAuditRuleRoutes(app: FastifyInstance) {
         };
       } catch (err: any) {
         request.log.error(err, '[ai-audit-rule-routes] Run Now evaluation failed');
-        return reply.status(500).send({ error: err?.message || 'Không thể thực thi kiểm tra ngay' });
+        return reply.status(500).send({ error: 'Không thể thực thi kiểm tra ngay' });
       }
     },
   );

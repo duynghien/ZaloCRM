@@ -29,10 +29,20 @@ export class ChatTurnDebouncer {
     this.io = ioInstance;
   }
 
+  private clearEntry(entry: DebounceEntry): void {
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+      entry.timer = undefined;
+    }
+    if (entry.abortController) {
+      entry.abortController.abort();
+      entry.abortController = undefined;
+    }
+  }
+
   cleanup(): void {
     for (const entry of this.entries.values()) {
-      if (entry.timer) clearTimeout(entry.timer);
-      entry.abortController?.abort();
+      this.clearEntry(entry);
     }
     this.entries.clear();
   }
@@ -63,8 +73,7 @@ export class ChatTurnDebouncer {
     if (isSelf) {
       const existing = this.entries.get(conversationId);
       if (existing) {
-        if (existing.timer) clearTimeout(existing.timer);
-        existing.abortController?.abort();
+        this.clearEntry(existing);
         this.entries.delete(conversationId);
       }
       return;
@@ -83,7 +92,13 @@ export class ChatTurnDebouncer {
     if (!entry) {
       if (this.entries.size >= this.MAX_TIMERS) {
         const oldest = this.entries.keys().next().value;
-        if (oldest) this.entries.delete(oldest);
+        if (oldest) {
+          const oldestEntry = this.entries.get(oldest);
+          if (oldestEntry) {
+            this.clearEntry(oldestEntry);
+          }
+          this.entries.delete(oldest);
+        }
       }
       entry = { accountId, orgId, firstMsgAt: now, generationToken: 0 };
       this.entries.set(conversationId, entry);

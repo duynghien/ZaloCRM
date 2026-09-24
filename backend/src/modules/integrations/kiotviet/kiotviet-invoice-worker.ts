@@ -349,28 +349,42 @@ async function processInvoiceJob(jobId: string): Promise<void> {
           });
           logger.warn(`[kiotviet-invoice-worker] Late response recorded for uncertain job ${jobId} (KiotViet Code: ${response.code})`);
         } else {
+          const reconciledAt = new Date();
           const lateReconciled = await tx.kiotvietInvoiceJob.updateMany({
             where: {
               id: jobId,
+              state: 'failed',
               reconciliationStatus: 'confirmed_not_created',
+              remoteInvoiceId: null,
             },
             data: {
+              state: 'succeeded',
               remoteInvoiceId: remoteIdBigInt,
               remoteInvoiceCode: response.code,
-              errorMessage: 'Late HTTP response received after confirmed_not_created reconciliation; invoice actually created on KiotViet',
               reconciliationStatus: 'matched',
+              reconciledAt,
+              errorCode: null,
+              errorMessage: null,
+              leaseOwner: null,
+              leaseExpiresAt: null,
+              leaseVersion: { increment: 1 },
             },
           });
 
           if (lateReconciled.count === 1) {
-            await tx.order.updateMany({
-              where: { id: orderId },
+            const orderUpdated = await tx.order.updateMany({
+              where: { id: orderId, kiotvietSyncStatus: 'failed' },
               data: {
+                kiotvietSyncStatus: 'synced',
                 kiotvietInvoiceId: remoteIdBigInt,
                 kiotvietInvoiceCode: response.code,
-                kiotvietSyncError: 'Late invoice confirmation received after confirmed_not_created. Remote code: ' + response.code,
+                kiotvietSyncedAt: reconciledAt,
+                kiotvietSyncError: null,
               },
             });
+            if (orderUpdated.count !== 1) {
+              throw new Error('Late invoice order projection conflict');
+            }
             logger.error(
               { jobId, orderId, remoteInvoiceCode: response.code },
               '[kiotviet-invoice-worker] reconciliation_late_remote_match: Late response received for job marked confirmed_not_created'

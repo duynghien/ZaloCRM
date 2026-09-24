@@ -36,7 +36,6 @@ import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { chatCopilotRoutes } from './modules/chat/copilot/chat-copilot-routes.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { kiotvietRoutes } from './modules/integrations/kiotviet/kiotviet-routes.js';
-import { systemRoutes } from './modules/system/system-routes.js';
 
 import { initializeSocketServer } from './shared/realtime/socket-server.js';
 import { messageDeliveryService } from './modules/zalo/message-delivery-service.js';
@@ -46,7 +45,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export async function createApp(options: { https?: { key: Buffer; cert: Buffer }; staticRoot?: string } = {}): Promise<FastifyInstance> {
   const app = Fastify({
     logger: false,
-    trustProxy: true,
+    trustProxy: config.trustedProxyHops > 0 ? (_addr: string, hop: number) => hop < config.trustedProxyHops : false,
     routerOptions: {
       maxParamLength: 1000,
     },
@@ -130,7 +129,6 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   await app.register(orderRoutes);
   await app.register(aiReportRoutes);
   await app.register(kiotvietRoutes);
-  await app.register(systemRoutes);
 
   // Readiness probe: a failed mandatory database dependency must be visible to orchestrators.
   app.get('/health', async (_request, reply) => {

@@ -38,12 +38,25 @@ export function resetPrismaClient(url?: string): PrismaClient {
 }
 
 export const prisma: PrismaClient = new Proxy({} as PrismaClient, {
-  get(_target, prop) {
+  get(target, prop) {
+    if (prop in target) {
+      return Reflect.get(target, prop);
+    }
     const value = Reflect.get(activeClient as any, prop, activeClient);
     if (typeof value === 'function') {
       return value.bind(activeClient);
     }
     return value;
+  },
+  set(target, prop, value) {
+    Reflect.set(target, prop, value);
+    return Reflect.set(activeClient as any, prop, value, activeClient);
+  },
+  has(target, prop) {
+    return Reflect.has(target, prop) || Reflect.has(activeClient as any, prop);
+  },
+  getOwnPropertyDescriptor(target, prop) {
+    return Reflect.getOwnPropertyDescriptor(target, prop) || Reflect.getOwnPropertyDescriptor(activeClient as any, prop);
   },
 });
 

@@ -13,31 +13,43 @@ let workerInterval: NodeJS.Timeout | null = null;
 let isTicking = false;
 let isStopping = false;
 
+export async function enqueueWebhook(
+  tx: any,
+  orgId: string,
+  event: string,
+  data: any,
+): Promise<void> {
+  const config = await tx?.appSetting?.findFirst?.({
+    where: { orgId, settingKey: 'webhook_url' },
+  });
+  if (!config?.valuePlain) {
+    // Organization has no webhook configured — avoid accumulating orphan outbox records
+    return;
+  }
+
+  await tx.webhookOutbox.create({
+    data: {
+      id: randomUUID(),
+      orgId,
+      eventType: event,
+      payload: data,
+      status: 'pending',
+      nextAttemptAt: new Date(Date.now() - 1000),
+    },
+  });
+
+  const timer = setTimeout(() => {
+    tickWebhookQueue().catch((err) => {
+      logger.warn('[webhook] Outbox trigger error:', err);
+    });
+  }, 20);
+  timer.unref?.();
+}
+
 export async function emitWebhook(orgId: string, event: string, data: any): Promise<void> {
   try {
-    const config = await prisma.appSetting.findFirst({
-      where: { orgId, settingKey: 'webhook_url' },
-    });
-    if (!config?.valuePlain) {
-      // Organization has no webhook configured — avoid accumulating orphan outbox records
-      return;
-    }
-
-    await prisma.webhookOutbox.create({
-      data: {
-        id: randomUUID(),
-        orgId,
-        eventType: event,
-        payload: data,
-        status: 'pending',
-        nextAttemptAt: new Date(),
-      },
-    });
-
-    setImmediate(() => {
-      tickWebhookQueue().catch((err) => {
-        logger.warn('[webhook] Outbox trigger error:', err);
-      });
+    await prisma.$transaction(async (tx) => {
+      await enqueueWebhook(tx, orgId, event, data);
     });
   } catch (err) {
     logger.warn(`[webhook] Failed to enqueue webhook for ${event}:`, err);
@@ -87,6 +99,7 @@ interface WebhookOutboxRow {
   event_type: string;
   payload: any;
   attempt_count: number;
+  lease_owner?: string;
 }
 
 export async function tickWebhookQueue(): Promise<void> {
@@ -109,17 +122,18 @@ export async function tickWebhookQueue(): Promise<void> {
         LIMIT 10
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING "id", "org_id", "event_type", "payload", "attempt_count"
+      RETURNING "id", "org_id", "event_type", "payload", "attempt_count", "lease_owner"
     `;
 
     if (!claimedRows || claimedRows.length === 0) return;
 
     for (const row of claimedRows) {
+      const rowOwner = row.lease_owner || workerId;
       try {
         const response = await deliverWebhook(row.org_id, row.event_type, row.payload, row.id);
 
         if (response && response.ok) {
-          await prisma.$executeRaw`
+          const updateCount = await prisma.$executeRaw`
             UPDATE "webhook_outbox"
             SET "status" = 'delivered',
                 "delivered_at" = NOW(),
@@ -127,8 +141,11 @@ export async function tickWebhookQueue(): Promise<void> {
                 "lease_owner" = NULL,
                 "lease_expires_at" = NULL,
                 "updated_at" = NOW()
-            WHERE "id" = ${row.id}
+            WHERE "id" = ${row.id} AND "lease_owner" = ${rowOwner} AND "status" = 'dispatching'
           `;
+          if (updateCount !== 1) {
+            logger.warn(`[webhook] Lost lease fence completing delivered webhook ${row.id}`);
+          }
         } else {
           const nextAttempt = Number(row.attempt_count) + 1;
           const status = response ? response.status : null;
@@ -136,7 +153,7 @@ export async function tickWebhookQueue(): Promise<void> {
 
           if (nextAttempt >= 10) {
             logger.warn(`[webhook] Outbox message ${row.id} reached DLQ max retries (10): ${errorMsg}`);
-            await prisma.$executeRaw`
+            const updateCount = await prisma.$executeRaw`
               UPDATE "webhook_outbox"
               SET "status" = 'failed',
                   "attempt_count" = ${nextAttempt},
@@ -145,11 +162,14 @@ export async function tickWebhookQueue(): Promise<void> {
                   "lease_owner" = NULL,
                   "lease_expires_at" = NULL,
                   "updated_at" = NOW()
-              WHERE "id" = ${row.id}
+              WHERE "id" = ${row.id} AND "lease_owner" = ${rowOwner} AND "status" = 'dispatching'
             `;
+            if (updateCount !== 1) {
+              logger.warn(`[webhook] Lost lease fence marking failed webhook ${row.id}`);
+            }
           } else {
             const backoffMinutes = Math.pow(2, nextAttempt);
-            await prisma.$executeRaw`
+            const updateCount = await prisma.$executeRaw`
               UPDATE "webhook_outbox"
               SET "status" = 'pending',
                   "attempt_count" = ${nextAttempt},
@@ -159,15 +179,18 @@ export async function tickWebhookQueue(): Promise<void> {
                   "lease_owner" = NULL,
                   "lease_expires_at" = NULL,
                   "updated_at" = NOW()
-              WHERE "id" = ${row.id}
+              WHERE "id" = ${row.id} AND "lease_owner" = ${rowOwner} AND "status" = 'dispatching'
             `;
+            if (updateCount !== 1) {
+              logger.warn(`[webhook] Lost lease fence scheduling retry for webhook ${row.id}`);
+            }
           }
         }
       } catch (err: any) {
         const nextAttempt = Number(row.attempt_count) + 1;
         const errorMsg = err?.message || String(err);
         if (nextAttempt >= 10) {
-          await prisma.$executeRaw`
+          const updateCount = await prisma.$executeRaw`
             UPDATE "webhook_outbox"
             SET "status" = 'failed',
                 "attempt_count" = ${nextAttempt},
@@ -175,11 +198,14 @@ export async function tickWebhookQueue(): Promise<void> {
                 "lease_owner" = NULL,
                 "lease_expires_at" = NULL,
                 "updated_at" = NOW()
-            WHERE "id" = ${row.id}
+            WHERE "id" = ${row.id} AND "lease_owner" = ${rowOwner} AND "status" = 'dispatching'
           `;
+          if (updateCount !== 1) {
+            logger.warn(`[webhook] Lost lease fence marking failed webhook ${row.id}`);
+          }
         } else {
           const backoffMinutes = Math.pow(2, nextAttempt);
-          await prisma.$executeRaw`
+          const updateCount = await prisma.$executeRaw`
             UPDATE "webhook_outbox"
             SET "status" = 'pending',
                 "attempt_count" = ${nextAttempt},
@@ -188,8 +214,11 @@ export async function tickWebhookQueue(): Promise<void> {
                 "lease_owner" = NULL,
                 "lease_expires_at" = NULL,
                 "updated_at" = NOW()
-            WHERE "id" = ${row.id}
+            WHERE "id" = ${row.id} AND "lease_owner" = ${rowOwner} AND "status" = 'dispatching'
           `;
+          if (updateCount !== 1) {
+            logger.warn(`[webhook] Lost lease fence scheduling retry for webhook ${row.id}`);
+          }
         }
       }
     }

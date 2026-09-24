@@ -44,7 +44,7 @@ export async function withDurableCronLease<T>(
   lockId: number | bigint,
   jobName: string,
   durationMs: number,
-  fn: () => Promise<T>,
+  fn: (signal: AbortSignal) => Promise<T>,
 ): Promise<{ executed: true; result: T } | { executed: false; result?: undefined }> {
   const workerId = `${process.pid}-${randomUUID()}`;
   const lockIdBigInt = BigInt(lockId);
@@ -64,10 +64,44 @@ export async function withDurableCronLease<T>(
     return { executed: false };
   }
 
+  const abortController = new AbortController();
+  const heartbeatIntervalMs = Math.max(1000, Math.floor(durationMs / 3));
+  let heartbeatTimer: NodeJS.Timeout | null = null;
+  let renewing = false;
+
+  heartbeatTimer = setInterval(async () => {
+    if (renewing || abortController.signal.aborted) return;
+    renewing = true;
+    try {
+      const renewal = await prisma.$executeRaw`
+        UPDATE "cron_job_leases"
+        SET "lease_expires_at" = NOW() + (${durationMs} || ' milliseconds')::interval, "updated_at" = NOW()
+        WHERE "lock_id" = ${lockIdBigInt} AND "lease_owner" = ${workerId}
+      `;
+      if (renewal !== 1) {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        abortController.abort(new Error(`Lost cron lease for job ${jobName} (lock ${lockId})`));
+      }
+    } catch {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      abortController.abort(new Error(`Failed to renew cron lease for job ${jobName} (lock ${lockId})`));
+    } finally {
+      renewing = false;
+    }
+  }, heartbeatIntervalMs);
+
+  if (typeof heartbeatTimer?.unref === 'function') {
+    heartbeatTimer.unref();
+  }
+
   try {
-    const result = await fn();
+    const result = await fn(abortController.signal);
     return { executed: true, result };
   } finally {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
     try {
       await prisma.$executeRaw`
         UPDATE "cron_job_leases"

@@ -127,7 +127,8 @@ export async function kiotvietRoutes(app: FastifyInstance): Promise<void> {
       const branches = await getKiotvietBranches(orgId, config);
       return { branches: branches.map(b => ({ id: String(b.id), branchName: b.branchName })) };
     } catch (err: any) {
-      return reply.status(err.statusCode || 500).send({ error: err.message || 'Failed to fetch branches' });
+      const status = typeof err.statusCode === 'number' && err.statusCode < 500 ? err.statusCode : 500;
+      return reply.status(status).send({ error: status < 500 ? (err.message || 'Failed to fetch branches') : 'Failed to fetch branches' });
     }
   });
 
@@ -250,7 +251,8 @@ export async function kiotvietRoutes(app: FastifyInstance): Promise<void> {
       return { customers };
     } catch (err: any) {
       logger.warn('[kiotviet-routes] Customer search error:', err);
-      return reply.status(err.statusCode || 500).send({ error: err.message || 'Customer search failed' });
+      const status = typeof err.statusCode === 'number' && err.statusCode < 500 ? err.statusCode : 500;
+      return reply.status(status).send({ error: status < 500 ? (err.message || 'Customer search failed') : 'Customer search failed' });
     }
   });
 
@@ -277,7 +279,8 @@ export async function kiotvietRoutes(app: FastifyInstance): Promise<void> {
       return { customer };
     } catch (err: any) {
       logger.warn('[kiotviet-routes] Create customer error:', err);
-      return reply.status(err.statusCode || 500).send({ error: err.message || 'Failed to create customer on KiotViet' });
+      const status = typeof err.statusCode === 'number' && err.statusCode < 500 ? err.statusCode : 500;
+      return reply.status(status).send({ error: status < 500 ? (err.message || 'Failed to create customer on KiotViet') : 'Failed to create customer on KiotViet' });
     }
   });
 }
