@@ -43,44 +43,53 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const email = ref('');
 const password = ref('');
 const loading = ref(false);
 const error = ref('');
+const route = useRoute();
 const router = useRouter();
 const authStore = useAuthStore();
 
 onMounted(async () => {
-  // If already authenticated, skip login page
-  if (authStore.isAuthenticated) {
-    router.replace('/');
-    return;
-  }
-
-  try {
-    await authStore.init();
-    if (authStore.isAuthenticated) {
-      router.replace('/');
-      return;
-    }
-  } catch {}
-
-  // Check if first-time setup needed
+  // Check if first-time setup needed in case guard did not catch it
   try {
     const needs = await authStore.checkSetup();
     if (needs) router.replace('/setup');
   } catch {}
 });
 
+function getSafeRedirect(target: unknown): string {
+  if (
+    typeof target !== 'string' ||
+    !target.startsWith('/') ||
+    target.startsWith('//') ||
+    target.includes('\\')
+  ) {
+    return '/';
+  }
+  try {
+    const resolved = router.resolve(target);
+    // Don't allow redirecting to non-existent route, login itself, not found, or setup
+    if (!resolved.matched.length || resolved.name === 'Login' || resolved.name === 'NotFound' || resolved.name === 'Setup') {
+      return '/';
+    }
+    return target;
+  } catch {
+    return '/';
+  }
+}
+
 async function handleLogin() {
   loading.value = true;
   error.value = '';
   try {
     await authStore.login(email.value, password.value);
-    router.push('/');
+    const safeTarget = getSafeRedirect(route.query.redirect);
+    router.push(safeTarget);
   } catch (err: any) {
     error.value = err.response?.data?.error || 'Đăng nhập thất bại';
   } finally {

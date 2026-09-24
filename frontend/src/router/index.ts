@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router';
+import { createRouter, createWebHistory, createMemoryHistory } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 
 const routes = [
@@ -6,13 +6,13 @@ const routes = [
     path: '/login',
     name: 'Login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { layout: 'auth' },
+    meta: { layout: 'auth', guestOnly: true },
   },
   {
     path: '/setup',
     name: 'Setup',
     component: () => import('@/views/SetupView.vue'),
-    meta: { layout: 'auth' },
+    meta: { layout: 'auth', setupOnly: true },
   },
   {
     path: '/',
@@ -78,34 +78,54 @@ const routes = [
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: () => import('@/views/NotFoundView.vue'),
+    meta: { requiresAuth: true },
   },
 ];
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: typeof window !== 'undefined' ? createWebHistory() : createMemoryHistory(),
   routes,
 });
 
-// Auth guard
-router.beforeEach(async (to, _from, next) => {
+// Modern return-style auth & route protection guard
+router.beforeEach(async (to) => {
   const authStore = useAuthStore();
 
-  // Skip guard for setup and login pages
-  if (to.name === 'Setup' || to.name === 'Login') {
-    return next();
+  // 1. Chờ hoàn tất khởi tạo session trước khi quyết định navigation
+  if (authStore.status === 'unknown') {
+    await authStore.init();
   }
 
-  // Check auth for protected routes
+  // 2. Bảo vệ route yêu cầu đăng nhập
   if (to.meta.requiresAuth) {
-    // A reloaded SPA has no memory token. Bootstrap the HttpOnly refresh
-    // session before deciding whether this navigation is authenticated.
-    if (!authStore.isAuthenticated) {
-      await authStore.init();
+    if (authStore.isAuthenticated) return true;
+    if (authStore.status === 'unavailable') {
+      // Cho phép navigation hoàn tất để app.mount() chạy và render NetworkErrorBanner fullscreen (layout === null)
+      // App.vue chặn hoàn toàn việc mount DefaultLayout và view con
+      return true;
     }
-    if (!authStore.isAuthenticated) {
-      return next('/login');
-    }
+    return {
+      name: 'Login',
+      query: { redirect: to.fullPath },
+    };
   }
 
-  next();
+  // 3. Bảo vệ guest-only route (/login) & Tự động điều hướng setup lần đầu
+  if (to.meta.guestOnly) {
+    if (authStore.isAuthenticated) return '/';
+    // Kiểm tra nếu hệ thống mới tinh chưa có tài khoản admin nào (Finding 6)
+    const needsSetup = await authStore.checkSetup();
+    if (needsSetup) return { name: 'Setup' };
+    return true;
+  }
+
+  // 4. Bảo vệ setup-only route (/setup)
+  if (to.meta.setupOnly) {
+    if (authStore.isAuthenticated) return '/';
+    const needsSetup = await authStore.checkSetup();
+    if (!needsSetup) return { name: 'Login' };
+    return true;
+  }
+
+  return true;
 });

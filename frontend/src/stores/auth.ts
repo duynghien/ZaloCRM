@@ -1,6 +1,9 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
+import type { Router } from 'vue-router';
 import { api, clearAccessToken, getAccessToken, refreshAccessToken, setAccessToken } from '@/api/index';
+
+export type AuthStatus = 'unknown' | 'checking' | 'authenticated' | 'anonymous' | 'unavailable';
 
 interface User {
   id: string;
@@ -29,9 +32,14 @@ function toUser(data: any): User {
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<User | null>(null);
+  const status = ref<AuthStatus>('unknown');
+  const errorMessage = ref<string | null>(null);
   const needsSetup = ref(false);
+  let setupChecked = false;
+
   const token = computed(() => getAccessToken());
-  const isAuthenticated = computed(() => !!token.value && !!user.value);
+  // Resilient authentication: token + user present and status is not explicitly anonymous
+  const isAuthenticated = computed(() => !!token.value && !!user.value && status.value !== 'anonymous');
   const isOwner = computed(() => user.value?.role === 'owner');
   const isAdmin = computed(() => ['owner', 'admin'].includes(user.value?.role || ''));
   let initialization: Promise<boolean> | null = null;
@@ -42,9 +50,16 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function checkSetup() {
-    const res = await api.get('/setup/status');
-    needsSetup.value = res.data.needsSetup;
-    return res.data.needsSetup;
+    try {
+      if (setupChecked) return needsSetup.value;
+      const res = await api.get('/setup/status');
+      needsSetup.value = res.data.needsSetup;
+      setupChecked = true;
+      return res.data.needsSetup;
+    } catch {
+      // In case of network error/502, don't throw, treat as unresolved
+      return false;
+    }
   }
 
   async function fetchProfile() {
@@ -57,25 +72,47 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/setup', data);
     applySession(res.data);
     await fetchProfile();
+    status.value = 'authenticated';
+    errorMessage.value = null;
   }
 
   async function login(email: string, password: string) {
     const res = await api.post('/auth/login', { email, password });
     applySession(res.data);
     await fetchProfile();
+    status.value = 'authenticated';
+    errorMessage.value = null;
+  }
+
+  function clearSession() {
+    clearAccessToken();
+    user.value = null;
+    status.value = 'anonymous';
+    errorMessage.value = null;
   }
 
   async function bootstrapSession() {
+    status.value = 'checking';
     try {
       const tokenValue = await refreshAccessToken();
       if (!tokenValue) {
         clearSession();
         return false;
       }
+      setAccessToken(tokenValue);
       await fetchProfile();
+      status.value = 'authenticated';
+      errorMessage.value = null;
       return true;
-    } catch {
-      // A network failure does not prove that the cookie-backed session ended.
+    } catch (err: any) {
+      const httpStatus = err.response?.status;
+      if (httpStatus === 401 || httpStatus === 403) {
+        clearSession();
+        return false;
+      }
+      // Network failure or 500/502/503/504
+      status.value = 'unavailable';
+      errorMessage.value = 'Không thể kết nối đến máy chủ hoặc máy chủ đang bảo trì. Vui lòng thử lại sau.';
       return false;
     }
   }
@@ -87,9 +124,18 @@ export const useAuthStore = defineStore('auth', () => {
         if (getAccessToken()) {
           try {
             await fetchProfile();
+            status.value = 'authenticated';
+            errorMessage.value = null;
             return true;
-          } catch {
-            // Refresh/profile network errors leave the in-memory session intact.
+          } catch (err: any) {
+            const httpStatus = err.response?.status;
+            if (httpStatus === 401 || httpStatus === 403) {
+              clearSession();
+              return false;
+            }
+            status.value = 'unavailable';
+            errorMessage.value = 'Không thể kết nối đến máy chủ hoặc máy chủ đang bảo trì. Vui lòng thử lại sau.';
+            return false;
           }
         }
         return bootstrapSession();
@@ -98,6 +144,19 @@ export const useAuthStore = defineStore('auth', () => {
       });
     }
     return initialization;
+  }
+
+  async function retryBootstrap(routerInstance: Router) {
+    const success = await bootstrapSession();
+    if (!success && status.value === 'anonymous') {
+      if (routerInstance.currentRoute.value.meta.requiresAuth) {
+        routerInstance.push({
+          name: 'Login',
+          query: { redirect: routerInstance.currentRoute.value.fullPath },
+        });
+      }
+    }
+    return success;
   }
 
   async function logout() {
@@ -112,14 +171,11 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  function clearSession() {
-    clearAccessToken();
-    user.value = null;
-  }
-
   return {
     user,
     token,
+    status,
+    errorMessage,
     needsSetup,
     isAuthenticated,
     isOwner,
@@ -130,5 +186,7 @@ export const useAuthStore = defineStore('auth', () => {
     fetchProfile,
     logout,
     init,
+    retryBootstrap,
+    clearSession,
   };
 });

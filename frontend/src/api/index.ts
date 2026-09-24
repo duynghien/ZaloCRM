@@ -15,7 +15,26 @@ const refreshApi = axios.create({
 
 const accessToken = ref('');
 let refreshPromise: Promise<string> | null = null;
-let isRedirecting = false;
+
+type SessionExpiredHandler = () => void;
+const sessionExpiredHandlers = new Set<SessionExpiredHandler>();
+
+export function onSessionExpired(handler: SessionExpiredHandler): () => void {
+  sessionExpiredHandlers.add(handler);
+  return () => {
+    sessionExpiredHandlers.delete(handler);
+  };
+}
+
+function emitSessionExpired(): void {
+  for (const handler of sessionExpiredHandlers) {
+    try {
+      handler();
+    } catch (err) {
+      console.error('Lỗi khi thực thi handler session expired:', err);
+    }
+  }
+}
 
 interface RetriableRequestConfig extends InternalAxiosRequestConfig {
   _authRetry?: boolean;
@@ -40,16 +59,9 @@ export function clearAccessToken(): void {
 }
 
 function getCookie(name: string): string {
+  if (typeof document === 'undefined') return '';
   const encodedName = `${encodeURIComponent(name)}=`;
   return document.cookie.split('; ').find((cookie) => cookie.startsWith(encodedName))?.slice(encodedName.length) || '';
-}
-
-function redirectToLogin(): void {
-  const path = window.location.pathname;
-  if (!isRedirecting && path !== '/login' && path !== '/setup') {
-    isRedirecting = true;
-    window.location.assign('/login');
-  }
 }
 
 function isAuthenticationFailure(error: unknown): boolean {
@@ -66,7 +78,6 @@ export function isSocketAuthenticationFailure(message: string): boolean {
     || normalized.includes('revoked')
     || normalized.includes('jwt');
 }
-
 
 function isTokenFresh(token: string): boolean {
   try {
@@ -99,8 +110,11 @@ async function executeRefreshCall(): Promise<string> {
     return token;
   } catch (error: unknown) {
     if (isAuthenticationFailure(error)) {
+      const hadActiveToken = !!accessToken.value;
       clearAccessToken();
-      redirectToLogin();
+      if (hadActiveToken) {
+        emitSessionExpired();
+      }
     }
     throw error;
   }

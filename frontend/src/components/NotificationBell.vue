@@ -173,12 +173,16 @@
 import { onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useNotificationStore } from '@/stores/notification';
+import { useAuthStore } from '@/stores/auth';
 
 const store = useNotificationStore();
 const router = useRouter();
+const authStore = useAuthStore();
 
 onMounted(() => {
-  store.initSocket();
+  if (authStore.isAuthenticated) {
+    store.initSocket();
+  }
 });
 
 onUnmounted(() => {

@@ -62,7 +62,8 @@ test('HTTPS session rotates once for concurrent expired requests, reloads and lo
   // A fresh document tests persisted logout without racing the previous tab's auth redirect.
   const loggedOutPage = await context.newPage();
   await loggedOutPage.goto('/chat', { waitUntil: 'commit' });
-  await expect(loggedOutPage).toHaveURL('/login');
+  await expect(loggedOutPage).toHaveURL(/\/login(\?.*)?/);
+  await expect(loggedOutPage.locator('.v-navigation-drawer')).toHaveCount(0);
   await expect(loggedOutPage.getByRole('button', { name: 'Đăng nhập', exact: true })).toBeVisible();
   await expect(loggedOutPage.getByText('Browser Contact', { exact: true })).toHaveCount(0);
 });
