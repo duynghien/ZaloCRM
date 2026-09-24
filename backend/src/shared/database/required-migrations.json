@@ -61,6 +61,18 @@
   },
   {
     "name": "20260922000004_data_integrity_and_webhook_outbox",
-    "checksum": "b92ad3287b5a3414913899962a1cac020c28c0e3dbae8c8f00090b1ec033087d"
+    "checksum": "093765c9f6a303f0a7a36f16d08bb59a103eeca344a96de4b38822143d719630"
+  },
+  {
+    "name": "20260922000005_zalo_outbound_request_hash",
+    "checksum": "a18c43a3b1fd971c0c2eb90bf1a3c5dce019b074fd3d945c53d635d12234d14f"
+  },
+  {
+    "name": "20260922000006_cron_job_lease_resets",
+    "checksum": "13bd7ad1b30efb3799a390531a64393a10590c1419acf0c2a12f1a07f2db7a99"
+  },
+  {
+    "name": "20260922000007_composite_foreign_keys",
+    "checksum": "167484e07462f245d5229b7945a7307c9388cce2d5c9f560b31c26d49612d59a"
   }
 ]

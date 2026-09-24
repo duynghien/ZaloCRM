@@ -135,6 +135,7 @@ model ZaloAccount {
   rateState     ZaloAccountRateState?
   outboundMessages ZaloOutboundMessage[]
 
+  @@unique([orgId, id])
   @@map("zalo_accounts")
 }
 
@@ -197,10 +198,11 @@ model Conversation {
   unreadCount      Int       @default(0) @map("unread_count")
   isReplied        Boolean   @default(true) @map("is_replied")
   createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
   org         Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  zaloAccount ZaloAccount  @relation(fields: [zaloAccountId], references: [id], onDelete: Cascade)
-  contact     Contact?     @relation(fields: [contactId], references: [id])
+  zaloAccount ZaloAccount  @relation(fields: [orgId, zaloAccountId], references: [orgId, id], onDelete: Cascade)
+  contact     Contact?     @relation(fields: [orgId, contactId], references: [orgId, id])
   messages    Message[]
   orders      Order[]
 
@@ -250,8 +252,8 @@ model Appointment {
   createdAt       DateTime @default(now()) @map("created_at")
 
   org          Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  contact      Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  assignedUser User?        @relation(fields: [assignedUserId], references: [id])
+  contact      Contact      @relation(fields: [orgId, contactId], references: [orgId, id], onDelete: Cascade)
+  assignedUser User?        @relation(fields: [orgId, assignedUserId], references: [orgId, id])
 
   @@map("appointments")
 }
@@ -335,9 +337,9 @@ model Order {
   updatedAt           DateTime  @updatedAt @map("updated_at")
 
   org          Organization        @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  contact      Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  createdBy    User                @relation("CreatedOrders", fields: [createdByUserId], references: [id])
-  conversation Conversation?       @relation(fields: [conversationId], references: [id])
+  contact      Contact             @relation(fields: [orgId, contactId], references: [orgId, id], onDelete: Cascade)
+  createdBy    User                @relation("CreatedOrders", fields: [orgId, createdByUserId], references: [orgId, id])
+  conversation Conversation?       @relation(fields: [orgId, conversationId], references: [orgId, id])
   items        OrderItem[]
   kiotvietJob  KiotvietInvoiceJob?
 
@@ -796,11 +798,16 @@ model ZaloOutboundMessage {
   conversationId String?      @map("conversation_id")
   messageId      String?      @map("message_id")
   idempotencyKey String?      @map("idempotency_key")
+  requestHash    String       @map("request_hash")
   content        String?
   attachments    Json?
   state          String       @default("preparing") // preparing, dispatching, succeeded, uncertain, failed_before_dispatch
   remoteMsgIds   String[]     @default([]) @map("remote_msg_ids")
   lastError      String?      @map("last_error")
+  leaseOwner       String?   @map("lease_owner")
+  leaseVersion     Int       @default(0) @map("lease_version")
+  leaseExpiresAt   DateTime? @map("lease_expires_at")
+  requestStartedAt DateTime? @map("request_started_at")
   createdAt      DateTime     @default(now()) @map("created_at")
   updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at")
 
@@ -820,6 +827,21 @@ model CronJobLease {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("cron_job_leases")
+}
+
+model CronJobLeaseReset {
+  id             String    @id @default(uuid())
+  lockId         BigInt    @map("lock_id")
+  jobName        String    @map("job_name")
+  priorOwner     String?   @map("prior_owner")
+  priorExpiresAt DateTime? @map("prior_expires_at")
+  actor          String    @map("actor")
+  reason         String    @map("reason")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([lockId])
+  @@index([actor])
+  @@map("cron_job_lease_resets")
 }
 
 model KiotvietVendorCooldown {
