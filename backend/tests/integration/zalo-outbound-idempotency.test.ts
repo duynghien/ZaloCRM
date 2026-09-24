@@ -7,9 +7,10 @@ import {
   claimOutboxSlot,
   commitOutboxSuccess,
   commitOutboxUncertain,
-  computeOutboundIdempotencyKey,
+  computeRequestHash,
   OutboxUncertainError,
   OutboxConflictError,
+  OutboxRequestConflictError,
 } from '../../src/modules/zalo/zalo-outbound-outbox.js';
 import { messageDeliveryService } from '../../src/modules/zalo/message-delivery-service.js';
 import { zaloPool } from '../../src/modules/zalo/zalo-pool.js';
@@ -167,41 +168,73 @@ describe('Zalo Outbound Outbox & Idempotency Integration Tests', () => {
     });
   });
 
-  describe('Fallback Hash Generation for Multi-Media Dispatches', () => {
-    it('computes distinct fallback keys for distinct media sets with no text content', () => {
-      const key1 = computeOutboundIdempotencyKey({
+  describe('Request Hash and Payload Conflict Detection', () => {
+    it('computes distinct request hashes for different payloads', () => {
+      const hash1 = computeRequestHash({
+        orgId,
         accountId,
         threadId,
-        content: null,
-        mediaFiles: [{ filename: 'photo1.jpg', size: 1024 }],
+        content: 'Hello 1',
       });
 
-      const key2 = computeOutboundIdempotencyKey({
+      const hash2 = computeRequestHash({
+        orgId,
         accountId,
         threadId,
-        content: null,
-        mediaFiles: [{ filename: 'photo2.jpg', size: 2048 }],
+        content: 'Hello 2',
       });
 
-      expect(key1).not.toBe(key2);
+      expect(hash1).not.toBe(hash2);
     });
 
-    it('computes identical fallback keys within the same time window for identical content', () => {
-      const key1 = computeOutboundIdempotencyKey({
+    it('computes identical request hashes for identical payloads regardless of object keys', () => {
+      const hash1 = computeRequestHash({
+        orgId,
         accountId,
         threadId,
         content: 'Same text',
-        timeWindowMs: 10_000,
+        attachments: [{ filename: 'a.jpg', size: 100 }],
       });
 
-      const key2 = computeOutboundIdempotencyKey({
+      const hash2 = computeRequestHash({
+        accountId,
+        orgId,
+        content: 'Same text',
+        threadId,
+        attachments: [{ filename: 'a.jpg', size: 100 }],
+      });
+
+      expect(hash1).toBe(hash2);
+    });
+
+    it('throws OutboxRequestConflictError when reusing key with different requestHash', async () => {
+      const existingHash = computeRequestHash({
+        orgId,
         accountId,
         threadId,
-        content: 'Same text',
-        timeWindowMs: 10_000,
+        content: 'Original message',
       });
 
-      expect(key1).toBe(key2);
+      const mockTx = {
+        zaloOutboundMessage: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'outbox-conflict-hash',
+            state: 'succeeded',
+            messageId: 'msg-1',
+            requestHash: existingHash,
+          }),
+        },
+      } as any;
+
+      await expect(
+        claimOutboxSlot(mockTx, {
+          orgId,
+          accountId,
+          threadId,
+          idempotencyKey: 'key-123',
+          content: 'Different message content',
+        })
+      ).rejects.toThrow(OutboxRequestConflictError);
     });
   });
 

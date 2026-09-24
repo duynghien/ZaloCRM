@@ -42,6 +42,30 @@ describe('Durable PostgreSQL Zalo Rate Limiter Integration Tests', () => {
           return updated;
         },
       },
+      $executeRaw: async () => {
+        if (!dbStore[accountId]) {
+          dbStore[accountId] = {
+            accountId,
+            dateVn: getVnDateString(),
+            dailyCount: 0,
+            lastSendAt: null,
+            recentSends: [],
+            updatedAt: new Date(),
+          };
+        }
+        return 1;
+      },
+      $queryRaw: async () => {
+        const row = dbStore[accountId];
+        if (!row) return [];
+        return [{
+          account_id: row.accountId,
+          date_vn: row.dateVn,
+          daily_count: row.dailyCount,
+          last_send_at: row.lastSendAt ? new Date(row.lastSendAt) : null,
+          recent_sends: Array.isArray(row.recentSends) ? row.recentSends.map((d: any) => new Date(d)) : [],
+        }];
+      },
     } as any;
   };
 

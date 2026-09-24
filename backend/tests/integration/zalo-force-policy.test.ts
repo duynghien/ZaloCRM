@@ -115,6 +115,7 @@ describe('Zalo Rate Limiter & Force Policy Integration Tests', () => {
           content: 'Hello rapid',
           source: 'chat_ui',
           force: true,
+          idempotencyKey: 'idem-rapid-key',
         })
       ).rejects.toMatchObject({
         statusCode: 429,
@@ -122,36 +123,22 @@ describe('Zalo Rate Limiter & Force Policy Integration Tests', () => {
       });
     });
 
-    it('rejects non-boolean force field in public api schema', async () => {
-      const req = {
-        routeOptions: { url: '/api/public/messages/send' },
-        method: 'POST',
-        params: {},
-        body: {
-          zaloAccountId: 'acc-1',
-          threadId: 'thread-1',
-          content: 'test',
-          force: 'false', // string instead of boolean
-        },
-      } as any;
+    it('rejects any force field in public api schema with RequestValidationError', async () => {
+      for (const forceVal of ['false', true, false]) {
+        const req = {
+          routeOptions: { url: '/api/public/messages/send' },
+          method: 'POST',
+          params: {},
+          body: {
+            zaloAccountId: 'acc-1',
+            threadId: 'thread-1',
+            content: 'test',
+            force: forceVal,
+          },
+        } as any;
 
-      await expect(validatePublicRequest(req)).rejects.toThrow(RequestValidationError);
-    });
-
-    it('accepts valid boolean force field in public api schema', async () => {
-      const req = {
-        routeOptions: { url: '/api/public/messages/send' },
-        method: 'POST',
-        params: {},
-        body: {
-          zaloAccountId: 'acc-1',
-          threadId: 'thread-1',
-          content: 'test',
-          force: true,
-        },
-      } as any;
-
-      await expect(validatePublicRequest(req)).resolves.not.toThrow();
+        await expect(validatePublicRequest(req)).rejects.toThrow(RequestValidationError);
+      }
     });
   });
 });

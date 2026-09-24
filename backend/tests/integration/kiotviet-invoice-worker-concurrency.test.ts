@@ -241,6 +241,79 @@ describe('KiotViet Invoice Worker Concurrency & Recovery (Unit & Mocked Logic)',
         })
       );
     });
+
+    it('atomically transitions job to succeeded and order to synced on late response for confirmed_not_created job', async () => {
+      vi.mocked(prisma.kiotvietInvoiceJob.updateMany).mockResolvedValueOnce({ count: 1 });
+      vi.mocked(prisma.order.updateMany).mockResolvedValueOnce({ count: 1 });
+
+      const reconciledAt = new Date();
+      await prisma.$transaction(async (tx) => {
+        const lateReconciled = await tx.kiotvietInvoiceJob.updateMany({
+          where: {
+            id: 'job-late-cnc',
+            state: 'failed',
+            reconciliationStatus: 'confirmed_not_created',
+            remoteInvoiceId: null,
+          },
+          data: {
+            state: 'succeeded',
+            remoteInvoiceId: 88888n,
+            remoteInvoiceCode: 'HD-88888',
+            reconciliationStatus: 'matched',
+            reconciledAt,
+            errorCode: null,
+            errorMessage: null,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            leaseVersion: { increment: 1 },
+          },
+        });
+
+        if (lateReconciled.count === 1) {
+          const orderUpdated = await tx.order.updateMany({
+            where: { id: 'order-late-cnc', kiotvietSyncStatus: 'failed' },
+            data: {
+              kiotvietSyncStatus: 'synced',
+              kiotvietInvoiceId: 88888n,
+              kiotvietInvoiceCode: 'HD-88888',
+              kiotvietSyncedAt: reconciledAt,
+              kiotvietSyncError: null,
+            },
+          });
+          if (orderUpdated.count !== 1) {
+            throw new Error('Late invoice order projection conflict');
+          }
+        }
+      });
+
+      expect(prisma.kiotvietInvoiceJob.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: 'job-late-cnc',
+            state: 'failed',
+            reconciliationStatus: 'confirmed_not_created',
+          }),
+          data: expect.objectContaining({
+            state: 'succeeded',
+            remoteInvoiceId: 88888n,
+            remoteInvoiceCode: 'HD-88888',
+            reconciliationStatus: 'matched',
+          }),
+        })
+      );
+
+      expect(prisma.order.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'order-late-cnc', kiotvietSyncStatus: 'failed' },
+          data: expect.objectContaining({
+            kiotvietSyncStatus: 'synced',
+            kiotvietInvoiceId: 88888n,
+            kiotvietInvoiceCode: 'HD-88888',
+            kiotvietSyncError: null,
+          }),
+        })
+      );
+    });
   });
 });
 

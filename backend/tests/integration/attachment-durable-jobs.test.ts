@@ -20,6 +20,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
     },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
+    $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockPrisma)),
   };
   return { prisma: mockPrisma };
 });
@@ -102,8 +103,8 @@ describe('Durable Attachment Download Queue Integration Tests', () => {
       },
     });
 
-    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ attachments: [{ url: '/api/v1/attachments/org-att-test-uuid-doc.pdf' }] }] as any);
     vi.mocked(prisma.$executeRaw).mockResolvedValueOnce(1 as any);
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ attachments: [{ url: '/api/v1/attachments/org-att-test-uuid-doc.pdf' }] }] as any);
 
     await worker.processSingleAttachmentJob(job);
 
@@ -273,5 +274,43 @@ describe('Durable Attachment Download Queue Integration Tests', () => {
 
     const enrollCall = vi.mocked(prisma.$executeRaw).mock.calls[1];
     expect(getSql(enrollCall)).toContain('attachment_download_jobs');
+  });
+
+  it('aborts message update and side effects when lease is lost during completion', async () => {
+    const job = {
+      id: 'job-lost-lease',
+      org_id: orgId,
+      message_id: messageId,
+      attachment_index: 0,
+      remote_url: 'https://zdn.vn/media/doc.pdf',
+      attempt_count: 0,
+      lease_owner: 'worker-mine',
+    };
+
+    vi.mocked(prisma.message.findUnique).mockResolvedValueOnce({
+      id: messageId,
+      attachments: [{ url: job.remote_url, filename: 'doc.pdf' }],
+      conversationId: 'conv-1',
+      conversation: { orgId, zaloAccountId: 'acc-1' },
+    } as any);
+
+    vi.spyOn(downloader, 'downloadAttachmentDetailed').mockResolvedValueOnce({
+      success: true,
+      result: {
+        localPath: '/uploads/attachments/org-att-test/doc.pdf',
+        filename: 'doc.pdf',
+        originalName: 'doc.pdf',
+        size: 1024,
+        mimeType: 'application/pdf',
+      },
+    });
+
+    // Fenced job update returns 0 (lease lost or superseded)
+    vi.mocked(prisma.$executeRaw).mockResolvedValueOnce(0 as any);
+
+    await worker.processSingleAttachmentJob(job);
+
+    // queryRaw (which updates messages table via jsonb_set) MUST NOT have been called
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 });

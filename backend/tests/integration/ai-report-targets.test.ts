@@ -31,7 +31,7 @@ async function seed() {
   const unique = await conversation(a.id, 'unique');
   const userThread = await conversation(a.id, 'direct', org.id, 'user');
   const foreignGroup = await conversation(foreign.id, 'unique', foreignOrg.id);
-  const inconsistentOrg = await conversation(foreign.id, 'bad-org', org.id);
+  const inconsistentOrg = { id: randomUUID(), zaloAccountId: foreign.id, externalThreadId: 'bad-org' };
   const grant = await db.zaloAccountAccess.create({ data: { zaloAccountId: a.id, userId: member.id, permission: 'read' } });
   const target = (c: typeof a1) => ({ zaloAccountId: c.zaloAccountId, groupThreadId: c.externalThreadId!, conversationId: c.id });
   return { org, owner, member, foreignOwner, a, b, foreign, sharedA, sharedB, a1, b2, a2, b1, unique, userThread, foreignGroup, inconsistentOrg, grant, target };

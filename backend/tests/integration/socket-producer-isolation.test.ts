@@ -48,7 +48,7 @@ it('reminder batch retains same-org non-assignee visibility and excludes complet
     const assignee = await member(org.id); const colleague = await member(org.id);
     const contact = await fixture.prisma.contact.create({ data: { orgId: org.id, fullName: name } });
     const apt = await fixture.prisma.appointment.create({ data: { orgId: org.id, contactId: contact.id, assignedUserId: assignee.user.id, appointmentDate: tomorrow } }); expected.push(apt.id);
-    for (const data of [{ status: 'completed' }, { status: 'cancelled' }, { reminderSent: true }, { appointmentDate: now }]) await fixture.prisma.appointment.create({ data: { orgId: org.id, contactId: contact.id, appointmentDate: tomorrow, ...data } });
+    for (const data of [{ status: 'completed' }, { status: 'cancelled' }, { reminderSent: true }, { appointmentDate: new Date(2026, 8, 20, 12) }]) await fixture.prisma.appointment.create({ data: { orgId: org.id, contactId: contact.id, appointmentDate: tomorrow, ...data } });
     for (const person of [assignee, colleague]) { const packets: any[] = []; person.socket.on('appointment:reminder', p => packets.push(p)); (person.socket as any).reminders = { packets, id: apt.id }; }
   }
   const { runAppointmentReminders } = await import('../../src/modules/contacts/appointment-reminder.js');

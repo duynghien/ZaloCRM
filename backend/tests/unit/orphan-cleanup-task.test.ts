@@ -2,14 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { runOrphanCleanup, startOrphanCleanupTask, stopOrphanCleanupTask } from '../../src/modules/attachments/orphan-cleanup-task.js';
+import { runOrphanCleanup, startOrphanCleanupTask, stopOrphanCleanupTask, pruneZaloOutboundMessages } from '../../src/modules/attachments/orphan-cleanup-task.js';
 import { config } from '../../src/config/index.js';
+import { prisma } from '../../src/shared/database/prisma-client.js';
 
 vi.mock('../../src/shared/utils/lock-registry.js', () => ({
   CRON_LOCKS: {
     ORPHAN_CLEANUP: 84732614,
   },
   withCronLock: vi.fn(async (_lockId, fn) => ({ executed: true, result: await fn() })),
+  withDurableCronLease: vi.fn(async (_lockId, _name, _duration, fn) => ({ executed: true, result: await fn(new AbortController().signal) })),
 }));
 
 describe('orphan-cleanup-task', () => {
@@ -18,6 +20,8 @@ describe('orphan-cleanup-task', () => {
   const originalUploadDir = config.uploadDir;
 
   beforeEach(async () => {
+    vi.spyOn(prisma.zaloOutboundMessage, 'updateMany').mockResolvedValue({ count: 0 });
+    vi.spyOn(prisma.zaloOutboundMessage, 'deleteMany').mockResolvedValue({ count: 0 });
     tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zalocrm-cleanup-test-'));
     stagedDir = path.join(tempDir, 'attachments', 'staged');
     await fs.mkdir(stagedDir, { recursive: true });
@@ -84,5 +88,39 @@ describe('orphan-cleanup-task', () => {
   it('starts and stops cron task gracefully', async () => {
     expect(() => startOrphanCleanupTask()).not.toThrow();
     await expect(stopOrphanCleanupTask()).resolves.toBeUndefined();
+  });
+
+  it('prunes succeeded after 30d, failed_before_dispatch after 90d, and redacts uncertain after 90d while keeping the record', async () => {
+    const deleteManySpy = vi.spyOn(prisma.zaloOutboundMessage, 'deleteMany').mockResolvedValue({ count: 5 });
+    const updateManySpy = vi.spyOn(prisma.zaloOutboundMessage, 'updateMany').mockResolvedValue({ count: 2 });
+
+    const result = await pruneZaloOutboundMessages();
+
+    expect(result.succeededPruned).toBe(5);
+    expect(result.failedPruned).toBe(5);
+    expect(result.uncertainRedacted).toBe(2);
+
+    expect(deleteManySpy).toHaveBeenCalledTimes(2);
+    // Call 1: succeeded
+    expect(deleteManySpy).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: expect.objectContaining({ state: 'succeeded' }),
+      })
+    );
+    // Call 2: only failed_before_dispatch, NEVER uncertain!
+    expect(deleteManySpy).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: expect.objectContaining({ state: 'failed_before_dispatch' }),
+      })
+    );
+    // Call to updateMany: redacts uncertain payload
+    expect(updateManySpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ state: 'uncertain' }),
+        data: expect.objectContaining({ content: null }),
+      })
+    );
   });
 });

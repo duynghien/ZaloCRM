@@ -136,4 +136,74 @@ describe('KiotViet Catalog Worker Fencing & Traversal Limit Tests', () => {
       })
     );
   });
+
+  it('executes product sweep and final commit in single transaction with fence', async () => {
+    vi.mocked(prisma.kiotvietSyncState.findFirst).mockResolvedValue({ orgId } as any);
+    vi.mocked(prisma.kiotvietSyncState.findMany).mockResolvedValueOnce([{ orgId }] as any);
+
+    let capturedWorkerId: string | null = null;
+    vi.mocked(prisma.kiotvietSyncState.updateMany).mockImplementation((args: any) => {
+      if (args.data?.leaseOwner) {
+        capturedWorkerId = args.data.leaseOwner;
+      }
+      return Promise.resolve({ count: 1 }) as any;
+    });
+
+    vi.mocked(prisma.kiotvietSyncState.findUnique).mockImplementation((args: any) => {
+      if (args.select) {
+        return Promise.resolve({
+          leaseOwner: capturedWorkerId,
+          leaseVersion: 1,
+          configRevision: 1,
+        }) as any;
+      }
+      return Promise.resolve({
+        orgId,
+        runId: 'run-success-123',
+        runMode: 'full',
+        configRevision: 1,
+        branchId: BigInt(10001),
+        retailer: 'test-shop',
+        leaseOwner: capturedWorkerId,
+        leaseVersion: 1,
+      }) as any;
+    });
+
+    vi.mocked(kiotvietSettings.getKiotvietConfig).mockResolvedValueOnce({
+      retailer: 'test-shop',
+      branchId: '10001',
+      configRevision: 1,
+    } as any);
+
+    vi.mocked(kiotvietClient.getKiotvietProductsPage).mockResolvedValue({
+      total: 1,
+      data: [{ id: 1, code: 'SP1', name: 'Product 1', basePrice: 10000 }] as any,
+    });
+
+    startCatalogWorker();
+    await tickCatalogWorker();
+    await stopCatalogWorker();
+
+    // In full mode, product sweep updateMany MUST be called
+    expect(prisma.kiotvietProduct.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          orgId,
+          retailer: 'test-shop',
+          lastSeenRunId: { not: 'run-success-123' },
+        }),
+      })
+    );
+
+    // Final updateMany sets status to succeeded
+    expect(prisma.kiotvietSyncState.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'succeeded',
+          catalogReady: true,
+          lastSuccessfulRunId: 'run-success-123',
+        }),
+      })
+    );
+  });
 });

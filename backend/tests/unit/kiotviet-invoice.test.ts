@@ -97,17 +97,24 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
       expect(isOrderFinancialLocked('pending')).toBe(true);
       expect(isOrderFinancialLocked('uncertain')).toBe(true);
       expect(isOrderFinancialLocked('synced')).toBe(true);
+      expect(isOrderFinancialLocked({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: null })).toBe(false);
+      expect(isOrderFinancialLocked({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: 12345n })).toBe(true);
+      expect(isOrderFinancialLocked({ kiotvietSyncStatus: 'synced', kiotvietInvoiceId: null })).toBe(true);
     });
 
     it('assertOrderNotLockedForFinancialChanges allows modification when unlocked', () => {
       expect(() => assertOrderNotLockedForFinancialChanges('none', 'financial_update')).not.toThrow();
       expect(() => assertOrderNotLockedForFinancialChanges('failed', 'financial_update')).not.toThrow();
+      expect(() => assertOrderNotLockedForFinancialChanges({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: null }, 'financial_update')).not.toThrow();
     });
 
     it('assertOrderNotLockedForFinancialChanges throws 409 conflict when locked', () => {
       expect(() => assertOrderNotLockedForFinancialChanges('pending', 'financial_update')).toThrow();
       expect(() => assertOrderNotLockedForFinancialChanges('uncertain', 'cancel')).toThrow();
       expect(() => assertOrderNotLockedForFinancialChanges('synced', 'delete')).toThrow();
+      expect(() => assertOrderNotLockedForFinancialChanges({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: 123n }, 'cancel')).toThrow();
+      expect(() => assertOrderNotLockedForFinancialChanges({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: 123n }, 'delete')).toThrow();
+      expect(() => assertOrderNotLockedForFinancialChanges({ kiotvietSyncStatus: 'failed', kiotvietInvoiceId: 123n }, 'financial_update')).toThrow();
     });
   });
 

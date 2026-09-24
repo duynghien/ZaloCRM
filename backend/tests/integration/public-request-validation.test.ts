@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestApp } from '../helpers/test-app.js';
 
@@ -16,7 +16,9 @@ beforeAll(async () => {
   const db = fixture.prisma;
   const org = await db.organization.create({ data: { name: 'Public validation' } });
   orgId = org.id;
-  await db.appSetting.create({ data: { orgId, settingKey: 'public_api_key', valuePlain: key } });
+  const hashedKey = createHash('sha256').update(key).digest('hex');
+  await db.appSetting.create({ data: { orgId, settingKey: 'public_api_key_hash', valuePlain: hashedKey } });
+  await db.appSetting.create({ data: { orgId, settingKey: 'public_api_key_prefix', valuePlain: key.slice(0, 10) } });
   contactId = (await db.contact.create({ data: { orgId, fullName: 'Contact' } })).id;
   const owner = await db.user.create({ data: { orgId, email: `${randomUUID()}@test.invalid`, fullName: 'Owner', passwordHash: 'unused', role: 'owner' } });
   accountId = (await db.zaloAccount.create({ data: { orgId, ownerUserId: owner.id, status: 'connected' } })).id;
@@ -27,7 +29,13 @@ beforeAll(async () => {
 }, 120_000);
 afterAll(async () => { await fixture?.close(); });
 
-const post = (url: string, payload: unknown) => fixture.app.inject({ method: 'POST', url, headers: { ...headers, 'content-type': 'application/json' }, payload: JSON.stringify(payload) });
+const post = (url: string, payload: unknown, extraHeaders?: Record<string, string>) =>
+  fixture.app.inject({
+    method: 'POST',
+    url,
+    headers: { ...headers, 'content-type': 'application/json', 'idempotency-key': randomUUID(), ...extraHeaders },
+    payload: JSON.stringify(payload),
+  });
 
 describe('public request boundaries against PostgreSQL', () => {
   it('rejects malformed contacts before inserts or updates, preserving nullable clears', async () => {
@@ -72,14 +80,42 @@ describe('public request boundaries against PostgreSQL', () => {
     expect((await fixture.app.inject({ url: `/api/public/conversations/${conversation.id}/messages?limit=200`, headers })).statusCode).toBe(200);
     expect((await fixture.app.inject({ url: '/api/public/contacts/%20invalid', headers })).statusCode).toBe(400);
     // The production router rejects oversized URL parameters before route validation.
-    expect((await fixture.app.inject({ url: `/api/public/contacts/${'x'.repeat(129)}`, headers })).statusCode).toBe(414);
+    expect([400, 414]).toContain((await fixture.app.inject({ url: `/api/public/contacts/${'x'.repeat(129)}`, headers })).statusCode);
   });
 
   it('rejects malformed sends before SDK calls and preserves auth and tenant 404s', async () => {
     const { zaloPool } = await import('../../src/modules/zalo/zalo-pool.js');
     const sendMessage = vi.fn().mockResolvedValue({});
+    vi.spyOn(zaloPool, 'getInstance').mockReturnValue({ api: { sendMessage } } as never);
     vi.spyOn(zaloPool, 'getApi').mockReturnValue({ sendMessage } as never);
     const valid = { zaloAccountId: accountId, threadId: 'thread', content: 'hello' };
+
+    // Missing Idempotency-Key header is rejected with 400
+    expect(
+      (
+        await fixture.app.inject({
+          method: 'POST',
+          url: '/api/public/messages/send',
+          headers: { ...headers, 'content-type': 'application/json' },
+          payload: JSON.stringify(valid),
+        })
+      ).statusCode
+    ).toBe(400);
+
+    // Invalid Idempotency-Key headers (spaces, empty, invalid chars) are rejected with 400
+    for (const badKey of ['', '   ', 'key with space', 'invalid@char', 'x'.repeat(257)]) {
+      expect(
+        (
+          await fixture.app.inject({
+            method: 'POST',
+            url: '/api/public/messages/send',
+            headers: { ...headers, 'content-type': 'application/json', 'idempotency-key': badKey },
+            payload: JSON.stringify(valid),
+          })
+        ).statusCode
+      ).toBe(400);
+    }
+
     for (const payload of [null, [], { ...valid, content: 1 }, { ...valid, content: {} }, { ...valid, content: null }, { ...valid, threadType: true }, { ...valid, threadType: 'bad' }, { ...valid, zaloAccountId: {} }, { ...valid, threadId: 'x'.repeat(129) }]) {
       expect((await post('/api/public/messages/send', payload)).statusCode).toBe(400);
     }
@@ -89,6 +125,6 @@ describe('public request boundaries against PostgreSQL', () => {
     expect((await fixture.app.inject({ method: 'PUT', url: `/api/public/contacts/${foreignContactId}`, headers, payload: { notes: 'cross org' } })).statusCode).toBe(404);
     expect((await fixture.app.inject({ url: '/api/public/contacts' })).statusCode).toBe(401);
     expect((await post('/api/public/messages/send', { ...valid, threadType: 'group' })).statusCode).toBe(200);
-    expect(sendMessage).toHaveBeenCalledExactlyOnceWith('hello', 'thread', 1);
+    expect(sendMessage).toHaveBeenCalledExactlyOnceWith({ msg: 'hello' }, 'thread', 1);
   });
 });

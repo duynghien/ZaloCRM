@@ -76,9 +76,9 @@ it('real REST send persists then emits only to readers and rejects read-only wri
   const conversation = await fixture.prisma.conversation.create({ data: { orgId: s.owner.user.orgId, zaloAccountId: s.account.id, externalThreadId: 'recipient' } });
   const seen = [s.owner, s.reader, s.denied, s.foreign].map(p => packets(p.socket));
   const url = `/api/v1/conversations/${conversation.id}/messages`;
-  const allowed = await fixture.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${s.owner.tokens.accessToken}` }, payload: { content: 'real REST message' } });
+  const allowed = await fixture.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${s.owner.tokens.accessToken}` }, payload: { content: 'real REST message', clientMessageId: 'rest-client-id-1' } });
   expect(allowed.statusCode).toBe(200);
-  const rejected = await fixture.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${s.reader.tokens.accessToken}` }, payload: { content: 'denied write' } });
+  const rejected = await fixture.app.inject({ method: 'POST', url, headers: { authorization: `Bearer ${s.reader.tokens.accessToken}` }, payload: { content: 'denied write', clientMessageId: 'rest-client-id-2' } });
   expect(rejected.statusCode).toBe(403); await flush();
   expect(api.sendMessage).toHaveBeenCalledExactlyOnceWith({ msg: 'real REST message' }, 'recipient', 0);
   expect(seen.map(p => p.filter(v => v.event === 'chat:message').length)).toEqual([1, 1, 0, 0]);

@@ -34,14 +34,14 @@ async function legacySchema(databaseUrl: string, directory: string) {
 
 async function seedEntities(client: Client) {
   await client.query(`INSERT INTO organizations(id,name,updated_at) VALUES ('org','Fixture',now()),('other','Other',now());
-    INSERT INTO users(id,org_id,email,password_hash,full_name,updated_at) VALUES ('user','org','order@test.invalid','unused','Test',now());
+    INSERT INTO users(id,org_id,email,password_hash,full_name,updated_at) VALUES ('user','org','order@test.invalid','unused','Test',now()),('other-user','other','other-order@test.invalid','unused','Other User',now());
     INSERT INTO contacts(id,org_id,updated_at) VALUES ('contact','org',now()),('other-contact','other',now());`);
 }
 
 function createOrder(prisma: PrismaClient, orgId = 'org', now = instant) {
   return prisma.$transaction(async tx => {
     const orderCode = await allocateOrderCode(tx, orgId, now);
-    return tx.order.create({ data: { orgId, contactId: orgId === 'org' ? 'contact' : 'other-contact', createdByUserId: 'user', orderCode, totalAmount: 1 } });
+    return tx.order.create({ data: { orgId, contactId: orgId === 'org' ? 'contact' : 'other-contact', createdByUserId: orgId === 'org' ? 'user' : 'other-user', orderCode, totalAmount: 1 } });
   }, { maxWait: 30_000, timeout: 20_000 });
 }
 
@@ -64,7 +64,7 @@ it('migrates sparse legacy suffixes, blocks duplicates, preserves malformed code
       ('maximum','org','contact','user','ORD-20260910-999',1,now()),
       ('invalid','org','contact','user','private-legacy-code',1,now()),
       ('calendar','org','contact','user','ORD-20260230-100000',1,now()),
-      ('other','other','other-contact','user','ORD-20260910-009',1,now()),
+      ('other','other','other-contact','other-user','ORD-20260910-009',1,now()),
       ('duplicate','org','contact','user','ORD-20260910-009',1,now());`);
     const before = (await client.query('SELECT * FROM orders ORDER BY id')).rows;
     const blockedArtifact = join(directory, 'blocked.json');
@@ -88,7 +88,8 @@ it('migrates sparse legacy suffixes, blocks duplicates, preserves malformed code
     await client.query('ROLLBACK');
     expect((await client.query("SELECT to_regclass('order_code_counters') AS name")).rows[0].name).toBeNull();
     await migrateDisposablePostgres(db.databaseUrl);
-    expect((await client.query('SELECT * FROM orders ORDER BY id')).rows).toEqual(before.filter(row => row.id !== 'duplicate'));
+    const legacyColumns = Object.keys(before[0]).map(c => `"${c}"`).join(', ');
+    expect((await client.query(`SELECT ${legacyColumns} FROM orders ORDER BY id`)).rows).toEqual(before.filter(row => row.id !== 'duplicate'));
     expect((await createOrder(prisma)).orderCode).toBe('ORD-20260910-1000');
     const counters = await prisma.orderCodeCounter.findMany({ orderBy: { orgId: 'asc' } });
     await migrateDisposablePostgres(db.databaseUrl);

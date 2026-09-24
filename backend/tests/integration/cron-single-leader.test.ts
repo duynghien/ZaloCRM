@@ -12,6 +12,10 @@ import { webhookSettingsRoutes } from '../../src/modules/api/webhook-settings-ro
 
 describe('Distributed Cron, API Keys & Durable Limits (Phase 6: F-09, F-10, F-11, F-12, F-14)', () => {
   describe('F-09: Transactional Advisory Locks for Distributed Cron', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
     it('executes task when lock is acquired and skips when lock is held by another transaction', async () => {
       let isFirstTransactionHolding = true;
 
@@ -58,6 +62,10 @@ describe('Distributed Cron, API Keys & Durable Limits (Phase 6: F-09, F-10, F-11
   });
 
   describe('F-11, F-12: KiotViet Atomic Rate Limit Quota', () => {
+    beforeEach(() => {
+      vi.spyOn(prisma.kiotvietVendorCooldown, 'findUnique').mockResolvedValue(null);
+    });
+
     afterEach(() => {
       vi.restoreAllMocks();
     });
@@ -103,6 +111,10 @@ describe('Distributed Cron, API Keys & Durable Limits (Phase 6: F-09, F-10, F-11
       const retailer = 'shop_test';
 
       vi.spyOn(prisma, '$queryRaw').mockResolvedValue([]);
+      vi.spyOn(prisma.kiotvietVendorCooldown, 'findUnique').mockResolvedValue({
+        blockedUntil: new Date(Date.now() + 30_000),
+        reason: 'vendor_429',
+      } as any);
       vi.spyOn(prisma.kiotvietRateLimitBucket, 'findUnique').mockResolvedValue({
         id: 'bucket-1',
         orgId,
@@ -255,7 +267,9 @@ describe('Distributed Cron, API Keys & Durable Limits (Phase 6: F-09, F-10, F-11
       });
 
       const upsertSpy = vi.spyOn(prisma.appSetting, 'upsert').mockResolvedValue({} as any);
+      vi.spyOn(prisma, '$transaction').mockResolvedValue([] as any);
       vi.spyOn(prisma.contact, 'findMany').mockResolvedValue([]);
+      vi.spyOn(prisma.contact, 'count').mockResolvedValue(0);
 
       const res = await app.inject({
         method: 'GET',

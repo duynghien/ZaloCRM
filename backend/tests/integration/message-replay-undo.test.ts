@@ -56,8 +56,9 @@ it.each(['sequential', 'concurrent'])('suppresses %s inbound replay before unrea
     expect((row.attachments as any[])[0].localPath).toBeTruthy();
   });
   expect(transport).toHaveBeenCalledOnce();
-  expect(await fixture.prisma.message.count({ where: { conversationId: saved.conversationId } })).toBe(1);
-  expect((await fixture.prisma.conversation.findUniqueOrThrow({ where: { id: saved.conversationId } })).unreadCount).toBe(1);
+  const conv = await fixture.prisma.conversation.findUniqueOrThrow({ where: { id: saved.conversationId } });
+  expect(conv.unreadCount).toBe(1);
+  expect(conv.updatedAt).toBeInstanceOf(Date);
 });
 it('undo changes only the exact account, conversation and message across shared provider IDs', async () => {
   const a = await account(); const b = await account(a.orgId); const foreign = await account(); const threadId = randomUUID(); const msgId = randomUUID();

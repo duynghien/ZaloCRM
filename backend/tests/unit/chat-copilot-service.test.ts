@@ -143,3 +143,26 @@ describe('ChatCopilotParser', () => {
     expect(res?.quickDraft.hasActionableData).toBe(false);
   });
 });
+
+describe('callCopilotAiProvider SSRF Protection', () => {
+  it('blocks private IP / localhost baseURL for OpenAI-compatible providers', async () => {
+    const { callCopilotAiProvider } = await import('../../src/modules/chat/copilot/chat-copilot-ai-caller.js');
+    await expect(
+      callCopilotAiProvider(
+        'openai',
+        { apiKey: 'sk-test', baseUrl: 'http://127.0.0.1:11434' },
+        'instruction',
+        'prompt',
+      ),
+    ).rejects.toThrow();
+
+    await expect(
+      callCopilotAiProvider(
+        'deepseek',
+        { apiKey: 'sk-test', baseUrl: 'http://192.168.1.100:8000' },
+        'instruction',
+        'prompt',
+      ),
+    ).rejects.toThrow();
+  });
+});

@@ -3,7 +3,7 @@ process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || '0123456789abcdef0123
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'postgresql://test:test@localhost:5432/test';
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { emitWebhook, deliverWebhook, tickWebhookQueue } from '../../src/modules/api/webhook-service.js';
+import { emitWebhook, enqueueWebhook, deliverWebhook, tickWebhookQueue } from '../../src/modules/api/webhook-service.js';
 import { prisma } from '../../src/shared/database/prisma-client.js';
 import * as outboundPolicy from '../../src/shared/security/outbound-url-policy.js';
 
@@ -17,6 +17,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
     },
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
+    $transaction: vi.fn(async (cb: any) => cb(mockPrisma)),
   };
   return { prisma: mockPrisma };
 });
@@ -62,6 +63,30 @@ describe('Durable Webhook Outbox Delivery Integration Tests', () => {
     const createArg = vi.mocked(prisma.webhookOutbox.create).mock.calls[0][0];
     expect(createArg.data.orgId).toBe(orgId);
     expect(createArg.data.eventType).toBe('order.created');
+    expect(createArg.data.status).toBe('pending');
+  });
+
+  it('enqueues directly via enqueueWebhook with caller transaction client', async () => {
+    const mockTx: any = {
+      appSetting: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'set-tx',
+          orgId,
+          settingKey: 'webhook_url',
+          valuePlain: 'https://client.example/webhook',
+        }),
+      },
+      webhookOutbox: {
+        create: vi.fn().mockResolvedValue({ id: 'outbox-tx' }),
+      },
+    };
+
+    await enqueueWebhook(mockTx, orgId, 'contact.created', { contactId: 'c-tx' });
+
+    expect(mockTx.webhookOutbox.create).toHaveBeenCalledTimes(1);
+    const createArg = mockTx.webhookOutbox.create.mock.calls[0][0];
+    expect(createArg.data.orgId).toBe(orgId);
+    expect(createArg.data.eventType).toBe('contact.created');
     expect(createArg.data.status).toBe('pending');
   });
 

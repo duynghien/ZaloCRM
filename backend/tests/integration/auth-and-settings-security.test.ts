@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTestApp } from '../helpers/test-app.js';
+import { sessionCache } from '../../src/modules/auth/auth-service.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>>;
 const password = 'FixturePassword123';
@@ -68,6 +69,7 @@ describe('auth and settings security over real HTTP handlers and PostgreSQL', ()
     expect((await fixture.app.inject({ method: 'DELETE', url: `/api/v1/users/${owner.id}`, headers: bearer(signed.token) })).statusCode).toBe(403);
     expect(await fixture.prisma.user.findUniqueOrThrow({ where: { id: owner.id } })).toMatchObject({ email: owner.email, passwordHash, isActive: true, role: 'owner' });
     await fixture.prisma.user.update({ where: { id: admin.id }, data: { role: 'member' } });
+    sessionCache.clear();
     expect((await fixture.app.inject({ url: '/api/v1/profile', headers: bearer(signed.token) })).json().role).toBe('member');
     expect((await fixture.app.inject({ url: '/api/v1/settings/api-key', headers: bearer(signed.token) })).statusCode).toBe(403);
     const ownerLogin = await login(owner);
@@ -82,9 +84,12 @@ describe('auth and settings security over real HTTP handlers and PostgreSQL', ()
     const generated = await fixture.app.inject({ method: 'POST', url: '/api/v1/settings/api-key/generate', headers: bearer(o.token) });
     expect(generated.statusCode).toBe(200); const key = generated.json().key;
     expect(generated.headers['cache-control']).toBe('no-store');
+    const prefix = key.slice(0, 10);
+    const maskedKey = `${prefix}••••••••••••••••••••••••••••••••••••••••`;
     for (const token of [o.token, a.token]) {
       const viewed = await fixture.app.inject({ url: '/api/v1/settings/api-key', headers: bearer(token) });
-      expect(viewed.statusCode).toBe(200); expect(viewed.json()).toEqual({ key, apiKey: key });
+      expect(viewed.statusCode).toBe(200);
+      expect(viewed.json()).toEqual({ key: maskedKey, apiKey: maskedKey, maskedKey, prefix });
       expect(viewed.headers['cache-control']).toBe('no-store');
     }
     for (const [method, url] of [['GET', '/api/v1/settings/api-key'], ['POST', '/api/v1/settings/api-key/generate'], ['GET', '/api/v1/settings/webhook'], ['GET', '/api/v1/ai-reports/settings']] as const) {
@@ -178,5 +183,14 @@ describe('auth and settings security over real HTTP handlers and PostgreSQL', ()
       },
     });
     expect(foreignRes.statusCode).toBe(403);
+  });
+
+  it('returns 404 for removed system cron-lease reset endpoint', async () => {
+    const res = await fixture.app.inject({
+      method: 'POST',
+      url: '/api/v1/system/cron-leases/reset',
+      payload: { all: true, reason: 'test' },
+    });
+    expect(res.statusCode).toBe(404);
   });
 });

@@ -119,4 +119,33 @@ describe('ChatTurnDebouncer', () => {
     await vi.advanceTimersByTimeAsync(200);
     expect(spy).toHaveBeenCalledTimes(1);
   });
+
+  it('clears timer and aborts controller when evicting oldest entry beyond MAX_TIMERS (1000)', async () => {
+    const spy = vi.spyOn(chatCopilotService, 'generateCopilotAnalysis').mockResolvedValue(null);
+
+    // Insert 1001 unique conversation entries
+    for (let i = 0; i <= 1000; i++) {
+      await debouncer.handleMessageTurn({
+        conversationId: `conv-${i}`,
+        accountId: 'acc-1',
+        orgId: 'org-1',
+        isSelf: false,
+        threadType: 'user',
+      });
+    }
+
+    // Advance timers so all remaining timers fire
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Exactly 1000 should have fired, and conv-0 (evicted) should NOT have fired
+    expect(spy).toHaveBeenCalledTimes(1000);
+    expect(spy).not.toHaveBeenCalledWith(
+      expect.anything(),
+      'conv-0',
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
 });

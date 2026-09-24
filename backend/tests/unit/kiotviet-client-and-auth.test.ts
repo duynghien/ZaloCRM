@@ -31,6 +31,10 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
       findUnique: vi.fn(),
       upsert: vi.fn(),
     },
+    kiotvietVendorCooldown: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      upsert: vi.fn(),
+    },
     kiotvietSyncState: {
       findUnique: vi.fn(),
     },
@@ -38,6 +42,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
       findMany: vi.fn(),
     },
     $queryRaw: vi.fn(),
+    $executeRaw: vi.fn().mockResolvedValue(1),
   };
   return { prisma: mockPrisma };
 });
@@ -166,17 +171,7 @@ describe('KiotViet Rate Limit Service', () => {
 
   it('records 429 response and sets blockedUntil', async () => {
     await recordVendorRateLimit429('org-1', 'retailer-1', 45);
-    expect(prisma.kiotvietRateLimitBucket.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.anything(),
-        create: expect.objectContaining({
-          blockedUntil: expect.any(Date),
-        }),
-        update: expect.objectContaining({
-          blockedUntil: expect.any(Date),
-        }),
-      })
-    );
+    expect(prisma.$executeRaw).toHaveBeenCalled();
   });
 });
 

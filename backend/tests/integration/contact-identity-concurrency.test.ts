@@ -104,4 +104,51 @@ describe('Contact Identity & Concurrency Integration Tests', () => {
       expect(res.id).toBe(firstId);
     }
   });
+
+  describe('Conversation Cross-Validation (R3-10)', () => {
+    it('throws 409 conversation_mismatch when conversationId does not match org, account, or thread', async () => {
+      // findFirst returns null because one of orgId, zaloAccountId, or externalThreadId does not match
+      vi.mocked(prisma.conversation.findFirst).mockResolvedValue(null);
+
+      await expect(
+        resolveOrCreateDeliveryConversation({
+          orgId,
+          zaloAccountId,
+          threadId: 'thread-mismatch',
+          conversationId: 'conv-mismatch-id',
+        })
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'conversation_mismatch',
+      });
+
+      // Crucial: must NOT fall through to upsert contact or conversation
+      expect(prisma.contact.upsert).not.toHaveBeenCalled();
+      expect(prisma.conversation.upsert).not.toHaveBeenCalled();
+    });
+
+    it('returns matched conversation without upserting when all parameters match', async () => {
+      const validConv = {
+        id: 'conv-exact-id',
+        orgId,
+        zaloAccountId,
+        externalThreadId: 'thread-exact',
+        threadType: 'user',
+        zaloAccount: { id: zaloAccountId, zaloUid: 'bot-1', orgId },
+      };
+
+      vi.mocked(prisma.conversation.findFirst).mockResolvedValue(validConv as any);
+
+      const result = await resolveOrCreateDeliveryConversation({
+        orgId,
+        zaloAccountId,
+        threadId: 'thread-exact',
+        conversationId: 'conv-exact-id',
+      });
+
+      expect(result.id).toBe('conv-exact-id');
+      expect(prisma.contact.upsert).not.toHaveBeenCalled();
+      expect(prisma.conversation.upsert).not.toHaveBeenCalled();
+    });
+  });
 });

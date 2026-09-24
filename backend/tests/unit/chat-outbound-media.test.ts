@@ -24,6 +24,33 @@ vi.mock('../../src/modules/zalo/zalo-access-middleware.js', () => ({
   requireZaloAccess: () => async (_req: any) => {},
 }));
 
+const { mockPrisma } = vi.hoisted(() => {
+  const mockPrisma: any = {
+    conversation: { findFirst: vi.fn(), upsert: vi.fn(), update: vi.fn() },
+    contact: { findFirst: vi.fn(), create: vi.fn(), upsert: vi.fn() },
+    message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    zaloAccount: { findFirst: vi.fn(), findUnique: vi.fn() },
+    zaloOutboundMessage: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'outbox-1', state: 'preparing', leaseVersion: 1 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    zaloAccountRateState: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    appSetting: { findFirst: vi.fn().mockResolvedValue(null) },
+    webhookOutbox: { create: vi.fn().mockResolvedValue({}) },
+    $executeRaw: vi.fn(),
+    $queryRaw: vi.fn().mockResolvedValue([
+      { account_id: 'acc-1', date_vn: '2026-09-22', daily_count: 0, last_send_at: null, recent_sends: [] },
+    ]),
+    $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockPrisma)),
+  };
+  return { mockPrisma };
+});
+
+vi.mock('../../src/shared/database/prisma-client.js', () => ({
+  prisma: mockPrisma,
+}));
+
 import { prisma } from '../../src/shared/database/prisma-client.js';
 import { chatRoutes } from '../../src/modules/chat/chat-routes.js';
 import { zaloPool } from '../../src/modules/zalo/zalo-pool.js';
@@ -56,6 +83,60 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     await app.ready();
 
     testBaseDir = getAttachmentsBaseDir();
+
+    mockPrisma.zaloAccount.findFirst.mockResolvedValue({
+      id: 'acc-1',
+      orgId: 'org-1',
+      status: 'connected',
+      zaloUid: 'zalo-staff-1',
+    });
+    mockPrisma.contact.upsert.mockResolvedValue({
+      id: 'contact-1',
+      orgId: 'org-1',
+      fullName: 'Customer',
+    });
+    mockPrisma.conversation.findFirst.mockResolvedValue({
+      id: 'conv-test-1',
+      orgId: 'org-1',
+      zaloAccountId: 'acc-1',
+      externalThreadId: 'thread-customer',
+      threadType: 'user',
+      zaloAccount: { id: 'acc-1', orgId: 'org-1', status: 'connected', zaloUid: 'zalo-staff-1' },
+    });
+    mockPrisma.conversation.update.mockResolvedValue({});
+    mockPrisma.zaloOutboundMessage.findUnique.mockResolvedValue(null);
+    mockPrisma.zaloOutboundMessage.create.mockResolvedValue({
+      id: 'outbox-1',
+      state: 'preparing',
+      leaseVersion: 1,
+    });
+    mockPrisma.zaloOutboundMessage.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.message.create.mockImplementation(async ({ data }: any) => ({
+      id: 'm-created-1',
+      ...data,
+    }));
+    mockPrisma.$queryRaw.mockImplementation(async (strings: any, ...values: any[]) => {
+      const sql = Array.isArray(strings) ? strings.join(' ') : String(strings);
+      if (sql.includes('zalo_outbound_messages')) {
+        const outboxId = values[0] || 'outbox-uuid-1';
+        return [{ id: outboxId, leaseVersion: 1 }];
+      }
+      return [
+        {
+          account_id: values[0] || 'acc-1',
+          date_vn: '2026-09-22',
+          daily_count: 0,
+          last_send_at: null,
+          recent_sends: [],
+        },
+      ];
+    });
+    mockPrisma.zaloAccount.findFirst.mockImplementation(async ({ where }: any) => ({
+      id: where?.id || 'acc-1',
+      orgId: where?.orgId || 'org-1',
+      status: 'connected',
+      zaloUid: 'zalo-staff-1',
+    }));
   });
 
   afterEach(async () => {
@@ -113,6 +194,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
       payload: {
         content: 'Báo giá dịch vụ ạ',
         attachmentIds: [uuid1],
+        clientMessageId: 'client-msg-1',
       },
     });
 
@@ -187,6 +269,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
       url: `/api/v1/conversations/${convId}/messages`,
       payload: {
         attachmentIds: [uuid2],
+        clientMessageId: 'client-msg-2',
       },
     });
 
@@ -202,14 +285,16 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     );
   });
 
-  it('atomic rollback: when Zalo API rejects a file, nothing is saved and staged files remain', async () => {
+  it('atomic rollback: when pre-dispatch fails, moved media is rolled back to staged', async () => {
     const orgId = 'org-1';
-    const convId = 'conv-test-3';
+    const convId = 'conv-test-pre';
     const stagedDir = path.join(testBaseDir, 'staged');
+    const orgDir = path.join(testBaseDir, orgId);
 
     const uuidFail = randomUUID();
     const stagedFilename = `${orgId}-${uuidFail}-sample.pdf`;
     const stagedPath = path.join(stagedDir, stagedFilename);
+    const permanentPath = path.join(orgDir, stagedFilename);
     fs.writeFileSync(stagedPath, '%PDF-1.4 sample');
 
     vi.spyOn(prisma.conversation, 'findFirst').mockResolvedValue({
@@ -222,30 +307,73 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     } as any);
 
     vi.spyOn(zaloPool, 'getInstance').mockReturnValue({
-      api: {
-        sendMessage: vi.fn().mockRejectedValue(new Error('Zalo server timeout or file rejected')),
-      },
+      api: { sendMessage: vi.fn() },
     } as any);
 
-    const createSpy = vi.spyOn(prisma.message, 'create');
+    // Rate reservation fails inside transaction (pre-dispatch failure)
+    vi.spyOn(zaloRateLimiter, 'reserveSendSlot').mockRejectedValueOnce(new Error('Rate limit DB lock timeout'));
 
     const res = await app.inject({
       method: 'POST',
       url: `/api/v1/conversations/${convId}/messages`,
       payload: {
-        content: 'File đây',
+        content: 'File pre-dispatch error',
         attachmentIds: [uuidFail],
+        clientMessageId: 'client-msg-3',
       },
     });
 
     expect(res.statusCode).toBe(502);
-    expect(createSpy).not.toHaveBeenCalled();
-    // Staged file still exists for retry
+    // Staged file was restored by rollbackMovedMediaToStaged
     expect(fs.existsSync(stagedPath)).toBe(true);
+    // Permanent file was removed
+    expect(fs.existsSync(permanentPath)).toBe(false);
+  });
+
+  it('post-dispatch ambiguous outcome: when SDK throws, permanent media is preserved for reconciliation', async () => {
+    const orgId = 'org-1';
+    const convId = 'conv-test-post';
+    const stagedDir = path.join(testBaseDir, 'staged');
+    const orgDir = path.join(testBaseDir, orgId);
+
+    const uuidFail = randomUUID();
+    const stagedFilename = `${orgId}-${uuidFail}-sample.pdf`;
+    const stagedPath = path.join(stagedDir, stagedFilename);
+    const permanentPath = path.join(orgDir, stagedFilename);
+    fs.writeFileSync(stagedPath, '%PDF-1.4 sample');
+
+    vi.spyOn(prisma.conversation, 'findFirst').mockResolvedValue({
+      id: convId,
+      orgId,
+      zaloAccountId: 'acc-post',
+      externalThreadId: 'thread-customer-post',
+      threadType: 'user',
+      zaloAccount: { id: 'acc-post', orgId, zaloUid: 'zalo-staff-1' },
+    } as any);
+
+    vi.spyOn(zaloPool, 'getInstance').mockReturnValue({
+      api: {
+        sendMessage: vi.fn().mockRejectedValue(new Error('Zalo server timeout or network issue')),
+      },
+    } as any);
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/v1/conversations/${convId}/messages`,
+      payload: {
+        content: 'File post-dispatch error',
+        attachmentIds: [uuidFail],
+        clientMessageId: 'client-msg-4',
+      },
+    });
+
+    expect([502, 504]).toContain(res.statusCode);
+    // E-05: Permanent file is KEPT for reconciliation
+    expect(fs.existsSync(permanentPath)).toBe(true);
   });
 
   it('message-handler skips echo duplicate when selfListen emits a recently sent msgId', async () => {
-    zaloRateLimiter.recordSend('acc-echo-test', 'recent-msg-xyz', false);
+    zaloRateLimiter.recordSend('acc-echo-test', 'thread-1', 'recent-msg-xyz', false, 1);
 
     vi.spyOn(prisma.zaloAccount, 'findUnique').mockResolvedValue({
       id: 'acc-echo-test',
@@ -254,6 +382,7 @@ describe('Outbound Zalo Media & Dedup Defense', () => {
     } as any);
 
     const txSpy = vi.spyOn(prisma, '$transaction');
+    txSpy.mockClear();
 
     const result = await handleIncomingMessage({
       accountId: 'acc-echo-test',

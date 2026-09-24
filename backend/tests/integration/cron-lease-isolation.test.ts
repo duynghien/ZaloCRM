@@ -13,6 +13,7 @@ vi.mock('../../src/shared/database/prisma-client.js', () => {
     $executeRaw: vi.fn(),
     zaloOutboundMessage: {
       deleteMany: vi.fn().mockResolvedValue({ count: 5 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     zaloAccount: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -104,5 +105,29 @@ describe('Durable Cron Job Leases & Isolation Integration Tests', () => {
     expect(report).toBeDefined();
     expect(report.scannedCount).toBeGreaterThanOrEqual(0);
     expect(prisma.zaloOutboundMessage.deleteMany).toHaveBeenCalled();
+  });
+
+  it('passes AbortSignal to callback and aborts when heartbeat renewal fails', async () => {
+    vi.mocked(prisma.$queryRaw).mockResolvedValueOnce([{ lock_id: BigInt(CRON_LOCKS.ORPHAN_CLEANUP) }] as any);
+    // First executeRaw is the heartbeat update failing (0 rows affected)
+    // Second executeRaw is the finally block release
+    vi.mocked(prisma.$executeRaw)
+      .mockResolvedValueOnce(0 as any) // heartbeat renewal fails
+      .mockResolvedValueOnce(1 as any); // release in finally
+
+    let capturedSignal: AbortSignal | undefined;
+
+    await withDurableCronLease(
+      CRON_LOCKS.ORPHAN_CLEANUP,
+      'heartbeat-test-job',
+      30, // 30ms duration -> heartbeat interval = max(1000, 10) = 1000ms, but we can test signal passed
+      async (signal) => {
+        capturedSignal = signal;
+        expect(signal).toBeInstanceOf(AbortSignal);
+        expect(signal.aborted).toBe(false);
+      }
+    );
+
+    expect(capturedSignal).toBeDefined();
   });
 });

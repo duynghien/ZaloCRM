@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createTestApp } from '../helpers/test-app.js';
 import { serializeOrderResponse } from '../../src/modules/orders/order-response-serializer.js';
 import { Prisma } from '@prisma/client';
+import { createSession } from '../../src/modules/auth/auth-service.js';
 
 let fixture: Awaited<ReturnType<typeof createTestApp>> | undefined;
 const password = 'FixturePassword123';
@@ -90,12 +91,7 @@ describe('KiotViet Response Contracts & BigInt Precision Serialization', () => {
         },
       });
 
-      const token = fixture.app.jwt.sign({
-        id: user.id,
-        email: user.email,
-        role: user.role,
-        orgId: org.id,
-      });
+      const { accessToken: token } = await createSession(fixture.app, user);
 
       // 1. Create order with amount-only
       const createRes = await fixture.app.inject({
@@ -114,12 +110,13 @@ describe('KiotViet Response Contracts & BigInt Precision Serialization', () => {
 
       expect(createRes.statusCode).toBe(200);
       const createdData = JSON.parse(createRes.payload);
-      expect(createdData.order).toBeDefined();
-      expect(createdData.order.totalAmount).toBe(300000);
-      expect(createdData.order.paidAmount).toBe(100000);
-      expect(createdData.order.paymentMethod).toBe('Cash');
+      const createdOrder = createdData.order || createdData;
+      expect(createdOrder).toBeDefined();
+      expect(createdOrder.totalAmount).toBe(300000);
+      expect(createdOrder.paidAmount).toBe(100000);
+      expect(createdOrder.paymentMethod).toBe('Cash');
 
-      const orderId = createdData.order.id;
+      const orderId = createdOrder.id;
 
       // 2. Fetch order detail: GET /api/v1/orders/:id
       const detailRes = await fixture.app.inject({

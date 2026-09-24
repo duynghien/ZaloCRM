@@ -45,6 +45,8 @@ describe('2. Gemini & OpenAI Provider Adapters', () => {
     expect(provider.type).toBe('gemini');
     expect(provider.supportsVision).toBe(true);
 
+    vi.spyOn((provider as any).getClient().models, 'countTokens').mockResolvedValueOnce({ totalTokens: 42 });
+
     const est = await provider.estimateTokens('Chào mừng bạn đến với ZaloCRM');
     expect(est).toBeGreaterThan(0);
   });
@@ -130,6 +132,7 @@ describe('3. Single Budget Reservation Across Failover Chain', () => {
         return { attemptKey: 'attempt-123', maxOutputTokens };
       }),
       complete: vi.fn(async () => {}),
+      failAttempt: vi.fn(async () => {}),
     };
 
     const router = new AiProviderRouter({
@@ -147,6 +150,7 @@ describe('3. Single Budget Reservation Across Failover Chain', () => {
     const gemini = router.getProvider('gemini')!;
     const deepseek = router.getProvider('deepseek')!;
 
+    vi.spyOn(gemini, 'estimateTokens').mockResolvedValue(100);
     vi.spyOn(gemini, 'generateContent').mockRejectedValue(new Error('HTTP 429 Rate limit exceeded'));
     vi.spyOn(deepseek, 'generateContent').mockResolvedValue('Tóm tắt thành công từ DeepSeek');
 
@@ -158,7 +162,8 @@ describe('3. Single Budget Reservation Across Failover Chain', () => {
     });
 
     expect(result).toBe('Tóm tắt thành công từ DeepSeek');
-    expect(reserveCallCount).toBe(1); // Crucial invariant: Only 1 reserve call!
+    expect(reserveCallCount).toBe(3); // Primary (2 attempts) + fallback (1 attempt)
+    expect(mockBudget.failAttempt).toHaveBeenCalledTimes(2);
     expect(fallbackTelemetryList.length).toBe(1);
     expect(fallbackTelemetryList[0].isFallback).toBe(true);
     expect(fallbackTelemetryList[0].fallbackProvider).toBe('deepseek');
@@ -424,6 +429,7 @@ describe('11. Three-Tier Failover Chain (DeepSeek -> Gemini -> OpenAI)', () => {
     const mockBudget: ReportJobBudget = {
       reserve: vi.fn(async (_in, maxOut) => ({ attemptKey: 'attempt-tri', maxOutputTokens: maxOut })),
       complete: vi.fn(async () => {}),
+      failAttempt: vi.fn(async () => {}),
     };
 
     const router = new AiProviderRouter({
@@ -442,6 +448,7 @@ describe('11. Three-Tier Failover Chain (DeepSeek -> Gemini -> OpenAI)', () => {
     const gemini = router.getProvider('gemini')!;
     const openai = router.getProvider('openai')!;
 
+    vi.spyOn(gemini, 'estimateTokens').mockResolvedValue(100);
     vi.spyOn(deepseek, 'generateContent').mockRejectedValue(new Error('DeepSeek 429 Quota Exceeded'));
     vi.spyOn(gemini, 'generateContent').mockRejectedValue(new Error('Gemini 503 Service Unavailable'));
     vi.spyOn(openai, 'generateContent').mockResolvedValue('Thành công từ OpenAI');
@@ -595,6 +602,7 @@ describe('14. CoT Token Exhaustion Safeguard & Output Validation Failover', () =
     const dummyBudget: any = {
       reserve: vi.fn().mockResolvedValue({ attemptKey: 'k', maxOutputTokens: 4096 }),
       complete: vi.fn(),
+      failAttempt: vi.fn(),
     };
 
     const start = Date.now();
@@ -673,11 +681,13 @@ describe('14. CoT Token Exhaustion Safeguard & Output Validation Failover', () =
     };
 
     const geminiProvider = router.getProvider('gemini');
+    (geminiProvider as any).estimateTokens = vi.fn().mockResolvedValue(100);
     (geminiProvider as any).generateContent = vi.fn().mockResolvedValue('{"status":"ok_from_gemini"}');
 
     const dummyBudget: any = {
       reserve: vi.fn().mockResolvedValue({ attemptKey: 'att-1', maxOutputTokens: 4096 }),
       complete: vi.fn(),
+      failAttempt: vi.fn().mockResolvedValue(undefined),
     };
 
     const fallbackEvents: any[] = [];
@@ -720,11 +730,13 @@ describe('14. CoT Token Exhaustion Safeguard & Output Validation Failover', () =
     };
 
     const geminiProvider = router.getProvider('gemini');
+    (geminiProvider as any).estimateTokens = vi.fn().mockResolvedValue(100);
     (geminiProvider as any).generateContent = vi.fn().mockResolvedValue('{"telemetry":{"totalExpected":1}}');
 
     const dummyBudget: any = {
       reserve: vi.fn().mockResolvedValue({ attemptKey: 'att-2', maxOutputTokens: 4096 }),
       complete: vi.fn(),
+      failAttempt: vi.fn().mockResolvedValue(undefined),
     };
 
     const result = await router.generateContent('Prompt', {

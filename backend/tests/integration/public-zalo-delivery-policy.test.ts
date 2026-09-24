@@ -10,6 +10,31 @@ import {
 } from '../../src/modules/zalo/message-delivery-service.js';
 import { publicApiRoutes } from '../../src/modules/api/public-api-routes.js';
 
+const { mockPrisma } = vi.hoisted(() => {
+  const mockPrisma: any = {
+    zaloAccount: { findFirst: vi.fn(), findUnique: vi.fn() },
+    conversation: { findFirst: vi.fn(), upsert: vi.fn(), update: vi.fn() },
+    contact: { findFirst: vi.fn(), create: vi.fn(), upsert: vi.fn() },
+    message: { create: vi.fn(), findUnique: vi.fn(), update: vi.fn() },
+    zaloOutboundMessage: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'outbox-1', state: 'preparing', leaseVersion: 1 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
+    zaloAccountRateState: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
+    notification: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    appSetting: { findFirst: vi.fn().mockResolvedValue(null) },
+    $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(async (cb: (tx: any) => Promise<any>) => cb(mockPrisma)),
+  };
+  return { mockPrisma };
+});
+
+vi.mock('../../src/shared/database/prisma-client.js', () => ({
+  prisma: mockPrisma,
+}));
+
 describe('Public Zalo Delivery Policy & Conversation Resolution (Phase 5: F-07)', () => {
   let app: FastifyInstance;
   let testOrgId: string;
@@ -32,9 +57,31 @@ describe('Public Zalo Delivery Policy & Conversation Resolution (Phase 5: F-07)'
       api: mockApi,
     } as any);
 
-    vi.spyOn(prisma.notification, 'updateMany').mockResolvedValue({ count: 0 });
-    vi.spyOn(prisma.appSetting, 'findFirst').mockResolvedValue(null);
-    vi.spyOn(prisma.zaloAccount, 'findUnique').mockResolvedValue(null);
+    mockPrisma.zaloOutboundMessage.findUnique.mockResolvedValue(null);
+    mockPrisma.zaloOutboundMessage.create.mockResolvedValue({ id: 'outbox-1', state: 'preparing', leaseVersion: 1 });
+    mockPrisma.zaloOutboundMessage.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.$queryRaw.mockResolvedValue([
+      {
+        account_id: testAccountId,
+        date_vn: '2026-09-22',
+        daily_count: 0,
+        last_send_at: null,
+        recent_sends: [],
+      },
+    ]);
+    vi.spyOn(prisma.contact, 'upsert').mockResolvedValue({
+      id: `contact-${randomUUID()}`,
+      orgId: testOrgId,
+      zaloUid: testThreadId,
+      fullName: 'Khách Zalo',
+    } as any);
+    vi.spyOn(prisma.zaloOutboundMessage, 'create').mockResolvedValue({
+      id: `outbox-${randomUUID()}`,
+      state: 'preparing',
+      leaseVersion: 1,
+    } as any);
+    vi.spyOn(prisma.zaloOutboundMessage, 'findUnique').mockResolvedValue(null);
+    vi.spyOn(prisma.zaloOutboundMessage, 'updateMany').mockResolvedValue({ count: 1 } as any);
 
     app = Fastify();
     await app.register(publicApiRoutes);
@@ -106,6 +153,7 @@ describe('Public Zalo Delivery Policy & Conversation Resolution (Phase 5: F-07)'
       threadType: 'user',
       content: 'Xin chào từ Public API',
       source: 'public_api',
+      idempotencyKey: randomUUID(),
     });
 
     expect(result.conversationId).toBe(existingConversationId);
@@ -175,6 +223,7 @@ describe('Public Zalo Delivery Policy & Conversation Resolution (Phase 5: F-07)'
         threadId: testThreadId,
         content: 'Test rate limit message',
         source: 'public_api',
+        idempotencyKey: randomUUID(),
       }),
     ).rejects.toThrow(/Gửi tin nhắn quá nhanh/);
 
@@ -215,10 +264,12 @@ describe('Public Zalo Delivery Policy & Conversation Resolution (Phase 5: F-07)'
       threadId: testThreadId,
       content: 'Hello anti-echo test',
       source: 'public_api',
+      idempotencyKey: randomUUID(),
     });
 
     expect(recordSendSpy).toHaveBeenCalledWith(
       testAccountId,
+      testThreadId,
       ['zalo-msg-9999'],
       false,
       1,
