@@ -144,15 +144,22 @@ export function useChat() {
     }
   }
 
-  async function sendMessage(content: string, attachmentIds?: string[]) {
+  async function sendMessage(
+    content: string,
+    attachmentIds?: string[],
+    options?: { clientMessageId?: string }
+  ) {
     const hasText = Boolean(content && content.trim());
     const hasAttachments = Boolean(attachmentIds && attachmentIds.length > 0);
     if (!selectedConvId.value || (!hasText && !hasAttachments)) return;
     const convId = selectedConvId.value;
     const generation = recovery.generation();
+    const clientMessageId = options?.clientMessageId || crypto.randomUUID();
     sendingMsg.value = true;
     try {
-      const payload: { content?: string; attachmentIds?: string[] } = {};
+      const payload: { content?: string; attachmentIds?: string[]; clientMessageId: string } = {
+        clientMessageId,
+      };
       if (hasText) payload.content = content.trim();
       if (hasAttachments) payload.attachmentIds = attachmentIds;
 

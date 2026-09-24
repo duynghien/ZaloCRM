@@ -13,9 +13,7 @@ const refreshApi = axios.create({
   withCredentials: true,
 });
 
-const TOKEN_STORAGE_KEY = 'zalo_crm_token';
-const initialToken = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_STORAGE_KEY) || '' : '';
-const accessToken = ref(initialToken);
+const accessToken = ref('');
 let refreshPromise: Promise<string> | null = null;
 let isRedirecting = false;
 
@@ -30,11 +28,6 @@ export function getAccessToken(): string {
 export function setAccessToken(token: string): void {
   accessToken.value = token;
   if (typeof window !== 'undefined') {
-    if (token) {
-      localStorage.setItem(TOKEN_STORAGE_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_STORAGE_KEY);
-    }
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: token }));
   }
 }
@@ -42,7 +35,6 @@ export function setAccessToken(token: string): void {
 export function clearAccessToken(): void {
   accessToken.value = '';
   if (typeof window !== 'undefined') {
-    localStorage.removeItem(TOKEN_STORAGE_KEY);
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: '' }));
   }
 }
@@ -75,13 +67,6 @@ export function isSocketAuthenticationFailure(message: string): boolean {
     || normalized.includes('jwt');
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (event: StorageEvent) => {
-    if (event.key === TOKEN_STORAGE_KEY || event.key === 'token') {
-      accessToken.value = event.newValue || '';
-    }
-  });
-}
 
 function isTokenFresh(token: string): boolean {
   try {
@@ -122,12 +107,13 @@ async function executeRefreshCall(): Promise<string> {
 }
 
 async function performRefresh(): Promise<string> {
+  if (isTokenFresh(accessToken.value)) {
+    return accessToken.value;
+  }
   if (typeof navigator !== 'undefined' && navigator.locks) {
     return navigator.locks.request('zalocrm_token_refresh', async () => {
-      const stored = localStorage.getItem(TOKEN_STORAGE_KEY) || localStorage.getItem('token');
-      if (stored && isTokenFresh(stored)) {
-        accessToken.value = stored;
-        return stored;
+      if (isTokenFresh(accessToken.value)) {
+        return accessToken.value;
       }
       return executeRefreshCall();
     });
