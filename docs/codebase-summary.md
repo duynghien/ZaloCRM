@@ -151,7 +151,7 @@ ZaloCRM/
 | **api** | Cung cấp Public REST API xác thực bằng SHA-256 `publicApiKeyHash` (loại bỏ lưu trữ plaintext), giới hạn đầu vào 10.000 ký tự tin nhắn, và hệ thống Webhook Outbox bền vững (`WebhookOutbox`) kích hoạt sự kiện bên ngoài với chữ ký HMAC SHA-256, exponential backoff và Dead-Letter Queue. | `public-api-routes.ts`, `public-api-schemas.ts`, `webhook-settings-routes.ts`, `webhook-service.ts` |
 | **notifications** | Hệ thống thông báo in-app cho người dùng trong tổ chức. | `notification-routes.ts` |
 | **search** | Tìm kiếm toàn văn (Full-text search) đồng thời trên Khách hàng, Tin nhắn hội thoại và Lịch hẹn với giới hạn độ dài truy vấn tối đa 200 ký tự. | `search-routes.ts` |
-| **system** | Quản lý hệ thống phân tán, cung cấp endpoint quản trị giải phóng và thiết lập lại các khóa thuê cron (`POST /api/v1/system/cron-leases/reset`). | `cron-lease-reset-routes.ts` |
+| **system** | Quản lý hệ thống phân tán, cung cấp script CLI vận hành có audit log giải phóng khóa thuê cron (`npm run operator:reset-cron-leases`). | `scripts/reset-cron-leases.ts` |
 
 ---
 
@@ -443,7 +443,12 @@ POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách
   - Nguồn phát sự kiện tự động: Lịch hẹn (hôm nay + ngày mai), tài khoản Zalo (ngắt kết nối circuit breaker > 5 lần/5m), AI Copilot (cảnh báo bất thường cho quản lý), Chat SLA (cron 5 phút quét tin nhắn chờ quá 30m, tự động giải quyết khi nhân viên gửi phản hồi).
   - Tự động dọn dẹp (TTL 30 ngày) định kỳ qua tiến trình nền có quản lý lifecycle an toàn trong `app.ts`.
 
-- **SSRF Outbound Policy:**
+- **SSRF Outbound Policy & Proxy Trust:**
   - `outbound-url-policy.ts` chặn toàn bộ dải IP private/loopback/link-local của cả IPv4 và IPv6 sau DNS resolution, giới hạn 3 lần redirect và 25MB response stream.
+  - `TRUSTED_PROXY_HOPS` (mặc định `1`): Cấu hình số reverse proxy hops tin cậy cho Fastify (`trustProxy: config.trustedProxyHops`), ngăn chặn giả mạo IP client từ header `X-Forwarded-For`.
+
+- **Quy Tắc Bảo Vệ Nhánh & CI Gate Bắt Buộc:**
+  - 6 jobs CI bắt buộc: `typecheck`, `test-backend`, `test-frontend`, `test-e2e` (PostgreSQL 16 thật), `audit-and-build`, `container-verify`.
+  - Bắt buộc vượt qua toàn bộ 6 checks trước khi merge vào `main`, không cho phép bypass (áp dụng cho cả Admin) và cấm force-push.
 
 Ma trận HTTP/PostgreSQL/Socket.IO/browser và container smoke đã có đầy đủ trong source. Trạng thái kiểm chứng local đã hoàn tất; bước nghiệm thu cuối cùng cần xác nhận qua hosted CI tại remote repository.

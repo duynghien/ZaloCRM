@@ -36,6 +36,7 @@ Mở file `.env` và cập nhật các thông số bảo mật bắt buộc:
 PORT=3000
 NODE_ENV=production
 APP_URL=https://crm.domain-cua-ban.com
+TRUSTED_PROXY_HOPS=1 # Số proxy hops tin cậy (1 cho Nginx/Cloudflare/Traefik; 0 nếu expose trực tiếp)
 
 # Database Password (BẮT BUỘC ĐẶT MẬT KHẨU MẠNH)
 DB_USER=crmuser
@@ -72,6 +73,10 @@ Kiểm tra trạng thái container:
 docker compose ps
 ```
 `app` và `db` phải healthy, `backup` phải chạy; `migrator` hoàn tất với exit code 0 (xem `docker compose ps -a`). Tên container do Compose project quản lý; dùng tên service trong lệnh vận hành.
+
+> [!IMPORTANT]
+> **Giới Hạn Topology 1 Replica (Quyết định 4):**
+> Phiên bản hiện tại bắt buộc chạy đúng **1 instance** service `app`. Tuyệt đối không scale nhiều replica (`docker compose up --scale app=N` với `N > 1`), vì Zalo SDK quản lý phiên kết nối đơn và Socket.IO hub sử dụng adapter bộ nhớ trong. Deployment gate sẽ tự động từ chối và chặn triển khai nếu phát hiện cấu hình replica > 1 hoặc nhiều hơn 1 container `app` đang chạy.
 
 Dùng cùng lệnh `npm run docker:up` cho mọi lần cập nhật. Gate build và ghim ID của hai image, dừng app cũ với thời gian chờ 70 giây, rồi yêu cầu trạng thái đã dừng, exit code 0 và không OOM. App đóng admission khi nhận SIGTERM và chờ công việc đang chạy kết thúc. Timeout hoặc exit khác 0 chặn migration; operator cần đối soát công việc chưa hoàn tất trước khi thử lại.
 
@@ -208,6 +213,18 @@ docker compose exec -T db pg_dump -U crmuser zalocrm > backup-manual-$(date +%Y%
 docker compose exec -T db psql -U crmuser zalocrm < backup-manual-20260813.sql
 ```
 
+### 5.4. Khôi Phục Khóa Cron Lease (Operator Tool)
+Khi có sự cố worker crash hoặc đọng khóa lease trên bảng `cron_job_leases`:
+API tenant không còn chứa route reset lease để đảm bảo cô lập quyền hạn. Người vận hành hệ thống sử dụng script CLI với audit log bắt buộc:
+```bash
+# Reset một khóa cụ thể
+npm run operator:reset-cron-leases -- --actor "devops@example.com" --reason "Worker node-1 crash recovery" --lock-id 1001
+
+# Reset toàn bộ các khóa hệ thống (yêu cầu cờ xác nhận tường minh)
+npm run operator:reset-cron-leases -- --actor "devops@example.com" --reason "Cluster recovery after failover" --all --confirm-all
+```
+Mọi thao tác reset đều được lưu vết trong bảng `cron_job_lease_resets`.
+
 ---
 
 ## 6. Danh Mục Hardening Bảo Mật (Security Checklist)
@@ -226,6 +243,7 @@ docker compose exec -T db psql -U crmuser zalocrm < backup-manual-20260813.sql
 - [x] Khử khuẩn nội dung hiển thị Báo cáo AI qua `DOMPurify` phía frontend, ngăn chặn triệt để Stored XSS từ kết quả trả về của LLM.
 - [x] Mã hóa webhook secret và SMTP password ở database/backups (`secure-setting-codec.ts`). Public API key vẫn plaintext/recoverable theo residual-risk waiver đã chấp nhận; chỉ Owner/Admin được xem, response phải `Cache-Control: no-store`, có audit trail và không log giá trị secret.
 - [x] Thực thi chính sách kiểm toán phụ thuộc nghiêm ngặt (`scripts/audit-production-policy.mjs`), chỉ cho phép 2 waiver cố định version/path cho Prisma CLI upstream (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`); cấm mọi waiver cho `uuid`.
+- [x] Giới hạn số reverse proxy hops được tin cậy (`TRUSTED_PROXY_HOPS`, mặc định `1`) trong Fastify thay vì tin cậy vô điều kiện (`trustProxy: true`), ngăn chặn giả mạo IP client qua header `X-Forwarded-For` khi bị tấn công spoofing.
 
 > [!NOTE]
 > Tất cả các tiêu chí bảo mật cơ bản đã được cài đặt và kiểm chứng qua bộ kiểm thử tự động. Quá trình release cần chạy `npm run audit:production` để xác thực toàn vẹn phụ thuộc trước khi triển khai.
@@ -296,3 +314,28 @@ Production smoke kiểm dependency inventory, CLI offline, UI/API/socket, readin
      - `stopReportJobWorker()`, `stopAppointmentReminder()`, `stopOrphanCleanupTask()`, `stopNotificationCleanupTask()`.
   3. **Ngắt kết nối Cơ sở dữ liệu:** Thực hiện `prisma.$disconnect()` sau cùng.
 - Cơ chế này loại bỏ hoàn toàn hiện tượng đơn hàng bị kẹt trạng thái dở dang hoặc mất mát dữ liệu tài chính khi restart hệ thống.
+
+---
+
+## 9. Quy Tắc Bảo Vệ Nhánh & CI/CD Gate Bắt Buộc (Branch Protection & Required Status Checks)
+
+Để đảm bảo an toàn tuyệt đối cho nhánh `main` và ngăn chặn mã lỗi, rò rỉ bảo mật hoặc sai lệch schema lọt vào môi trường production, repository GitHub bắt buộc cấu hình **Branch Protection Rules** trên nhánh `main`:
+
+### 9.1. 6 CI Status Checks Bắt Buộc (Required Status Checks)
+Mọi Pull Request muốn merge vào `main` bắt buộc phải vượt qua toàn bộ 6 jobs định nghĩa trong `.github/workflows/ci.yml`:
+
+| Check Name | Job ID | Mục Đích Kiểm Soát |
+|---|---|---|
+| **Typecheck** | `typecheck` | Kiểm tra TypeScript typecheck toàn diện trên cả backend và frontend. |
+| **Backend Tests** | `test-backend` | Chạy toàn bộ unit tests, integration tests và mock tests của backend. |
+| **Frontend Tests** | `test-frontend` | Chạy toàn bộ unit tests frontend (Vitest). |
+| **E2E Tests** | `test-e2e` | Chạy integration & E2E tests trên PostgreSQL thật (`postgres:16-alpine`), kiểm chứng multi-tenant isolation, concurrency và idempotency. |
+| **Audit and Build** | `audit-and-build` | Quét lỗ hổng phụ thuộc production (`audit:production`) và kiểm tra build artifact của cả frontend và backend. |
+| **Container Verification** | `container-verify` | Khởi chạy Docker Compose container verification, kiểm thử multi-stage build, migration deploy và healthcheck endpoint. |
+
+### 9.2. Quy Định Enforcement Bắt Buộc (Non-Bypassable Rules)
+- **Require a pull request before merging:** Mọi thay đổi bắt buộc đi qua Pull Request, cấm push trực tiếp vào `main`.
+- **Require status checks to pass before merging:** Bắt buộc tích xanh cả 6 jobs trên.
+- **Require branches to be up to date before merging:** Nhánh PR phải được rebase/merge mới nhất so với `main`.
+- **Do not allow bypassing the above settings:** Áp dụng nghiêm ngặt cho cả Administrators / Repository Owners. Không có ngoại lệ bypass CI gate.
+- **Do not allow force pushes & Do not allow deletions:** Cấm `git push --force` và xóa nhánh `main`.
