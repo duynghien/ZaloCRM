@@ -13,11 +13,19 @@ class ZaloRateLimiter {
   private recentSends = new Map<string, number[]>(); // timestamps per account
   private lastSendTime = new Map<string, number>();
   private recentMsgIds = new Map<string, number>();  // msgKey -> timestamp for dedup
+  private cleanupInterval?: NodeJS.Timeout;
+
+  constructor() {
+    this.startCleanupInterval();
+  }
 
   /** Check if sending is allowed for accountId */
   checkLimits(accountId: string, weight: number = 1): { allowed: boolean; reason?: string; canForce?: boolean } {
     const today = getVnDateString();
     const daily = this.dailyCounts.get(accountId);
+    if (daily && daily.date !== today) {
+      this.dailyCounts.delete(accountId);
+    }
 
     // 1. Daily limit check
     if (daily && daily.date === today && daily.count + (weight - 1) >= DAILY_LIMIT) {
@@ -179,6 +187,50 @@ class ZaloRateLimiter {
   }
 
   /**
+   * Cleans up all in-memory pacing and counter records for an unlinked/deleted account.
+   */
+  unregisterAccount(accountId: string): void {
+    this.dailyCounts.delete(accountId);
+    this.recentSends.delete(accountId);
+    this.lastSendTime.delete(accountId);
+  }
+
+  /**
+   * Cleans up rate limiter entries for accounts that have been idle longer than maxIdleMs (default 24h).
+   * Prevents heap memory growth from deleted or unlinked Zalo accounts.
+   */
+  cleanIdleLimiters(maxIdleMs = 24 * 60 * 60 * 1000): number {
+    const now = Date.now();
+    let cleaned = 0;
+
+    for (const [accountId, ts] of this.lastSendTime) {
+      if (now - ts > maxIdleMs) {
+        this.dailyCounts.delete(accountId);
+        this.recentSends.delete(accountId);
+        this.lastSendTime.delete(accountId);
+        cleaned++;
+      }
+    }
+
+    return cleaned;
+  }
+
+  startCleanupInterval(intervalMs = 60 * 60 * 1000): void {
+    if (this.cleanupInterval) return;
+    this.cleanupInterval = setInterval(() => {
+      this.cleanIdleLimiters();
+    }, intervalMs);
+    this.cleanupInterval.unref();
+  }
+
+  stopCleanupInterval(): void {
+    if (this.cleanupInterval) {
+      clearInterval(this.cleanupInterval);
+      this.cleanupInterval = undefined;
+    }
+  }
+
+  /**
    * Atomic PostgreSQL reservation of a send slot before calling remote Zalo API.
    * Guarantees persistence of rate limits across process restarts and replicas.
    */
@@ -193,3 +245,4 @@ class ZaloRateLimiter {
 }
 
 export const zaloRateLimiter = new ZaloRateLimiter();
+export { ZaloRateLimiter };

@@ -34,6 +34,8 @@ export type RenderableItem =
   | { type: 'message'; message: Message }
   | PhotoAlbumItem;
 
+export type RenderItem = RenderableItem;
+
 export function getRenderItemKey(item: RenderableItem): string {
   return item.type === 'message' ? item.message.id : item.id;
 }

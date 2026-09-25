@@ -20,6 +20,7 @@ import {
   startAttachmentWorker,
   stopAttachmentWorker,
 } from './modules/attachments/attachment-processor.js';
+import { recoverPendingAiFeedbacks } from './modules/ai-reports/knowledge/ai-feedback-distillation-service.js';
 import { startNotificationCleanupTask, stopNotificationCleanupTask } from './modules/notifications/notification-service.js';
 import { startChatSlaMonitor, stopChatSlaMonitor } from './modules/chat/chat-sla-monitor.js';
 import { startCatalogWorker, stopCatalogWorker } from './modules/integrations/kiotviet/kiotviet-catalog-worker.js';
@@ -98,6 +99,9 @@ async function bootstrap() {
     startAttachmentWorker();
     startWebhookWorker();
     void recoverPendingAttachmentDownloads();
+    void recoverPendingAiFeedbacks().catch((err) =>
+      logger.error('Failed to recover pending AI feedbacks on startup:', err)
+    );
   } catch (err) {
     logger.error('Failed to start server:', err);
     process.exit(1);

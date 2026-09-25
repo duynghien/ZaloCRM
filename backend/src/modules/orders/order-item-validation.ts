@@ -134,6 +134,9 @@ export async function validateOrderItems(
         if (!Number.isFinite(d) || d < 0) {
           throw new RequestValidationError(`Item '${product.code}' discount must be >= 0`);
         }
+        if (discountMode === 'percent' && d > 100) {
+          throw new RequestValidationError(`Item '${product.code}' percent discount must be between 0 and 100`);
+        }
         discountInput = d;
       }
     } else {

@@ -56,4 +56,40 @@ describe('ZaloRateLimiter', () => {
     expect(limits.canForce).toBe(true);
     expect(limits.reason).toContain('200 tin/ngày');
   });
+
+  it('unregisters account and purges stale daily counts', () => {
+    (zaloRateLimiter as any).dailyCounts.set(accountId, { count: 50, date: '2020-01-01' });
+    (zaloRateLimiter as any).lastSendTime.set(accountId, Date.now());
+    (zaloRateLimiter as any).recentSends.set(accountId, [Date.now()]);
+
+    zaloRateLimiter.unregisterAccount(accountId);
+    expect(zaloRateLimiter.getDailyCount(accountId)).toBe(0);
+    expect((zaloRateLimiter as any).lastSendTime.has(accountId)).toBe(false);
+    expect((zaloRateLimiter as any).recentSends.has(accountId)).toBe(false);
+  });
+
+  it('cleanIdleLimiters evicts accounts idle for more than maxIdleMs', () => {
+    const idleAccount = 'acc-idle-old';
+    const activeAccount = 'acc-active-new';
+    const now = Date.now();
+    const twentyFiveHoursAgo = now - 25 * 60 * 60 * 1000;
+
+    (zaloRateLimiter as any).dailyCounts.set(idleAccount, { count: 10, date: '2026-09-24' });
+    (zaloRateLimiter as any).lastSendTime.set(idleAccount, twentyFiveHoursAgo);
+    (zaloRateLimiter as any).recentSends.set(idleAccount, [twentyFiveHoursAgo]);
+
+    (zaloRateLimiter as any).dailyCounts.set(activeAccount, { count: 5, date: getVnDateString() });
+    (zaloRateLimiter as any).lastSendTime.set(activeAccount, now - 60 * 1000);
+    (zaloRateLimiter as any).recentSends.set(activeAccount, [now - 60 * 1000]);
+
+    const cleaned = zaloRateLimiter.cleanIdleLimiters(24 * 60 * 60 * 1000);
+    expect(cleaned).toBe(1);
+
+    expect((zaloRateLimiter as any).lastSendTime.has(idleAccount)).toBe(false);
+    expect((zaloRateLimiter as any).dailyCounts.has(idleAccount)).toBe(false);
+    expect((zaloRateLimiter as any).recentSends.has(idleAccount)).toBe(false);
+
+    expect((zaloRateLimiter as any).lastSendTime.has(activeAccount)).toBe(true);
+    expect((zaloRateLimiter as any).dailyCounts.has(activeAccount)).toBe(true);
+  });
 });

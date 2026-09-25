@@ -25,12 +25,16 @@ export function detectContentType(msgType: string | undefined, content: any): st
 
 /**
  * Fire-and-forget: fill in a missing avatarUrl on a Contact row.
- * Only updates rows where avatarUrl is currently null.
+ * Only updates rows where avatarUrl is currently null, scoped to orgId if provided.
  */
-export function updateContactAvatar(zaloUid: string, avatarUrl: string): void {
+export function updateContactAvatar(zaloUid: string, avatarUrl: string, orgId?: string): void {
   prisma.contact
     .updateMany({
-      where: { zaloUid, avatarUrl: null },
+      where: {
+        zaloUid,
+        ...(orgId ? { orgId } : {}),
+        avatarUrl: null,
+      },
       data: { avatarUrl },
     })
     .catch(() => {});

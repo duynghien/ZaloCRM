@@ -56,6 +56,13 @@ export interface Order {
   items?: OrderItem[];
 }
 
+export interface OrderStats {
+  totalOrders: number;
+  completedOrders: number;
+  totalRevenue: number;
+  todayRevenue: number;
+}
+
 export const ORDER_STATUS_OPTIONS = [
   { text: 'Mới', value: 'new', color: 'info' },
   { text: 'Đã xác nhận', value: 'confirmed', color: 'primary' },

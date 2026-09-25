@@ -12,6 +12,7 @@ export function sanitizeRuleContentForPrompt(text: string): string {
     .replace(/<verified_operational_knowledge>/gi, '[open_rule_tag]')
     .replace(/<!\[CDATA\[/gi, '[cdata_start]')
     .replace(/\]\]>/gi, '[cdata_end]')
+    .replace(/<\/?(?:system|instruction|user_input|customer_utterance|admin_prompt|context)[^>]*>/gi, '')
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
     .trim();
 }

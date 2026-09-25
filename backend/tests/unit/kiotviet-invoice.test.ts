@@ -207,6 +207,110 @@ describe('KiotViet Invoice & Order Module Unit Tests', () => {
         },
       ]);
     });
+
+    it('distributes rounding discrepancy to the largest line item subTotal', () => {
+      const snapshot: any = {
+        orderId: 'order-frac-1',
+        orderCode: 'DH0002',
+        branchId: '10001',
+        totalAmount: 100001,
+        paidAmount: 50000,
+        items: [
+          {
+            kiotvietProductId: '101',
+            productCode: 'SP01',
+            productName: 'Product 1',
+            quantity: 1.25,
+            price: 40000,
+            discountAmount: 0,
+            subtotal: 50000,
+          },
+          {
+            kiotvietProductId: '102',
+            productCode: 'SP02',
+            productName: 'Product 2',
+            quantity: 2.5,
+            price: 20000,
+            discountAmount: 0,
+            subtotal: 50000,
+          },
+        ],
+      };
+
+      const config: any = { branchId: '10001' };
+      const payload = mapSnapshotToKiotvietInvoice(snapshot, config);
+      const totalLines = payload.invoiceDetails.reduce((sum, d) => sum + d.subTotal, 0);
+      expect(totalLines).toBe(100001);
+      expect(payload.invoiceDetails[0].subTotal).toBe(50001);
+      expect(payload.totalPayment).toBe(50000);
+    });
+  });
+
+  describe('Order Item Validation - Discount Bounds', () => {
+    const mockTx: any = {
+      kiotvietSyncState: {
+        findUnique: vi.fn().mockResolvedValue({ retailer: 'r1', branchId: 'b1' }),
+      },
+      kiotvietProduct: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'p1',
+          kiotvietId: '101',
+          code: 'SP01',
+          name: 'Product 1',
+          unit: 'cái',
+          price: 50000,
+          isActive: true,
+          allowsSale: true,
+          productType: 'normal',
+        }),
+      },
+    };
+
+    it('rejects percent discount greater than 100%', async () => {
+      const rawItems = [
+        {
+          productId: 'p1',
+          quantity: 1,
+          discountMode: 'percent',
+          discountInput: 105,
+        },
+      ];
+
+      await expect(
+        validateOrderItems('org-1', rawItems, 'admin', mockTx)
+      ).rejects.toThrow(RequestValidationError);
+    });
+
+    it('rejects negative discount', async () => {
+      const rawItems = [
+        {
+          productId: 'p1',
+          quantity: 1,
+          discountMode: 'amount',
+          discountInput: -1000,
+        },
+      ];
+
+      await expect(
+        validateOrderItems('org-1', rawItems, 'admin', mockTx)
+      ).rejects.toThrow(RequestValidationError);
+    });
+
+    it('accepts valid percent discount (<= 100%)', async () => {
+      const rawItems = [
+        {
+          productId: 'p1',
+          quantity: 1,
+          discountMode: 'percent',
+          discountInput: 20,
+        },
+      ];
+
+      const res = await validateOrderItems('org-1', rawItems, 'admin', mockTx);
+      expect(res.items).toHaveLength(1);
+      expect(res.items[0].discountAmount).toBe(10000);
+      expect(res.items[0].subtotal).toBe(40000);
+    });
   });
 
   describe('Customer Disambiguation', () => {

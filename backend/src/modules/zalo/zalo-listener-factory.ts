@@ -155,13 +155,13 @@ export function attachZaloListener(ctx: ListenerContext): () => Promise<void> {
             if (recipientInfo.zaloName) recipientName = recipientInfo.zaloName;
             if (recipientInfo.avatar) {
               recipientAvatar = recipientInfo.avatar;
-              updateContactAvatar(message.threadId, recipientInfo.avatar);
+              updateContactAvatar(message.threadId, recipientInfo.avatar, ctx.orgId);
             }
           }
         } else if (senderUid && api.getUserInfo) {
           const userInfo = await resolveZaloNameWithTimeout(api, senderUid, userInfoCache, 3000);
           if (userInfo.zaloName) senderName = userInfo.zaloName;
-          if (userInfo.avatar) updateContactAvatar(senderUid, userInfo.avatar);
+          if (userInfo.avatar) updateContactAvatar(senderUid, userInfo.avatar, ctx.orgId);
         }
 
         // Resolve group name for group threads

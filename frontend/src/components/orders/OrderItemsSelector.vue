@@ -161,7 +161,7 @@
             </div>
 
             <!-- Discount (Admin only) -->
-            <div v-if="isAdmin && !disabled" class="d-flex align-center" style="gap: 4px;">
+            <div v-if="isAdmin && !disabled" class="d-flex align-center flex-wrap" style="gap: 4px;">
               <span class="text-caption text-grey">CK:</span>
               <select
                 class="discount-mode-select"
@@ -174,10 +174,20 @@
               <input
                 type="number"
                 class="discount-input"
+                :placeholder="item.discountMode === 'percent' ? '% giảm' : 'Tổng giảm dòng'"
+                :title="item.discountMode === 'percent' ? 'Tỉ lệ phần trăm giảm giá (0-100%)' : 'Tổng số tiền giảm giá cho cả dòng sản phẩm'"
                 :value="item.discountInput"
                 min="0"
-                @change="(e: any) => updateDiscountInput(idx, Number(e.target.value))"
+                :max="item.discountMode === 'percent' ? 100 : Math.round(item.price * item.quantity)"
+                @change="(e: any) => updateDiscountInput(idx, e.target.value)"
               />
+              <span
+                v-if="item.quantity > 1 && item.discountAmount > 0 && item.discountMode === 'amount'"
+                class="text-caption text-grey ml-1"
+                style="font-size: 0.75rem;"
+              >
+                (~{{ formatVND(Math.round(item.discountAmount / item.quantity)) }}/sp)
+              </span>
             </div>
             <div v-else-if="item.discountAmount > 0" class="text-caption text-error">
               -{{ formatVND(item.discountAmount) }}
@@ -367,7 +377,14 @@ function updatePrice(idx: number, price: number) {
 
 function updateDiscountMode(idx: number, mode: 'amount' | 'percent') {
   const item = items.value[idx];
+  if (!item) return;
   item.discountMode = mode;
+  if (item.discountMode === 'percent') {
+    item.discountInput = Math.min(100, Math.max(0, item.discountInput));
+  } else {
+    const lineMax = Math.round(item.price * item.quantity);
+    item.discountInput = Math.min(lineMax, Math.max(0, item.discountInput));
+  }
   const { discountAmount, subtotal } = calculateItemSubtotal(
     item.quantity,
     item.price,
@@ -379,10 +396,18 @@ function updateDiscountMode(idx: number, mode: 'amount' | 'percent') {
   emitChanges();
 }
 
-function updateDiscountInput(idx: number, discountInput: number) {
-  if (discountInput < 0) return;
+function updateDiscountInput(idx: number, rawValue: number | string) {
   const item = items.value[idx];
-  item.discountInput = discountInput;
+  if (!item) return;
+  let val = typeof rawValue === 'string' ? parseFloat(rawValue) || 0 : (isNaN(rawValue) ? 0 : rawValue);
+  if (val < 0) val = 0;
+  if (item.discountMode === 'percent') {
+    val = Math.min(100, Math.round(val * 100) / 100);
+  } else {
+    const lineMax = Math.round(item.price * item.quantity);
+    val = Math.min(lineMax, Math.round(val));
+  }
+  item.discountInput = val;
   const { discountAmount, subtotal } = calculateItemSubtotal(
     item.quantity,
     item.price,

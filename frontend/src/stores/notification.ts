@@ -1,7 +1,8 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { io, type Socket } from 'socket.io-client';
-import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
+import type { Socket } from 'socket.io-client';
+import { api } from '@/api/index';
+import { getSharedSocket } from '../services/socket-service';
 import { useAuthStore } from './auth';
 
 export interface NotificationItem {
@@ -33,7 +34,6 @@ export const useNotificationStore = defineStore('notification', () => {
   const page = ref(1);
   const limit = ref(20);
   let socket: Socket | null = null;
-  let lastSocketRefresh = 0;
 
   // Computed
   const filteredNotifications = computed(() => {
@@ -168,61 +168,25 @@ export const useNotificationStore = defineStore('notification', () => {
 
   // Socket lifecycle
   function initSocket() {
-    const token = getAccessToken();
-    if (!token || socket?.connected) return;
+    socket = getSharedSocket();
+    if (!socket) return;
 
-    socket = io({
-      auth: (callback) => callback({ token: getAccessToken() }),
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-    });
+    socket.off('notification:new', handleNewNotification);
+    socket.off('notification:read', handleReadNotification);
+    socket.off('notification:read-all', handleReadAll);
+    socket.off('notification:count', handleCountUpdate);
 
     socket.on('notification:new', handleNewNotification);
     socket.on('notification:read', handleReadNotification);
     socket.on('notification:read-all', handleReadAll);
     socket.on('notification:count', handleCountUpdate);
 
+    if (socket.connected) {
+      void fetchNotifications();
+    }
     socket.on('connect', () => {
       void fetchNotifications();
     });
-
-    socket.on('disconnect', async (reason) => {
-      if (reason === 'io server disconnect' || reason === 'io client disconnect') return;
-      const now = Date.now();
-      if (now - lastSocketRefresh < 5000) return;
-      lastSocketRefresh = now;
-      try {
-        await refreshAccessToken();
-        socket?.connect();
-      } catch { /* token refresh failed */ }
-    });
-
-    socket.on('connect_error', async (error) => {
-      if (isSocketAuthenticationFailure(error.message)) {
-        const now = Date.now();
-        if (now - lastSocketRefresh < 5000) return;
-        lastSocketRefresh = now;
-        try {
-          await refreshAccessToken();
-          socket?.connect();
-        } catch { /* token refresh failed */ }
-      }
-    });
-
-    // Token change handler
-    const onTokenChanged = (event: Event) => {
-      const token = (event as CustomEvent).detail;
-      if (socket) {
-        if (!token) {
-          disconnectSocket();
-          return;
-        }
-        (socket as any).auth = { token };
-        if (!socket.connected) socket.connect();
-      }
-    };
-    window.addEventListener('zalo-crm:access-token-changed', onTokenChanged);
 
     // Visibility change: re-fetch when user returns to tab
     const onVisibilityChange = () => {
@@ -232,9 +196,7 @@ export const useNotificationStore = defineStore('notification', () => {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
-    // Store cleanup refs (use any since we want to attach to the socket)
     (socket as any)._notifCleanup = () => {
-      window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }
@@ -242,14 +204,10 @@ export const useNotificationStore = defineStore('notification', () => {
   function disconnectSocket() {
     if (!socket) return;
     (socket as any)._notifCleanup?.();
-    socket.off('notification:new');
-    socket.off('notification:read');
-    socket.off('notification:read-all');
-    socket.off('notification:count');
-    socket.off('connect');
-    socket.off('disconnect');
-    socket.off('connect_error');
-    socket.disconnect();
+    socket.off('notification:new', handleNewNotification);
+    socket.off('notification:read', handleReadNotification);
+    socket.off('notification:read-all', handleReadAll);
+    socket.off('notification:count', handleCountUpdate);
     socket = null;
   }
 

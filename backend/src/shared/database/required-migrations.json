@@ -74,5 +74,9 @@
   {
     "name": "20260922000007_composite_foreign_keys",
     "checksum": "167484e07462f245d5229b7945a7307c9388cce2d5c9f560b31c26d49612d59a"
+  },
+  {
+    "name": "20260925000000_ai_knowledge_and_feedback",
+    "checksum": "ac33f7128d8b03ed5c0c52ea3d598ffed45032b983ba99c7749bdc1a48c01ed4"
   }
 ]

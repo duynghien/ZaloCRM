@@ -18,6 +18,7 @@ import {
   KiotvietRateLimitError,
 } from './kiotviet-rate-limit-service.js';
 import type { KiotvietConfig, KiotvietCustomerSearchResult } from './kiotviet-types.js';
+import { normalizeVietnamesePhoneNumberVariants } from '../../../shared/utils/phone-utils.js';
 
 export const KIOTVIET_API_BASE = 'https://public.kiotapi.com';
 
@@ -274,29 +275,55 @@ export async function getKiotvietProductsPage(
 }
 
 /**
- * Search customers by normalized phone number.
+ * Search customers by normalized phone number or phone variants.
+ * Queries dual formats (e.g. 0xxx and 84xxx) in parallel via Promise.all
+ * and deduplicates customer records by ID.
  */
 export async function searchKiotvietCustomersByPhone(
   orgId: string,
   config: KiotvietConfig,
   phone: string
 ): Promise<KiotvietCustomerSearchResult[]> {
-  const result = await executeApiRequest<{ data?: any[] }>(orgId, config, {
-    path: '/customers',
-    query: {
-      contactNumber: phone,
-      pageSize: 20,
-    },
-  });
+  const variants = normalizeVietnamesePhoneNumberVariants(phone);
+  const searchPhones = variants.length > 0 ? variants : (phone ? [phone] : []);
 
-  const list = result?.data ?? [];
-  return list.map(c => ({
-    id: String(c.id),
-    code: c.code || '',
-    name: c.name || '',
-    phone: c.contactNumber || '',
-    address: c.address || '',
-  }));
+  if (searchPhones.length === 0) {
+    return [];
+  }
+
+  const results = await Promise.all(
+    searchPhones.map((p) =>
+      executeApiRequest<{ data?: any[] }>(orgId, config, {
+        path: '/customers',
+        query: {
+          contactNumber: p,
+          pageSize: 20,
+        },
+      })
+    )
+  );
+
+  const seenIds = new Set<string>();
+  const merged: KiotvietCustomerSearchResult[] = [];
+
+  for (const result of results) {
+    const list = result?.data ?? [];
+    for (const c of list) {
+      const idStr = String(c.id);
+      if (!seenIds.has(idStr)) {
+        seenIds.add(idStr);
+        merged.push({
+          id: idStr,
+          code: c.code || '',
+          name: c.name || '',
+          phone: c.contactNumber || '',
+          address: c.address || '',
+        });
+      }
+    }
+  }
+
+  return merged;
 }
 
 /**

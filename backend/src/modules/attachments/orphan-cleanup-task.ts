@@ -14,6 +14,7 @@ import { prisma } from '../../shared/database/prisma-client.js';
 import { Prisma } from '@prisma/client';
 import { logger } from '../../shared/utils/logger.js';
 import { recoverExpiredOutboundDispatches } from '../zalo/zalo-outbound-outbox.js';
+import { recoverPendingAiFeedbacks } from '../ai-reports/knowledge/ai-feedback-distillation-service.js';
 
 let cleanupCronTask: ReturnType<typeof cron.schedule> | undefined;
 const activeCleanupRuns = new Set<Promise<any>>();
@@ -40,6 +41,11 @@ export async function runOrphanCleanup(maxAgeMs = DEFAULT_ORPHAN_AGE_MS): Promis
     // 2. Prune expired outbox messages
     await pruneZaloOutboundMessages().catch((err) =>
       logger.warn('[cleanup] Failed to prune outbound messages:', err)
+    );
+
+    // 3. Recover orphaned AI feedback distillation tasks stuck in pending status
+    await recoverPendingAiFeedbacks().catch((err) =>
+      logger.warn('[cleanup] Failed to recover pending AI feedbacks:', err)
     );
     const stagedDir = path.join(config.uploadDir, 'attachments', 'staged');
     const report: CleanupReport = {

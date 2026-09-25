@@ -1,5 +1,6 @@
 import { ref, onUnmounted, getCurrentInstance } from 'vue';
 import type { StagedFileItem } from '@/components/chat/StagedMediaBar.vue';
+export type { StagedFileItem, StagedFileItem as StagedFile };
 import { useChat } from './use-chat';
 
 export const MAX_FILES = 5;

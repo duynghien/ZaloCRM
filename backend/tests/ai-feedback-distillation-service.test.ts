@@ -4,6 +4,7 @@ import {
   distillRuleFromFeedback,
   getReportFeedbacks,
   listAllFeedbacks,
+  recoverPendingAiFeedbacks,
   FeedbackValidationError,
 } from '../src/modules/ai-reports/knowledge/ai-feedback-distillation-service.js';
 import { prisma } from '../src/shared/database/prisma-client.js';
@@ -12,10 +13,10 @@ import * as aiClient from '../src/modules/ai-reports/ai-client.js';
 vi.mock('../src/shared/database/prisma-client.js', () => {
   const mockTx = {
     aiKnowledgeRule: {
-      create: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: 'rule-mock-123' }),
     },
     aiReportFeedback: {
-      update: vi.fn(),
+      update: vi.fn().mockResolvedValue({}),
     },
   };
 
@@ -26,7 +27,7 @@ vi.mock('../src/shared/database/prisma-client.js', () => {
       },
       aiReportFeedback: {
         create: vi.fn(),
-        update: vi.fn(),
+        update: vi.fn().mockResolvedValue({}),
         findMany: vi.fn(),
       },
       aiKnowledgeRule: {
@@ -262,6 +263,38 @@ describe('ai-feedback-distillation-service', () => {
         skip: 10,
       });
       expect(result).toEqual(mockList);
+    });
+  });
+
+  describe('recoverPendingAiFeedbacks', () => {
+    it('recovers pending feedbacks older than threshold', async () => {
+      const stalePending = [
+        {
+          id: 'fb-stale-1',
+          orgId,
+          userId,
+          reportId,
+          feedbackComment: 'Doanh thu là 20tr',
+          targetScope: 'branch',
+          branchTag: 'Chi nhánh 1',
+          groupThreadId: null,
+          createdAt: new Date(Date.now() - 10 * 60 * 1000),
+        },
+      ];
+
+      vi.mocked(prisma.aiReportFeedback.findMany).mockResolvedValueOnce(stalePending as any);
+
+      const recovered = await recoverPendingAiFeedbacks(5 * 60 * 1000);
+
+      expect(recovered).toBe(1);
+      expect(prisma.aiReportFeedback.findMany).toHaveBeenCalledWith({
+        where: {
+          status: 'pending',
+          createdAt: { lt: expect.any(Date) },
+        },
+        take: 50,
+      });
+      expect(prisma.$transaction).toHaveBeenCalled();
     });
   });
 });

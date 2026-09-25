@@ -43,6 +43,16 @@ export function parseJsonSafely(rawText: string): any {
   return JSON.parse(cleaned);
 }
 
+export function createFallbackRule(feedbackComment: string, targetScope: KnowledgeScope): DistilledRuleData {
+  const fallbackTitle = feedbackComment.trim().slice(0, 80) || 'Đính chính vận hành báo cáo';
+  return {
+    title: fallbackTitle,
+    ruleContent: feedbackComment.trim(),
+    category: 'correction',
+    scope: targetScope,
+  };
+}
+
 export async function distillRuleFromFeedback(params: {
   orgId: string;
   userId: string;
@@ -54,14 +64,7 @@ export async function distillRuleFromFeedback(params: {
   groupThreadId?: string | null;
 }): Promise<DistilledRuleData> {
   const { orgId, sectionKey, originalSnippet, feedbackComment, targetScope } = params;
-
-  const fallbackTitle = feedbackComment.trim().slice(0, 80) || 'Đính chính vận hành báo cáo';
-  const fallbackRule: DistilledRuleData = {
-    title: fallbackTitle,
-    ruleContent: feedbackComment.trim(),
-    category: 'correction',
-    scope: targetScope,
-  };
+  const fallbackRule = createFallbackRule(feedbackComment, targetScope);
 
   const prompt = `Bạn là Trợ lý Tinh chế Tri thức Vận hành F&B cho ZaloCRM.
 Nhiệm vụ của bạn là đọc đoạn báo cáo gốc và ý kiến phản hồi/đính chính của quản lý, từ đó chắt lọc ra ĐÚNG 01 QUY TẮC TRI THỨC VẬN HÀNH DUY NHẤT.
@@ -99,7 +102,7 @@ Dữ liệu đầu vào:
 
     const title = typeof parsed.title === 'string' && parsed.title.trim()
       ? parsed.title.trim().slice(0, 150)
-      : fallbackTitle;
+      : fallbackRule.title;
 
     const ruleContent = typeof parsed.ruleContent === 'string' && parsed.ruleContent.trim()
       ? parsed.ruleContent.trim().slice(0, 2000)
@@ -170,45 +173,83 @@ export async function submitReportFeedback(
     },
   });
 
-  // 2. Distill rule synchronously (< 2s)
-  const distilled = await distillRuleFromFeedback({
-    orgId,
-    userId,
-    sectionKey: feedback.sectionKey,
-    originalSnippet: feedback.originalSnippet,
-    feedbackComment: feedback.feedbackComment,
-    targetScope,
-    branchTag: feedback.branchTag,
-    groupThreadId: feedback.groupThreadId,
-  });
-
-  // 3. Atomically create rule with isActive = true and link to feedback
-  const createdRule = await prisma.$transaction(async (tx) => {
-    const rule = await tx.aiKnowledgeRule.create({
-      data: {
-        orgId,
-        createdById: userId,
-        scope: distilled.scope,
-        branchTag: distilled.scope === 'branch' ? feedback.branchTag : null,
-        groupThreadId: distilled.scope === 'group' ? feedback.groupThreadId : null,
-        category: distilled.category,
-        title: distilled.title,
-        ruleContent: distilled.ruleContent,
-        isActive: true,
-        sourceReportId: reportId,
-      },
+  // 2. Distill rule synchronously with fallback to prevent orphan pending records
+  let createdRule: any;
+  try {
+    const distilled = await distillRuleFromFeedback({
+      orgId,
+      userId,
+      sectionKey: feedback.sectionKey,
+      originalSnippet: feedback.originalSnippet,
+      feedbackComment: feedback.feedbackComment,
+      targetScope,
+      branchTag: feedback.branchTag,
+      groupThreadId: feedback.groupThreadId,
     });
 
-    await tx.aiReportFeedback.update({
-      where: { id: feedback.id },
-      data: {
-        distilledRuleId: rule.id,
-        status: 'distilled',
-      },
-    });
+    createdRule = await prisma.$transaction(async (tx) => {
+      const rule = await tx.aiKnowledgeRule.create({
+        data: {
+          orgId,
+          createdById: userId,
+          scope: distilled.scope,
+          branchTag: distilled.scope === 'branch' ? feedback.branchTag : null,
+          groupThreadId: distilled.scope === 'group' ? feedback.groupThreadId : null,
+          category: distilled.category,
+          title: distilled.title,
+          ruleContent: distilled.ruleContent,
+          isActive: true,
+          sourceReportId: reportId,
+        },
+      });
 
-    return rule;
-  });
+      await tx.aiReportFeedback.update({
+        where: { id: feedback.id },
+        data: {
+          distilledRuleId: rule.id,
+          status: 'distilled',
+        },
+      });
+
+      return rule;
+    });
+  } catch {
+    // If AI distillation or transaction failed, apply deterministic fallback rule
+    const fbRule = createFallbackRule(feedback.feedbackComment, targetScope);
+
+    createdRule = await prisma.$transaction(async (tx) => {
+      const rule = await tx.aiKnowledgeRule.create({
+        data: {
+          orgId,
+          createdById: userId,
+          scope: fbRule.scope,
+          branchTag: fbRule.scope === 'branch' ? feedback.branchTag : null,
+          groupThreadId: fbRule.scope === 'group' ? feedback.groupThreadId : null,
+          category: fbRule.category,
+          title: fbRule.title,
+          ruleContent: fbRule.ruleContent,
+          isActive: true,
+          sourceReportId: reportId,
+        },
+      });
+
+      await tx.aiReportFeedback.update({
+        where: { id: feedback.id },
+        data: {
+          distilledRuleId: rule.id,
+          status: 'distilled',
+        },
+      });
+
+      return rule;
+    }).catch(async (txErr) => {
+      await prisma.aiReportFeedback.update({
+        where: { id: feedback.id },
+        data: { status: 'failed' },
+      }).catch(() => {});
+      throw txErr;
+    });
+  }
 
   return {
     feedback: {
@@ -218,6 +259,55 @@ export async function submitReportFeedback(
     },
     distilledRule: createdRule,
   };
+}
+
+/**
+ * Recovers orphaned feedbacks in 'pending' status older than threshold.
+ */
+export async function recoverPendingAiFeedbacks(olderThanMs = 5 * 60 * 1000): Promise<number> {
+  const cutoff = new Date(Date.now() - olderThanMs);
+  const orphans = await prisma.aiReportFeedback.findMany({
+    where: { status: 'pending', createdAt: { lt: cutoff } },
+    take: 50,
+  });
+
+  let recovered = 0;
+  for (const item of orphans) {
+    try {
+      const fb = createFallbackRule(item.feedbackComment, item.targetScope as KnowledgeScope);
+
+      await prisma.$transaction(async (tx) => {
+        const rule = await tx.aiKnowledgeRule.create({
+          data: {
+            orgId: item.orgId,
+            createdById: item.userId,
+            scope: fb.scope,
+            branchTag: fb.scope === 'branch' ? item.branchTag : null,
+            groupThreadId: fb.scope === 'group' ? item.groupThreadId : null,
+            category: fb.category,
+            title: fb.title,
+            ruleContent: fb.ruleContent,
+            isActive: true,
+            sourceReportId: item.reportId,
+          },
+        });
+
+        await tx.aiReportFeedback.update({
+          where: { id: item.id },
+          data: { distilledRuleId: rule.id, status: 'distilled' },
+        });
+      });
+      recovered++;
+    } catch {
+      try {
+        await prisma.aiReportFeedback.update({
+          where: { id: item.id },
+          data: { status: 'failed' },
+        });
+      } catch {}
+    }
+  }
+  return recovered;
 }
 
 export async function getReportFeedbacks(orgId: string, reportId: string) {

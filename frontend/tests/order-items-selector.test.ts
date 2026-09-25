@@ -90,4 +90,25 @@ describe('OrderItems & useKiotviet Composable', () => {
       branchId: 123,
     });
   });
+
+  it('handles item discounts safely avoiding NaN and capping percentages', () => {
+    function calculateSubtotal(qty: number, price: number, mode: 'amount' | 'percent', input: number) {
+      const val = isNaN(input) || input < 0 ? 0 : input;
+      const gross = qty * price;
+      let discountAmount = 0;
+      if (mode === 'percent') {
+        const clamped = Math.min(Math.max(0, val), 100);
+        discountAmount = Math.round((gross * clamped) / 100);
+      } else {
+        discountAmount = Math.min(Math.max(0, val), gross);
+      }
+      return { discountAmount, subtotal: Math.max(0, Math.round(gross - discountAmount)) };
+    }
+
+    expect(calculateSubtotal(2, 50000, 'percent', NaN)).toEqual({ discountAmount: 0, subtotal: 100000 });
+    expect(calculateSubtotal(2, 50000, 'percent', -10)).toEqual({ discountAmount: 0, subtotal: 100000 });
+    expect(calculateSubtotal(2, 50000, 'percent', 150)).toEqual({ discountAmount: 100000, subtotal: 0 });
+    expect(calculateSubtotal(2, 50000, 'percent', 20)).toEqual({ discountAmount: 20000, subtotal: 80000 });
+    expect(calculateSubtotal(2, 50000, 'amount', 150000)).toEqual({ discountAmount: 100000, subtotal: 0 });
+  });
 });

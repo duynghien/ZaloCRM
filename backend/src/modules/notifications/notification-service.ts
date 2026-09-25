@@ -59,6 +59,9 @@ export class NotificationService {
           priority: data.priority ?? 'medium',
           metadata: data.metadata ?? undefined,
           actionUrl: data.actionUrl ?? null,
+          isRead: false,
+          readAt: null,
+          createdAt: new Date(),
         },
         create: {
           orgId: data.orgId,

@@ -88,6 +88,11 @@ describe('NotificationService Unit Tests', () => {
               dedupKey: 'sla_conv_123',
             },
           },
+          update: expect.objectContaining({
+            isRead: false,
+            readAt: null,
+            createdAt: expect.any(Date),
+          }),
         }),
       );
     });

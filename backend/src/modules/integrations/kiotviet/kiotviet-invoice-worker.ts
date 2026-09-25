@@ -65,6 +65,10 @@ async function processInvoiceJob(jobId: string): Promise<void> {
 
   currentAbortController = new AbortController();
   const signal = currentAbortController.signal;
+  // Guard against slow upstream responses: abort at 75s (safely before 120s distributed lease expiration)
+  const leaseGuardTimer = setTimeout(() => {
+    currentAbortController?.abort(new Error('KiotViet invoice dispatch exceeded safety threshold (75s) before lease expiration'));
+  }, 75_000);
 
   try {
     // 2. Fetch config and verify revision fence
@@ -398,6 +402,7 @@ async function processInvoiceJob(jobId: string): Promise<void> {
   } catch (err: any) {
     logger.error(`[kiotviet-invoice-worker] Unexpected error processing job ${jobId}:`, err);
   } finally {
+    clearTimeout(leaseGuardTimer);
     currentAbortController = null;
   }
 }

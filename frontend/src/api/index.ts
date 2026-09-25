@@ -44,17 +44,46 @@ export function getAccessToken(): string {
   return accessToken.value;
 }
 
-export function setAccessToken(token: string): void {
+const authChannel: BroadcastChannel | null =
+  typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
+    ? new BroadcastChannel('zalocrm_auth_sync')
+    : null;
+
+if (authChannel) {
+  authChannel.onmessage = (event: MessageEvent<{ type?: string; token?: string }>) => {
+    if (event.data?.type === 'TOKEN_REFRESHED' && typeof event.data.token === 'string') {
+      setAccessToken(event.data.token, false);
+    } else if (event.data?.type === 'TOKEN_CLEARED') {
+      clearAccessToken(false);
+    }
+  };
+}
+
+export function setAccessToken(token: string, broadcast = true): void {
   accessToken.value = token;
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: token }));
   }
+  if (broadcast && authChannel) {
+    try {
+      authChannel.postMessage({ type: 'TOKEN_REFRESHED', token });
+    } catch {
+      // broadcast failure non-critical
+    }
+  }
 }
 
-export function clearAccessToken(): void {
+export function clearAccessToken(broadcast = true): void {
   accessToken.value = '';
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('zalo-crm:access-token-changed', { detail: '' }));
+  }
+  if (broadcast && authChannel) {
+    try {
+      authChannel.postMessage({ type: 'TOKEN_CLEARED' });
+    } catch {
+      // broadcast failure non-critical
+    }
   }
 }
 

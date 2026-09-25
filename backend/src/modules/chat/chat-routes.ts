@@ -187,25 +187,26 @@ export async function chatRoutes(app: FastifyInstance) {
     if (hasAttachments && attachmentIds) {
       for (const attId of attachmentIds) {
         const cleanId = path.basename(attId);
+        // O(1) direct lookup when full storedFilename is provided
         let matched: string | null = cleanId.startsWith(`${user.orgId}-`) && fs.existsSync(path.join(stagedDir, cleanId))
           ? cleanId
           : null;
 
-        // Fallback for legacy clients passing only fileId (exact UUID)
-        if (!matched) {
-          const allStaged = await fs.promises.readdir(stagedDir).catch(() => []);
-          const stagedFileRegex = /^([a-zA-Z0-9_-]+)-([a-f0-9-]{36})-(.+)$/;
-          const isUuid = /^[a-f0-9-]{36}$/i.test(cleanId);
-
-          matched = allStaged.find((f) => {
-            if (!f.startsWith(`${user.orgId}-`)) return false;
-            if (f === cleanId) return true;
-            if (isUuid) {
-              const match = f.match(stagedFileRegex);
-              return match ? match[1] === user.orgId && match[2].toLowerCase() === cleanId.toLowerCase() : false;
+        // Streaming early-break lookup strictly for valid UUIDs (prevents scanning on arbitrary string payloads)
+        const isUuid = /^[a-f0-9-]{36}$/i.test(cleanId);
+        if (!matched && isUuid) {
+          try {
+            const dir = await fs.promises.opendir(stagedDir);
+            const prefix = `${user.orgId}-${cleanId.toLowerCase()}`;
+            for await (const dirent of dir) {
+              if (dirent.name.toLowerCase().startsWith(prefix)) {
+                matched = dirent.name;
+                break;
+              }
             }
-            return false;
-          }) || null;
+          } catch {
+            matched = null;
+          }
         }
 
         if (!matched) {

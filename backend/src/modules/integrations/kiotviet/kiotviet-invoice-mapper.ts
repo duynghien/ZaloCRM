@@ -53,6 +53,17 @@ export function mapSnapshotToKiotvietInvoice(
     };
   });
 
+  // Distribute any fractional rounding discrepancy against snapshot.totalAmount to the largest line item
+  const lineItemsTotal = invoiceDetails.reduce((acc, line) => acc + line.subTotal, 0);
+  const discrepancy = snapshot.totalAmount - lineItemsTotal;
+  if (discrepancy !== 0 && invoiceDetails.length > 0) {
+    const largestItem = invoiceDetails.reduce(
+      (max, cur) => (cur.subTotal > max.subTotal ? cur : max),
+      invoiceDetails[0]
+    );
+    largestItem.subTotal += discrepancy;
+  }
+
   const paidAmount = snapshot.paidAmount ?? 0;
   const payments: KiotvietInvoicePayload['payments'] = [];
 

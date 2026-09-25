@@ -12,6 +12,7 @@ import { decryptData } from '../../shared/utils/crypto.js';
 import { pruneSocketsForZaloAccount } from './zalo-socket.js';
 import { config } from '../../config/index.js';
 import { boundedString } from '../../shared/http/request-bounds.js';
+import { zaloRateLimiter } from './zalo-rate-limiter.js';
 
 const HEX_COLOR_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
@@ -268,6 +269,7 @@ export async function zaloRoutes(app: FastifyInstance): Promise<void> {
       }
 
       zaloPool.disconnect(id, true);
+      zaloRateLimiter.unregisterAccount(id);
       await prisma.zaloAccount.delete({ where: { id, orgId: user.orgId } });
       await pruneSocketsForZaloAccount(app.io, id);
 

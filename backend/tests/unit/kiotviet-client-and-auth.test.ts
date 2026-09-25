@@ -20,6 +20,8 @@ import {
 } from '../../src/modules/integrations/kiotviet/kiotviet-serializer.js';
 import { prisma } from '../../src/shared/database/prisma-client.js';
 import { Prisma } from '@prisma/client';
+import { searchKiotvietCustomersByPhone } from '../../src/modules/integrations/kiotviet/kiotviet-client.js';
+import { normalizeVietnamesePhoneNumberVariants } from '../../src/shared/utils/phone-utils.js';
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -226,3 +228,72 @@ describe('KiotViet Serializer', () => {
     expect((sanitized as any).rawAttributes).toBeUndefined();
   });
 });
+
+describe('Phone Normalization & Customer Search', () => {
+  it('normalizes Vietnamese phone numbers into dual variants', () => {
+    expect(normalizeVietnamesePhoneNumberVariants('0901234567')).toEqual(['0901234567', '84901234567']);
+    expect(normalizeVietnamesePhoneNumberVariants('+84901234567')).toEqual(['0901234567', '84901234567']);
+    expect(normalizeVietnamesePhoneNumberVariants('84901234567')).toEqual(['0901234567', '84901234567']);
+    expect(normalizeVietnamesePhoneNumberVariants('090 123 4567')).toEqual(['0901234567', '84901234567']);
+  });
+
+  it('searches customer variants in parallel and deduplicates records by id', async () => {
+    clearKiotvietTokenCache();
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: '1', request_count: 1 }]);
+    mockFetch.mockImplementation(async (url: any) => {
+      const urlStr = String(url);
+      if (urlStr.includes('/connect/token')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ access_token: 'token-test', expires_in: 3600 }),
+        };
+      }
+      if (urlStr.includes('contactNumber=0901234567')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 101, code: 'KH01', name: 'Nguyen Van A', contactNumber: '0901234567', address: 'Hanoi' },
+            ],
+          }),
+        };
+      }
+      if (urlStr.includes('contactNumber=84901234567')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            data: [
+              { id: 101, code: 'KH01', name: 'Nguyen Van A', contactNumber: '84901234567', address: 'Hanoi' },
+              { id: 102, code: 'KH02', name: 'Nguyen Van B', contactNumber: '84901234567', address: 'HCMC' },
+            ],
+          }),
+        };
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ data: [] }),
+      };
+    });
+
+    const config = {
+      clientId: 'c1',
+      clientSecret: 's1',
+      retailer: 'r1',
+      branchId: '1',
+      autoSync: false,
+      soldById: null,
+      paymentAccountId: null,
+      configRevision: 1,
+    };
+
+    const customers = await searchKiotvietCustomersByPhone('org-1', config, '0901234567');
+    expect(customers).toHaveLength(2);
+    expect(customers[0].id).toBe('101');
+    expect(customers[1].id).toBe('102');
+  });
+});
+
