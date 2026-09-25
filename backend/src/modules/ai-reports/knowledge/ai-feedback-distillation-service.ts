@@ -6,6 +6,7 @@ import {
   type KnowledgeCategory,
   VALID_SCOPES,
   VALID_CATEGORIES,
+  formatRuleResponse,
 } from './ai-knowledge-service.js';
 
 export class FeedbackValidationError extends Error {
@@ -19,11 +20,39 @@ export class FeedbackValidationError extends Error {
 
 export interface SubmitReportFeedbackInput {
   sectionKey?: string;
+  section?: string;
   originalSnippet?: string;
-  feedbackComment: string;
+  originalContent?: string;
+  feedbackComment?: string;
+  comment?: string;
   targetScope?: KnowledgeScope;
   branchTag?: string | null;
   groupThreadId?: string | null;
+}
+
+export function formatFeedbackResponse(feedback: any) {
+  if (!feedback) return feedback;
+  const dRule = feedback.distilledRule ? formatRuleResponse(feedback.distilledRule) : undefined;
+  const res: any = { ...feedback };
+  if (feedback.feedbackComment !== undefined || feedback.comment !== undefined) {
+    const val = feedback.feedbackComment ?? feedback.comment ?? '';
+    res.comment = val;
+    res.feedbackComment = val;
+  }
+  if (feedback.originalSnippet !== undefined || feedback.originalContent !== undefined) {
+    const val = feedback.originalSnippet ?? feedback.originalContent ?? '';
+    res.originalContent = val;
+    res.originalSnippet = val;
+  }
+  if (feedback.sectionKey !== undefined || feedback.section !== undefined) {
+    const val = feedback.sectionKey ?? feedback.section ?? 'general';
+    res.section = val;
+    res.sectionKey = val;
+  }
+  if (dRule !== undefined) {
+    res.distilledRule = dRule;
+  }
+  return res;
 }
 
 export interface DistilledRuleData {
@@ -129,7 +158,9 @@ export async function submitReportFeedback(
   reportId: string,
   input: SubmitReportFeedbackInput,
 ) {
-  if (!input.feedbackComment?.trim()) {
+  const rawComment = input.feedbackComment ?? input.comment ?? '';
+  const comment = rawComment.trim();
+  if (!comment) {
     throw new FeedbackValidationError('Ý kiến phản hồi / đính chính không được để trống');
   }
 
@@ -157,15 +188,18 @@ export async function submitReportFeedback(
     }
   }
 
+  const sectionKey = (input.sectionKey ?? input.section ?? 'general').trim() || 'general';
+  const originalSnippet = (input.originalSnippet ?? input.originalContent ?? '').trim();
+
   // 1. Save feedback record immediately with status 'pending' to prevent data loss
   const feedback = await prisma.aiReportFeedback.create({
     data: {
       orgId,
       reportId,
       userId,
-      sectionKey: input.sectionKey?.trim() || 'general',
-      originalSnippet: (input.originalSnippet || '').trim(),
-      feedbackComment: input.feedbackComment.trim(),
+      sectionKey,
+      originalSnippet,
+      feedbackComment: comment,
       targetScope,
       branchTag: targetScope === 'branch' ? input.branchTag?.trim() || null : null,
       groupThreadId: effectiveGroupThreadId,
@@ -251,13 +285,17 @@ export async function submitReportFeedback(
     });
   }
 
+  const normalizedRule = formatRuleResponse(createdRule);
+  const normalizedFeedback = formatFeedbackResponse({
+    ...feedback,
+    distilledRuleId: createdRule.id,
+    status: 'distilled',
+    distilledRule: normalizedRule,
+  });
+
   return {
-    feedback: {
-      ...feedback,
-      distilledRuleId: createdRule.id,
-      status: 'distilled',
-    },
-    distilledRule: createdRule,
+    feedback: normalizedFeedback,
+    distilledRule: normalizedRule,
   };
 }
 
@@ -311,7 +349,7 @@ export async function recoverPendingAiFeedbacks(olderThanMs = 5 * 60 * 1000): Pr
 }
 
 export async function getReportFeedbacks(orgId: string, reportId: string) {
-  return prisma.aiReportFeedback.findMany({
+  const feedbacks = await prisma.aiReportFeedback.findMany({
     where: { orgId, reportId },
     include: {
       distilledRule: true,
@@ -319,13 +357,14 @@ export async function getReportFeedbacks(orgId: string, reportId: string) {
     },
     orderBy: { createdAt: 'desc' },
   });
+  return feedbacks.map(formatFeedbackResponse);
 }
 
 export async function listAllFeedbacks(orgId: string, options?: { limit?: number; offset?: number }) {
   const take = Math.min(options?.limit ?? 50, 100);
   const skip = options?.offset ?? 0;
 
-  return prisma.aiReportFeedback.findMany({
+  const feedbacks = await prisma.aiReportFeedback.findMany({
     where: { orgId },
     include: {
       distilledRule: true,
@@ -336,4 +375,5 @@ export async function listAllFeedbacks(orgId: string, options?: { limit?: number
     take,
     skip,
   });
+  return feedbacks.map(formatFeedbackResponse);
 }

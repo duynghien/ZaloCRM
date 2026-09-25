@@ -37,7 +37,8 @@ export interface CreateKnowledgeRuleInput {
   zaloAccountId?: string | null;
   category?: KnowledgeCategory;
   title: string;
-  ruleContent: string;
+  ruleContent?: string;
+  content?: string;
   isActive?: boolean;
   sourceReportId?: string | null;
 }
@@ -50,7 +51,18 @@ export interface UpdateKnowledgeRuleInput {
   category?: KnowledgeCategory;
   title?: string;
   ruleContent?: string;
+  content?: string;
   isActive?: boolean;
+}
+
+export function formatRuleResponse<T extends Record<string, any>>(rule: T): T & { content: string; ruleContent: string } {
+  if (!rule) return rule;
+  const content = rule.ruleContent ?? rule.content ?? '';
+  return {
+    ...rule,
+    content,
+    ruleContent: content,
+  };
 }
 
 function sanitizeText(text: string): string {
@@ -134,10 +146,11 @@ export async function listKnowledgeRules(orgId: string, filter?: ListKnowledgeRu
     ];
   }
 
-  return prisma.aiKnowledgeRule.findMany({
+  const rules = await prisma.aiKnowledgeRule.findMany({
     where,
     orderBy: { createdAt: 'desc' },
   });
+  return rules.map(formatRuleResponse);
 }
 
 export async function createKnowledgeRule(
@@ -147,16 +160,17 @@ export async function createKnowledgeRule(
 ) {
   const scope = data.scope || 'org';
   const category = data.category || 'general';
+  const rawContent = data.ruleContent !== undefined ? data.ruleContent : data.content;
   const { cleanTitle, cleanContent } = validateRuleFields(
     data.title,
-    data.ruleContent,
+    rawContent,
     scope,
     category,
     data.branchTag,
     data.groupThreadId,
   );
 
-  return prisma.aiKnowledgeRule.create({
+  const rule = await prisma.aiKnowledgeRule.create({
     data: {
       orgId,
       createdById: userId,
@@ -171,6 +185,7 @@ export async function createKnowledgeRule(
       sourceReportId: data.sourceReportId?.trim() || null,
     },
   });
+  return formatRuleResponse(rule);
 }
 
 export async function updateKnowledgeRule(
@@ -189,10 +204,11 @@ export async function updateKnowledgeRule(
   const category = data.category ?? (existing.category as KnowledgeCategory);
   const branchTag = data.branchTag !== undefined ? data.branchTag : existing.branchTag;
   const groupThreadId = data.groupThreadId !== undefined ? data.groupThreadId : existing.groupThreadId;
+  const rawContent = data.ruleContent !== undefined ? data.ruleContent : data.content;
 
   const { cleanTitle, cleanContent } = validateRuleFields(
     data.title,
-    data.ruleContent,
+    rawContent,
     data.scope,
     data.category,
     branchTag,
@@ -214,10 +230,11 @@ export async function updateKnowledgeRule(
   if (data.category !== undefined) updateData.category = category;
   if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
-  return prisma.aiKnowledgeRule.update({
+  const updated = await prisma.aiKnowledgeRule.update({
     where: { id: ruleId },
     data: updateData,
   });
+  return formatRuleResponse(updated);
 }
 
 export async function deleteKnowledgeRule(orgId: string, ruleId: string) {
@@ -243,10 +260,11 @@ export async function toggleKnowledgeRule(orgId: string, ruleId: string, isActiv
     throw new KnowledgeValidationError('Không tìm thấy quy tắc tri thức', 404);
   }
 
-  return prisma.aiKnowledgeRule.update({
+  const updated = await prisma.aiKnowledgeRule.update({
     where: { id: ruleId },
     data: { isActive },
   });
+  return formatRuleResponse(updated);
 }
 
 export async function getDistinctBranchTags(orgId: string): Promise<string[]> {

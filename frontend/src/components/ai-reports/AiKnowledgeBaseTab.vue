@@ -80,10 +80,10 @@
               <v-chip size="x-small" variant="tonal" class="font-weight-medium">
                 {{ formatCategoryLabel(rule.category) }}
               </v-chip>
-              <span class="text-caption text-medium-emphasis">v{{ rule.version }} • {{ formatDate(rule.updatedAt) }}</span>
+              <span class="text-caption text-medium-emphasis">{{ rule.version ? `v${rule.version} • ` : '' }}{{ formatDate(rule.updatedAt) }}</span>
             </div>
             <div class="text-subtitle-2 font-weight-bold text-primary mb-1">{{ rule.title }}</div>
-            <p class="text-body-2 text-medium-emphasis mb-0" style="white-space: pre-wrap;">{{ rule.content }}</p>
+            <p class="text-body-2 text-medium-emphasis mb-0" style="white-space: pre-wrap;">{{ rule.content || rule.ruleContent }}</p>
           </div>
 
           <div class="d-flex align-center gap-2">

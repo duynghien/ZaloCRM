@@ -31,7 +31,7 @@
             </v-chip>
           </div>
           <div class="text-subtitle-2 font-weight-bold mb-1">{{ distilledResult.title }}</div>
-          <p class="text-body-2 text-medium-emphasis mb-0">{{ distilledResult.content }}</p>
+          <p class="text-body-2 text-medium-emphasis mb-0">{{ distilledResult.content || distilledResult.ruleContent }}</p>
         </v-card>
 
         <div class="d-flex justify-end">
@@ -223,10 +223,15 @@ async function handleSubmit() {
   errorMessage.value = '';
   isSubmitting.value = true;
   try {
+    const commentText = form.value.comment.trim();
+    const snippetText = form.value.originalContent.trim();
     const res = await aiKnowledgeApi.submitReportFeedback(props.report.id, {
       section: form.value.section,
-      originalContent: form.value.originalContent.trim() || undefined,
-      comment: form.value.comment.trim(),
+      sectionKey: form.value.section,
+      originalContent: snippetText || undefined,
+      originalSnippet: snippetText || undefined,
+      comment: commentText,
+      feedbackComment: commentText,
       targetScope: form.value.targetScope,
       branchTag: form.value.targetScope === 'branch' ? form.value.branchTag.trim() : undefined,
       groupThreadId: form.value.targetScope === 'group' ? form.value.groupThreadId : undefined,

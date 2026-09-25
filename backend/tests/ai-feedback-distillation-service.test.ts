@@ -220,6 +220,95 @@ describe('ai-feedback-distillation-service', () => {
       ).rejects.toThrow('Ý kiến phản hồi / đính chính không được để trống');
     });
 
+    it('accepts comment alias (frontend format) and returns normalized feedback and rule', async () => {
+      const mockReport = {
+        id: reportId,
+        groupThreadIds: ['group-thread-abc'],
+      };
+      vi.mocked(prisma.generatedReport.findFirst).mockResolvedValueOnce(mockReport as any);
+
+      const mockFeedback = {
+        id: 'feedback-2',
+        orgId,
+        reportId,
+        userId,
+        sectionKey: 'general',
+        originalSnippet: 'Trích dẫn lỗi',
+        feedbackComment: 'Đính chính thực tế',
+        targetScope: 'group',
+        branchTag: null,
+        groupThreadId: 'group-thread-abc',
+        status: 'pending',
+      };
+      vi.mocked(prisma.aiReportFeedback.create).mockResolvedValueOnce(mockFeedback as any);
+
+      const mockDistilledRule = {
+        id: 'rule-distilled-2',
+        orgId,
+        scope: 'group',
+        groupThreadId: 'group-thread-abc',
+        category: 'correction',
+        title: 'Đính chính thực tế',
+        ruleContent: 'Đính chính thực tế',
+        isActive: true,
+        sourceReportId: reportId,
+      };
+
+      vi.mocked(prisma.$transaction).mockImplementationOnce(async (cb: any) => {
+        return cb({
+          aiKnowledgeRule: {
+            create: vi.fn().mockResolvedValueOnce(mockDistilledRule),
+          },
+          aiReportFeedback: {
+            update: vi.fn().mockResolvedValueOnce({
+              ...mockFeedback,
+              distilledRuleId: mockDistilledRule.id,
+              status: 'distilled',
+            }),
+          },
+        });
+      });
+
+      vi.mocked(aiClient.generateContent).mockRejectedValueOnce(new Error('Use fallback'));
+
+      const result = await submitReportFeedback(orgId, userId, reportId, {
+        section: 'general',
+        originalContent: 'Trích dẫn lỗi',
+        comment: 'Đính chính thực tế',
+        targetScope: 'group',
+      });
+
+      expect(prisma.aiReportFeedback.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          orgId,
+          reportId,
+          status: 'pending',
+          sectionKey: 'general',
+          originalSnippet: 'Trích dẫn lỗi',
+          feedbackComment: 'Đính chính thực tế',
+        }),
+      });
+
+      expect(result.feedback.comment).toBe('Đính chính thực tế');
+      expect(result.feedback.feedbackComment).toBe('Đính chính thực tế');
+      expect(result.feedback.section).toBe('general');
+      expect(result.feedback.originalContent).toBe('Trích dẫn lỗi');
+      expect(result.distilledRule.content).toBe('Đính chính thực tế');
+      expect(result.distilledRule.ruleContent).toBe('Đính chính thực tế');
+    });
+
+    it('rejects when both feedbackComment and comment are empty or missing', async () => {
+      await expect(
+        submitReportFeedback(orgId, userId, reportId, {
+          comment: '   ',
+        }),
+      ).rejects.toThrow('Ý kiến phản hồi / đính chính không được để trống');
+
+      await expect(
+        submitReportFeedback(orgId, userId, reportId, {} as any),
+      ).rejects.toThrow('Ý kiến phản hồi / đính chính không được để trống');
+    });
+
     it('rejects non-existent report or cross-tenant report with 404', async () => {
       vi.mocked(prisma.generatedReport.findFirst).mockResolvedValueOnce(null);
 

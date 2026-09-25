@@ -15,9 +15,11 @@ export interface AiKnowledgeRule {
   category: KnowledgeCategory;
   title: string;
   content: string;
+  ruleContent?: string;
   isActive: boolean;
-  version: number;
-  sourceFeedbackId: string | null;
+  version?: number;
+  sourceFeedbackId?: string | null;
+  sourceReportId?: string | null;
   createdById: string | null;
   createdAt: string;
   updatedAt: string;
@@ -31,6 +33,7 @@ export interface CreateKnowledgeRuleInput {
   category: KnowledgeCategory;
   title: string;
   content: string;
+  ruleContent?: string;
   isActive?: boolean;
 }
 
@@ -41,6 +44,7 @@ export interface UpdateKnowledgeRuleInput {
   category?: KnowledgeCategory;
   title?: string;
   content?: string;
+  ruleContent?: string;
   isActive?: boolean;
 }
 
@@ -63,13 +67,16 @@ export interface AiReportFeedbackItem {
     fullName: string;
     email: string;
   };
-  section: string;
-  originalContent: string | null;
-  comment: string;
+  section?: string;
+  sectionKey?: string;
+  originalContent?: string | null;
+  originalSnippet?: string | null;
+  comment?: string;
+  feedbackComment?: string;
   targetScope: KnowledgeScope;
   branchTag: string | null;
   groupThreadId: string | null;
-  status: 'pending' | 'distilled' | 'rejected';
+  status: 'pending' | 'distilled' | 'rejected' | 'failed';
   distilledRuleId: string | null;
   distilledRule?: AiKnowledgeRule | null;
   createdAt: string;
@@ -78,8 +85,11 @@ export interface AiReportFeedbackItem {
 
 export interface SubmitReportFeedbackInput {
   section?: string;
+  sectionKey?: string;
   originalContent?: string;
-  comment: string;
+  originalSnippet?: string;
+  comment?: string;
+  feedbackComment?: string;
   targetScope?: KnowledgeScope;
   branchTag?: string;
   groupThreadId?: string;

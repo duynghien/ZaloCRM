@@ -187,7 +187,7 @@ watch(
         groupThreadId: rule.groupThreadId || '',
         category: rule.category,
         title: rule.title,
-        content: rule.content,
+        content: rule.content || rule.ruleContent || '',
         isActive: rule.isActive,
       };
     } else {
@@ -214,11 +214,13 @@ async function handleSave() {
   errorMessage.value = '';
   isSaving.value = true;
   try {
+    const contentVal = form.value.content.trim();
     const payload: CreateKnowledgeRuleInput = {
       scope: form.value.scope,
       category: form.value.category,
       title: form.value.title.trim(),
-      content: form.value.content.trim(),
+      content: contentVal,
+      ruleContent: contentVal,
       isActive: form.value.isActive,
       branchTag: form.value.scope === 'branch' ? form.value.branchTag.trim() : undefined,
       groupThreadId: form.value.scope === 'group' ? form.value.groupThreadId : undefined,

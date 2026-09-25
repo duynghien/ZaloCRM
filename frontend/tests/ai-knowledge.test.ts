@@ -93,6 +93,29 @@ describe('aiKnowledgeApi', () => {
     expect(result.feedback.status).toBe('distilled');
   });
 
+  it('submitReportFeedback works with both comment and feedbackComment', async () => {
+    const feedbackPayload = {
+      section: 'general',
+      sectionKey: 'general',
+      comment: 'Báo cáo cốc tồn',
+      feedbackComment: 'Báo cáo cốc tồn',
+      originalContent: 'Đoạn trích',
+      originalSnippet: 'Đoạn trích',
+      targetScope: 'group' as const,
+      groupThreadId: 'thread-1',
+    };
+    const mockResponse = {
+      feedback: { id: 'fb-2', reportId: 'rep-2', status: 'distilled', ...feedbackPayload },
+      distilledRule: { id: 'rule-2', title: 'Quy tắc cốc', content: 'Báo cáo cốc tồn', ruleContent: 'Báo cáo cốc tồn', isActive: true },
+    };
+    vi.mocked(api.post).mockResolvedValueOnce({ data: mockResponse });
+
+    const result = await aiKnowledgeApi.submitReportFeedback('rep-2', feedbackPayload);
+
+    expect(api.post).toHaveBeenCalledWith('/ai-reports/reports/rep-2/feedback', feedbackPayload);
+    expect(result.distilledRule?.ruleContent).toBe('Báo cáo cốc tồn');
+  });
+
   it('getReportFeedbacks calls GET /ai-reports/reports/:reportId/feedbacks', async () => {
     const mockFeedbacks = [{ id: 'fb-1', reportId: 'rep-1', comment: 'test' }];
     vi.mocked(api.get).mockResolvedValueOnce({ data: { feedbacks: mockFeedbacks } });

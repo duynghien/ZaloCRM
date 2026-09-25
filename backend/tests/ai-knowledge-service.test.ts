@@ -37,7 +37,7 @@ describe('ai-knowledge-service', () => {
   describe('listKnowledgeRules', () => {
     it('queries rules scoped strictly to orgId and ordered by createdAt desc', async () => {
       const mockRules = [
-        { id: 'rule-1', orgId, title: 'Rule 1', ruleContent: 'Content 1', scope: 'org' },
+        { id: 'rule-1', orgId, title: 'Rule 1', ruleContent: 'Content 1', content: 'Content 1', scope: 'org' },
       ];
       vi.mocked(prisma.aiKnowledgeRule.findMany).mockResolvedValueOnce(mockRules as any);
 
@@ -92,6 +92,7 @@ describe('ai-knowledge-service', () => {
         category: 'terminology',
         title: 'Thuật ngữ OD',
         ruleContent: 'OD là Order khách gọi tại bàn',
+        content: 'OD là Order khách gọi tại bàn',
         isActive: true,
       };
       vi.mocked(prisma.aiKnowledgeRule.create).mockResolvedValueOnce(created as any);
@@ -119,6 +120,36 @@ describe('ai-knowledge-service', () => {
         },
       });
       expect(result).toEqual(created);
+    });
+
+    it('creates a rule using content alias (frontend input format)', async () => {
+      const created = {
+        id: 'rule-from-content',
+        orgId,
+        scope: 'org',
+        category: 'sop',
+        title: 'Quy trình mở ca',
+        ruleContent: 'Mở ca lúc 7h30',
+        content: 'Mở ca lúc 7h30',
+        isActive: true,
+      };
+      vi.mocked(prisma.aiKnowledgeRule.create).mockResolvedValueOnce(created as any);
+
+      const result = await createKnowledgeRule(orgId, userId, {
+        title: 'Quy trình mở ca',
+        content: 'Mở ca lúc 7h30',
+        category: 'sop',
+        scope: 'org',
+      });
+
+      expect(prisma.aiKnowledgeRule.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          title: 'Quy trình mở ca',
+          ruleContent: 'Mở ca lúc 7h30',
+        }),
+      });
+      expect(result.content).toBe('Mở ca lúc 7h30');
+      expect(result.ruleContent).toBe('Mở ca lúc 7h30');
     });
 
     it('creates a branch-level rule with valid branchTag', async () => {
