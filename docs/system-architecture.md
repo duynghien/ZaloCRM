@@ -38,7 +38,8 @@ graph TD
 - **Công nghệ & Phong cách:** Vue 3 (Composition API, `<script setup>`), Vuetify 4 UI Framework, Pinia State Management, Vue Router, Chart.js, Socket.IO Client.
 - **Ngôn ngữ Thiết kế Neo-Brutalism chuẩn CQA:** Triệt tiêu hoàn toàn bóng mờ ảo (100% Zero Shadow), đường viền cơ học 1.5px dứt khoát, phản hồi click xúc giác (`translate(1px, 1px)`), bán kính bo góc chuẩn CQA (12px card/dialog/table/chat bubble, 8px button/input/icon-box, 9999px pill badge). Hệ thống biểu tượng Custom SVG Icons độc lập (`custom-icons.ts`) và Brand SVG Icons chính hãng cho các AI provider.
 - **Thanh Điều Hướng Đa Tài Khoản Dọc (`AccountRail.vue`):** Cho phép chuyển đổi tức thì giữa các tài khoản Zalo chỉ với 1 click, hiển thị viền màu đại diện (`colorTag`), nhãn chi nhánh (`branchTag`), trạng thái live và badge đếm tin nhắn chưa đọc tổng hợp.
-- **Vai trò:** Hiển thị giao diện người dùng, quản lý trạng thái client, nhận sự kiện real-time (tin nhắn mới, cập nhật danh bạ, trạng thái Zalo) để cập nhật DOM tức thì mà không cần reload trang. Token JWT ngắn hạn được giữ hoàn toàn trong RAM client (`session.ts`), không ghi vào bộ nhớ bền vững.
+- **Kiến Trúc Socket Singleton (`socket-service.ts`):** Gom toàn bộ kết nối WebSocket client về 1 kết nối Socket.IO chia sẻ duy nhất qua `getSharedSocket()`, giảm 66% số kết nối tới server, tự động xác thực lại khi đổi token và ngăn chặn rò rỉ kết nối khi unmount components.
+- **Vai trò:** Hiển thị giao diện người dùng, quản lý trạng thái client, nhận sự kiện real-time (tin nhắn mới, cập nhật danh bạ, trạng thái Zalo) để cập nhật DOM tức thì mà không cần reload trang. Token JWT ngắn hạn được giữ hoàn toàn trong RAM client (`src/api/index.ts`), không ghi vào bộ nhớ bền vững, đồng bộ phiên đa tab an toàn qua `BroadcastChannel('zalocrm_auth_sync')` và Web Locks API (`navigator.locks`).
 
 ### 2.2. API & WebSocket Server (Fastify + Socket.IO)
 - **Fastify Framework:** Lựa chọn nhờ tốc độ xử lý vượt trội, hệ sinh thái plugin mạnh mẽ (`@fastify/jwt`, `@fastify/cors`, `@fastify/rate-limit`, `@fastify/static`, `@fastify/cookie`).
@@ -52,7 +53,7 @@ graph TD
 - **Kiên cường kết nối & Chống Flapping:** Cơ chế retry exponential backoff tường minh `[30s, 2m, 5m]` cho các lỗi mạng tạm thời mà không gán `qr_pending` tức thì; chỉ chuyển `qr_pending` khi vượt quá 3 lần thử thất bại liên tiếp hoặc gặp lỗi fatal auth (`isFatalAuthError`). Duy trì circuit breaker `disconnectHistory` (cửa sổ trượt 5 phút) để bảo vệ tài khoản khi socket bị flapping liên tục.
 
 ### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
-- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 39 Data Models phân tách theo nghiệp vụ:
+- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 40 Data Models phân tách theo nghiệp vụ:
   - *Đa tổ chức & Người dùng:* `Organization`, `Team`, `User`
   - *Phiên xác thực bền vững:* `AuthSession` (lưu SHA-256 hash của refresh token, quản lý xoay vòng và family revocation)
   - *Tài khoản Zalo & Phân quyền:* `ZaloAccount` (hỗ trợ `branchTag`, `colorTag`, lưu session mã hóa AES-256-GCM), `ZaloAccountAccess` (quyền read, chat, admin)
@@ -65,7 +66,7 @@ graph TD
   - *AI Telemetry & Đo lường Chi phí:* `AiUsageLog` (nhật ký giao dịch token từng tác vụ AI), `DailyAiUsageStat` (tổng hợp chi phí ngày atomic UTC+7)
   - *KiotViet Integration & Distributed Outbox:* `KiotvietProduct`, `KiotvietSyncState`, `KiotvietRateLimitBucket`, `KiotvietRetailerLease`, `KiotvietInvoiceJob`, `KiotvietVendorCooldown`
   - *Zalo Distributed Rate & Outbox:* `ZaloAccountRateState` (trạng thái rate limit durable xuyên vòng đời tiến trình), `ZaloOutboundMessage` (outbox gửi tin cậy và chống trùng lặp)
-  - *Vận hành Phân tán & Durable Jobs:* `CronJobLease` (fencing lease phân tán cho cron job), `AttachmentDownloadJob` (durable worker tải media có concurrency và retry), `WebhookOutbox` (durable webhook delivery outbox với backoff & DLQ)
+  - *Vận hành Phân tán & Durable Jobs:* `CronJobLease` (fencing lease phân tán cho cron job), `CronJobLeaseReset` (nhật ký kiểm toán mở khóa cưỡng bức cron leases), `AttachmentDownloadJob` (durable worker tải media có concurrency và retry), `WebhookOutbox` (durable webhook delivery outbox với backoff & DLQ)
   - *Cấu hình Hệ thống:* `AppSetting` (mã hóa AES-256-GCM các secret)
 - **Prisma 7 ORM:** Quản lý Schema, khởi tạo Migration có version và tương tác dữ liệu an toàn phòng chống SQL Injection. Tương thích schema được kiểm chứng lúc khởi động bằng `schemaIsCompatible()`.
 
@@ -141,7 +142,7 @@ sequenceDiagram
     Note over Fastify: Sinh mã ORD-YYYYMMDD-NNN (ví dụ ORD-20260913-001)
     Fastify->>DB: INSERT INTO orders (id, org_id, contact_id, order_code, ...)
     Fastify->>DB: COMMIT Transaction
-    Fastify-->>Client: 201 Created { id, orderCode, ... }
+    Fastify-->>Client: 200 OK { id, orderCode, ... }
 ```
 
 - Mã đơn hàng được tạo nguyên tử trong cùng transaction tạo bản ghi `Order`. Lệnh `INSERT INTO order_code_counters ... ON CONFLICT DO UPDATE` khóa dòng theo cặp `(org_id, date_key)` (ngày tính theo chuẩn UTC `YYYYMMDD`), bảo đảm không có race condition hay trùng mã khi nhiều nhân viên tạo đơn cùng lúc.

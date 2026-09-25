@@ -47,7 +47,7 @@ Dùng `npm run docker:up` cho cả lần đầu và cập nhật. Lệnh xác nh
 APP_URL=http://localhost:5173 npm run dev # Khởi chạy đồng thời Backend & Frontend cho lập trình viên
 npm run build       # Build biên dịch mã nguồn Backend & Frontend
 npm run typecheck   # Kiểm tra lỗi Type toàn bộ mã nguồn
-npm test            # Chạy toàn bộ unit test (Frontend 85 tests + Backend 324 tests = 409 tests)
+npm test            # Chạy kiểm thử tự động (Frontend 169 unit tests + Backend 404 unit tests = 573 unit tests, cùng 55 integration suites)
 npm run docker:dev  # Backend watch + Vite hot reload
 npm run verify:production-container  # Smoke production với database riêng
 npm run verify:development-compose   # Smoke trình duyệt + hot reload với database riêng
@@ -61,10 +61,10 @@ Docker development: mở **http://localhost:5173**; backend ở **http://localho
 
 | Thành phần | Công nghệ |
 |-----------|----------|
-| **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 (31 Data Models) / TypeScript |
+| **Backend** | Node.js 24 LTS / Fastify 5 / Prisma 7 (40 Data Models) / TypeScript |
 | **Frontend** | Vue 3 / Vuetify 4 / Chart.js / Pinia |
 | **Design System** | Neo-Brutalism CQA (Zero Shadow, 1.5px Mechanical Border, Space Grotesk, 12 Account Palettes) |
-| **AI Engine & Telemetry** | Multi-Provider (Google Gemini, OpenAI, DeepSeek, Local Gateway via Ollama/vLLM), Conversational Copilot & AI Cost Telemetry |
+| **AI Engine & Telemetry** | Multi-Provider (Google Gemini, OpenAI, DeepSeek, Local Gateway via Ollama/vLLM), Conversational Copilot, AI Cost Telemetry & Continuous Learning (3-Tier Knowledge Base) |
 | **Cơ sở dữ liệu** | PostgreSQL 16 |
 | **Real-time** | Socket.IO |
 | **Zalo Engine** | zca-js 2.x (hỗ trợ `selfListen` đồng bộ 2 chiều & media streaming) |

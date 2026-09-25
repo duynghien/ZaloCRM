@@ -24,7 +24,7 @@ gantt
     DeepSeek Multimodal & Failover (Phase 11) :done, des11, 2026-09, 2026-09
     KiotViet Sync & Outbox (Phase 13) :done, des13, 2026-09, 2026-09
     Continuous Learning & Knowledge Base (Phase 14) :done, des14, 2026-09, 2026-09
-    Edge Cases & Optimization (Phase 12) :active, des12, 2026-09, 2026-10
+    Code Review & Remediation (Phase 15) :active, des15, 2026-09, 2026-10
 ```
 
 ---
@@ -60,9 +60,9 @@ gantt
 ---
 
 ### Phase 5: Kiểm Thử Tự Động & CI/CD Pipeline (ĐÃ HOÀN THÀNH)
-- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds, media attachments, copilot debouncer, action items parser và các security/runtime invariant (bộ test đạt **409 unit tests** sạch sẽ: 324 backend + 85 frontend).
+- [x] Bổ sung Vitest unit/contract tests cho policy outbound, secret codec, AI job bounds, media attachments, copilot debouncer, action items parser, KiotViet invoice/client/settings, AI knowledge base & feedback distillation và các security/runtime invariant (bộ test đạt **573 unit tests** sạch sẽ: 404 backend + 169 frontend).
 - [x] Bổ sung browser smoke Playwright (10 spec files) xác nhận login route, QR intent, chat recovery, target qualification và không khôi phục bearer token qua persistent storage.
-- [x] Bổ sung bộ 24 integration test suites chạy trên PostgreSQL 16 disposable cho tenant isolation, socket delivery, message replay/undo, order code counter và AI budget/resend.
+- [x] Bổ sung bộ **55 integration test suites** chạy trên PostgreSQL 16 disposable cho tenant isolation, socket delivery, message replay/undo, order code counter, AI budget/resend, worker fencing, idempotency và KiotViet outbox.
 - [x] Tích hợp GitHub Actions (`.github/workflows/ci.yml`) chạy root `npm ci`, typecheck, backend test, build, production audit, Playwright smoke và Docker build trên pull request/main.
 - [x] Bổ sung các kịch bản kiểm chứng container smoke: `npm run verify:production-container` và `npm run verify:development-compose`.
 
@@ -124,19 +124,16 @@ gantt
 
 ---
 
-### Phase 12: Khắc Phục Edge Cases & Tối Ưu Hóa Toàn Diện Codebase (Pending Review)
-- [ ] **Khắc Phục 8 Nhóm Edge Cases Trọng Yếu (P1/P2):**
-  - Đồng bộ hóa Timezone UTC+7: chuẩn hóa `getVnDateString()` và `getVnDayStartUtc()` cho rate limit Zalo và thống kê đơn hàng hôm nay từ 00:00 VN.
-  - Loại bỏ hoàn toàn quét đĩa cross-tenant và quét `stagedDir` khi xử lý attachments, trả về 404 O(1) chống DoS I/O.
-  - Tích hợp In-Memory Bounded LRU Cache cho `AppSetting` và AI Credentials với defensive cloning, giảm 99% query DB.
-  - Bổ sung nhận diện sự kiện thu hồi tin nhắn trong nhóm Zalo (`threadId = data.threadId || data.groupId || data.data?.threadId || data.data?.groupId`).
-  - Nâng trần giá trị đơn hàng lên 100 tỷ VNĐ.
-  - Khôi phục tiến trình tải attachment lúc khởi động server (`recoverPendingAttachmentDownloads`).
-  - Giải quyết xung đột xoay vòng Refresh Token đa tab bằng Web Locks API (`navigator.locks`) phía client.
-  - Xử lý lỗi fatal `ReportControlError` khi failover AI xảy ra sau khi reservation đã hoàn tất.
-- [ ] **Tối Ưu Hóa Kiến Trúc & Hiệu Năng:**
-  - Nén ngữ cảnh hội thoại AI Copilot (Context Pruning): lọc sticker, emoji, gộp tin nhắn liên tiếp nhưng bảo toàn `lastMsg.id` cho cache key.
-  - Kế hoạch tái cấu trúc phân rã (Modularization) 6 tệp mã nguồn lớn (> 400 dòng): `AiReportsView.vue`, `MessageThread.vue`, `ai-report-routes.ts`, `report-pdf-service.ts`, `zalo-pool.ts`, `summarizer-service.ts`.
+### Phase 12: Khắc Phục Edge Cases & Tối Ưu Hóa Toàn Diện Codebase (ĐÃ HOÀN THÀNH)
+- [x] **Khắc Phục 8 Nhóm Edge Cases Trọng Yếu (P1/P2):**
+  - [x] Đồng bộ hóa Timezone UTC+7: chuẩn hóa `getVnDateString()` và `getVnDayStartUtc()` cho rate limit Zalo và thống kê đơn hàng hôm nay từ 00:00 VN.
+  - [x] Loại bỏ hoàn toàn quét đĩa cross-tenant và quét `stagedDir` khi xử lý attachments trong `attachment-routes.ts`, trả về 404 O(1) chống DoS I/O.
+  - [x] Tích hợp In-Memory Bounded LRU Cache cho `AppSetting` và AI Credentials với defensive cloning, giảm 99% query DB.
+  - [x] Bổ sung nhận diện sự kiện thu hồi tin nhắn trong nhóm Zalo (`threadId = data.threadId || data.groupId || data.data?.threadId || data.data?.groupId`).
+  - [x] Nâng trần giá trị đơn hàng lên 100 tỷ VNĐ.
+  - [x] Khôi phục tiến trình tải attachment lúc khởi động server (`recoverPendingAttachmentDownloads`).
+  - [x] Giải quyết xung đột xoay vòng Refresh Token đa tab bằng Web Locks API (`navigator.locks`) phía client.
+  - [x] Xử lý lỗi fatal `ReportControlError` khi failover AI xảy ra sau khi reservation đã hoàn tất.
 
 ---
 
@@ -188,5 +185,42 @@ gantt
   - `AiKnowledgeBaseTab.vue`: Tab 5 trong `AiReportsView.vue` cho phép tìm kiếm, lọc theo cấp/danh mục, bật/tắt tức thì.
   - `AiKnowledgeRuleDialog.vue`: Hộp thoại thêm mới hoặc chỉnh sửa quy tắc tri thức thủ công.
   - Modular hóa 100%: Toàn bộ component mới đều giữ dưới 200 dòng code.
+
+---
+
+### Phase 15: Khắc Phục Edge Cases & Tái Cấu Trúc Modularization (ĐÃ HOÀN THÀNH ĐỢT 1)
+- [x] **Khắc Phục Các Edge Cases Trọng Yếu Đã Triển Khai:**
+  - [x] *Multi-Tab Token Sync qua BroadcastChannel (`api/index.ts`):* Đồng bộ token mới tức thì giữa các tab trình duyệt qua `BroadcastChannel('zalocrm_auth_sync')` và `navigator.locks`, loại trừ hoàn toàn race condition refresh token reuse gây thu hồi phiên gia đình.
+  - [x] *Triệt Tiêu I/O DoS Quét Thư Mục Staged (`chat-routes.ts`):* Thay thế hàm quét đĩa `readdir` bằng tra cứu trực tiếp O(1) và stream chỉ đối với UUID hợp lệ, chống nghẽn I/O khi xử lý tệp đính kèm.
+  - [x] *Phòng Ngừa Lỗi Hóa Đơn Trùng Khi Worker Chậm Trễ (`kiotviet-invoice-worker.ts`):* Bổ sung `leaseGuardTimer` tự động abort sau 75s (ngắn hơn hạn định 120s của distributed lease), tránh việc 2 worker cùng gửi request xuất hóa đơn lên KiotViet.
+  - [x] *Dọn Dẹp Bộ Nhớ Cho Zalo Rate Limiter (`zalo-rate-limiter.ts` & `zalo-routes.ts`):* Bổ sung phương thức `unregisterAccount(id)` giải phóng triệt để bộ đếm trong RAM khi tài khoản Zalo bị xóa khỏi hệ thống.
+  - [x] *Hợp Nhất Socket Client Phía Frontend (`services/socket-service.ts`):* Khởi tạo Singleton Socket.IO chia sẻ chung giữa `useChat`, `useZaloAccounts` và `notification.ts`, giảm 66% số kết nối WebSocket và loại trừ xung đột kết nối.
+  - [x] *Gia Cố Kháng Prompt Injection Trong Tri Thức Vận Hành (`ai-knowledge-prompt-formatter.ts`):* Làm sạch các thẻ XML nguy hiểm (`<system>`, `<instruction>`, `<customer_utterance>`) trong quy tắc tri thức trước khi nạp vào LLM prompt.
+  - [x] *Đồng Nhất Làm Tròn Số Học Tiền Tệ Chiết Khấu Đơn Hàng (`order-item-totals.ts`):* Chuẩn hóa công thức tính chiết khấu cấp dòng và thành tiền theo quy chuẩn làm tròn VNĐ.
+- [x] **Tái Cấu Trúc Phân Rã (Modularization) Các Tệp Lớn (> 500 dòng):**
+  - [x] Phân rã `frontend/src/views/AiReportsView.vue` (1902 dòng -> 175 dòng) thành các sub-components: `AiReportGenerateTab.vue`, `AiReportArchiveTab.vue`, `AiReportSettingsTab.vue`, `AiReportActionItemsCard.vue`.
+  - [x] Phân rã `frontend/src/components/chat/MessageThread.vue` (941 dòng -> 362 dòng) thành `MessageThreadHeader.vue`, `MessageInputToolbar.vue`, `MessageBubbleItem.vue`, cùng composables `useChatMediaViewer.ts`, `useChatAppointmentSync.ts`.
+  - [x] Phân rã `frontend/src/views/OrdersView.vue` (523 dòng -> 160 dòng) thành `OrderStatsCards.vue`, `OrderFilterToolbar.vue`, `OrdersTable.vue`, `OrderFormDialog.vue`.
+  - [x] Phân rã `backend/src/modules/ai-reports/ai-report-routes.ts` (797 dòng -> 33 dòng root aggregator) thành `ai-report-config-routes.ts`, `ai-report-job-routes.ts`, `ai-report-archive-routes.ts`, `ai-report-settings-routes.ts`, `ai-report-task-routes.ts`, `ai-report-route-helpers.ts`.
+
+---
+
+### Phase 16: Kế Hoạch Khắc Phục Edge Cases Đợt 2 & Hoàn Thiện Hệ Thống (ĐANG LẬP KẾ HOẠCH)
+- [ ] **Kế Hoạch Khắc Phục 10 Edge Cases Đợt 2:**
+  1. *Kích hoạt khôi phục Feedback AI mồ côi (`recoverPendingAiFeedbacks`):* Nối hàm `recoverPendingAiFeedbacks()` vào tiến trình khởi động `app.ts` và cron định kỳ để tự động chắt lọc các góp ý bị treo do server restart.
+  2. *Tái kích hoạt thông báo khi trùng `dedupKey`:* Cập nhật `NotificationService.createNotification` để reset `isRead: false`, `readAt: null` và cập nhật thời gian khi sự kiện cảnh báo (SLA, mất kết nối) tái diễn.
+  3. *Chuẩn hóa số điện thoại Việt Nam khi tra cứu KiotViet:* Chuyển đổi linh hoạt giữa đầu số `+84`/`84` và `0` trong `kiotviet-customer-service.ts` để nhận diện chính xác khách hàng đã có trên KiotViet.
+  4. *Xử lý lỗi NaN & kiểm soát trần phần trăm chiết khấu đơn hàng:* Kiểm tra `Number.isFinite` trên `OrderItemsSelector.vue` và chặn `discountInput > 100` khi ở chế độ phần trăm trong `order-item-validation.ts`.
+  5. *Khử lệch số học KiotViet do số lượng thập phân:* Điều chỉnh sai số làm tròn số học dòng hóa đơn trong `kiotviet-invoice-mapper.ts` cho các sản phẩm bán theo cân/lẻ có số lượng lẻ.
+  6. *Dọn dẹp định kỳ bộ nhớ Zalo Rate Limiter:* Bổ sung cron quét lúc 00:00 VN dọn dẹp các tài khoản không hoạt động > 48h khỏi `dailyCounts`, `recentSends`.
+  7. *Làm rõ nhãn chiết khấu dòng trên giao diện:* Phân định rõ chiết khấu theo dòng hay theo đơn vị trên `OrderItemsSelector.vue`.
+  8. *Bổ sung ràng buộc Tenant cho cập nhật Avatar:* Truyền `orgId` vào `updateContactAvatar()` tuân thủ nghiêm ngặt chuẩn phân lập dữ liệu.
+  9. *Khôi phục Socket sau sự cố gián đoạn mạng tạm thời:* Bổ sung lắng nghe sự kiện `online` trên trình duyệt để tự động thử lại kết nối Socket nếu lần refresh trước bị lỗi timeout mạng.
+  10. *Đồng bộ mã phản hồi HTTP tạo đơn hàng:* Chuẩn hóa tài liệu và hợp đồng API về mã `200 OK` (hoặc `201 Created` kèm tương thích ngược).
+- [ ] **Tối Ưu Hóa & Modularization Bổ Sung:**
+  - Phân rã `backend/src/modules/orders/order-routes.ts` (706 dòng) thành các route chuyên biệt.
+  - Tối ưu Context Pruning cho Chat Copilot (lọc bỏ sticker/emoji dư thừa trước khi nạp prompt).
+  - Bổ sung composite index `messages(conversation_id, sent_at DESC)` tăng tốc chat khi đạt hàng triệu tin.
+
 
 

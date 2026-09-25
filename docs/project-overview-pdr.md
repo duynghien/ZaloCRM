@@ -109,6 +109,20 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
   - Tab 5 *"Tài liệu cho AI"* (`AiKnowledgeBaseTab.vue`) tích hợp trong `AiReportsView.vue` với bộ lọc đa chiều (Cấp độ, Phân loại, Tìm kiếm từ khóa), công tắc Bật/Tắt tức thì và modal thêm/sửa quy tắc thủ công (`AiKnowledgeRuleDialog.vue`).
   - Modal góp ý trực tiếp (`AiReportFeedbackDialog.vue`) cho phép xem ngay quy tắc vừa được AI chắt lọc thành công trước khi đóng.
 
+### 3.12. Phân hệ Tích Hợp KiotViet & Hàng Đợi Hóa Đơn Bền Vững (KiotViet Catalog & Invoice Outbox Integration)
+- **Đồng Bộ Danh Mục Sản Phẩm (Catalog Sync):** Worker nền đồng bộ danh mục hàng hóa từ KiotViet về cơ sở dữ liệu nội bộ PostgreSQL, phân vùng độc lập theo `(org_id, retailer, branch_id)`. Nhân viên tra cứu sản phẩm trực tiếp từ PostgreSQL với độ trễ < 50ms, không phụ thuộc vào tốc độ mạng hay rate limit của KiotViet Public API.
+- **Phạm Vi Hàng Hóa Thông Thường (Normal Goods Only):** Hỗ trợ xuất hóa đơn cho các sản phẩm thông thường (`productType = 'normal'`), từ chối sản phẩm dạng lô/serial/combo để đảm bảo tính an toàn cho kho vận.
+- **Hàng Đợi Hóa Đơn Bền Vững (Durable Outbox Pattern):** Công việc xuất hóa đơn KiotViet tuân thủ chặt chẽ quy trình trạng thái: `queued` → `preparing` → `dispatching` → `succeeded` | `uncertain` | `failed`. Trạng thái `dispatching` bắt buộc phải commit vào PostgreSQL trước khi gửi request HTTP ra ngoài.
+- **Khóa An Toàn Tài Chính & Đối Soát Thủ Công (Financial Lock & Reconciliation):** Khi hóa đơn ở trạng thái `pending`, `uncertain` hoặc `synced`, toàn bộ trường tài chính của đơn hàng bị khóa cứng (`order-invoice-lock.ts`). Nếu gặp lỗi mạng/timeout (trạng thái `uncertain`), hệ thống tuyệt đối không tự động gửi lại mà kích hoạt quy trình đối soát an toàn cho Admin/Owner (`link`, `confirm-not-created`, `refresh`).
+- **Phân Quyền Giá Bán & Tiền Thực Thu Độc Lập:** Admin/Owner được phép chỉnh sửa giá niêm yết và chiết khấu; Member bán đúng giá KiotViet. Tiền thực thu (`paidAmount`) và phương thức thanh toán được quản lý độc lập với trạng thái đơn hàng.
+
+### 3.13. Phân hệ Chuông Thông Báo & Cảnh Báo Real-time Lai (Hybrid Notification Engine & Cross-Tab Sync)
+- **Lưu Trữ Bền Vững & Phân Lập Đa Tầng:** Quản lý thông báo in-app qua bảng `notifications`, phân định rõ 2 phạm vi: cá nhân (`userId`) và tổ chức (`userId = null`, lọc theo quyền hạn `owner/admin/manager`).
+- **Mô Hình Đồng Thuận Nhóm (Team-Acknowledged Model):** Thông báo tổ chức khi 1 nhân viên bấm xem sẽ tự động đánh dấu đã giải quyết cho cả nhóm; thao tác "Đánh dấu tất cả đã đọc" cá nhân chỉ tác động lên thông báo riêng của người thao tác.
+- **Đồng Bộ Đa Tab Tức Thì (Cross-Tab Synchronization):** Sự kiện Socket.IO thông báo tức thì khi có thông báo mới hoặc khi trạng thái đọc thay đổi ở bất kỳ tab trình duyệt nào.
+- **Tự Động Giải Quyết (Auto-Resolution):** Tự động đánh dấu đã đọc khi nhân viên tương tác giải quyết sự vụ liên quan (ví dụ: trả lời tin nhắn quá hạn SLA, kết nối lại tài khoản Zalo bị ngắt).
+- **Vòng Đời & Dọn Dẹp Định Kỳ (TTL Cleanup):** Cron định kỳ tự động xóa sạch các thông báo cũ quá 30 ngày, bảo đảm hiệu năng truy vấn chỉ số `unreadCount` luôn đạt tốc độ tối đa.
+
 ---
 
 ## 4. Yêu Cầu Phi Chức Năng (Non-Functional Requirements)
@@ -126,7 +140,7 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
 
 ### 4.3. Bảo mật (Security)
 - Mật khẩu người dùng được băm bằng thuật toán `bcryptjs` với salt round 12.
-- Access token JWT ngắn hạn (15 phút) lưu hoàn toàn trong bộ nhớ RAM trình duyệt (`session.ts`), không ghi vào `localStorage` hay `sessionStorage`.
+- Access token JWT ngắn hạn (15 phút) lưu hoàn toàn trong bộ nhớ RAM trình duyệt (`ref accessToken` trong `src/api/index.ts`), không ghi vào `localStorage` hay `sessionStorage`. Đồng bộ phiên đa tab an toàn qua `BroadcastChannel('zalocrm_auth_sync')` và Web Locks API (`navigator.locks`).
 - Refresh token dạng opaque lưu SHA-256 digest trong bảng `auth_sessions`, xoay vòng phiên khi cấp token mới (single-use rotation), tự động thu hồi toàn bộ phiên khi phát hiện reuse token cũ.
 - Bảo vệ CSRF kép (double-submit cookie + header) và kiểm tra Origin/Referer nghiêm ngặt cho toàn bộ browser API.
 - Mã hóa dữ liệu nhạy cảm (Zalo session, secret keys, AI API keys, SMTP password) bằng `AES-256-GCM` trước khi lưu vào cơ sở dữ liệu PostgreSQL.
