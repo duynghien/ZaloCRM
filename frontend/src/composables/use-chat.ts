@@ -1,7 +1,8 @@
 import { ref, computed, onUnmounted, watch } from 'vue';
 import { useChatRecovery } from './use-chat-recovery';
-import { api, getAccessToken, isSocketAuthenticationFailure, refreshAccessToken } from '@/api/index';
-import { io, Socket } from 'socket.io-client';
+import { api } from '@/api/index';
+import type { Socket } from 'socket.io-client';
+import { getSharedSocket } from '../services/socket-service';
 import type { Contact } from '@/composables/use-contacts';
 import { bindCopilotSocket, unbindCopilotSocket, useChatCopilot } from './use-chat-copilot';
 
@@ -75,9 +76,6 @@ export function useChat() {
   const accountFilter = ref<string | null>(null);
   const accountUnreadMap = ref<Record<string, number>>({});
   let socket: Socket | null = null;
-  let socketRefreshAttempted = false;
-  let lastSocketRefresh = 0;
-  let removeTokenListener: (() => void) | null = null;
 
   const selectedConv = computed(() =>
     conversations.value.find(c => c.id === selectedConvId.value) || null,
@@ -177,124 +175,84 @@ export function useChat() {
     }
   }
 
-  function initSocket() {
-    if (socket) {
-      if (!socket.active && !socket.connected) socket.connect();
-      return;
+  function onConnect() {
+    void recovery.request();
+  }
+
+  function onResyncRequired() {
+    void recovery.request();
+  }
+
+  function onChatMessage(data: { message: Message; conversationId: string; accountId?: string }) {
+    const accId = data.accountId;
+    if (accId && data.message.senderType !== 'self' && data.conversationId !== selectedConvId.value) {
+      accountUnreadMap.value[accId] = (accountUnreadMap.value[accId] || 0) + 1;
     }
 
-    socket = io({
-      auth: (callback) => callback({ token: getAccessToken() }),
-      transports: ['websocket', 'polling'],
-      reconnection: true,
-      reconnectionAttempts: 5,
-    });
+    if (data.conversationId === selectedConvId.value) {
+      if (!messages.value.find(m => m.id === data.message.id)) {
+        messages.value.push(data.message);
+      }
+    }
+    void recovery.request();
+  }
+
+  function onAttachmentsUpdated(data: { accountId: string; conversationId: string; messageId: string; attachments: any[] }) {
+    if (data.conversationId === selectedConvId.value) {
+      const msg = messages.value.find(m => m.id === data.messageId);
+      if (msg) {
+        msg.attachments = data.attachments;
+      }
+    }
+  }
+
+  function onChatDeleted(data: { accountId: string; conversationId?: string; msgId: string }) {
+    const msg = selectedConv.value?.zaloAccount?.id === data.accountId && selectedConv.value?.id === data.conversationId
+      ? messages.value.find(m => m.zaloMsgId === data.msgId) : undefined;
+    if (msg) {
+      msg.isDeleted = true;
+    }
+    void recovery.request();
+  }
+
+  function attachChatListeners() {
+    if (!socket) return;
+    socket.on('connect', onConnect);
+    socket.on('realtime:resync-required', onResyncRequired);
+    socket.on('chat:message', onChatMessage);
+    socket.on('chat:message:attachments-updated', onAttachmentsUpdated);
+    socket.on('chat:deleted', onChatDeleted);
+  }
+
+  function detachChatListeners() {
+    if (!socket) return;
+    socket.off('connect', onConnect);
+    socket.off('realtime:resync-required', onResyncRequired);
+    socket.off('chat:message', onChatMessage);
+    socket.off('chat:message:attachments-updated', onAttachmentsUpdated);
+    socket.off('chat:deleted', onChatDeleted);
+  }
+
+  function initSocket() {
+    socket = getSharedSocket();
+    if (!socket) return;
+    if (!socket.connected) socket.connect();
+
     bindCopilotSocket(socket);
 
-    const onTokenChanged = (event: Event) => {
-      const nextToken = (event as CustomEvent<string>).detail || '';
-      if (!socket) return;
-      if (!nextToken) {
-        selectedConvId.value = null;
-        messages.value = [];
-        conversations.value = [];
-        destroySocket();
-        return;
-      }
-      socket.auth = { token: nextToken };
-      socketRefreshAttempted = false;
-      if (socket.connected) {
-        socket.disconnect().connect();
-      } else {
-        socket.connect();
-      }
-    };
-    window.addEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
-    if (removeTokenListener) removeTokenListener();
-    removeTokenListener = () => window.removeEventListener('zalo-crm:access-token-changed', onTokenChanged as EventListener);
+    detachChatListeners();
+    attachChatListeners();
 
-    socket.on('disconnect', async (reason) => {
-      // Server-enforced token expiry is not retried by Socket.IO. Refresh once per
-      // disconnect burst; a rejected refresh follows the REST logout policy.
-      if (reason !== 'io server disconnect' || !socket || !getAccessToken()) return;
-      const now = Date.now();
-      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
-      lastSocketRefresh = now;
-      const disconnectedSocket = socket;
-      try {
-        await refreshAccessToken();
-        if (socket === disconnectedSocket) socket.connect();
-      } catch {
-        // A later explicit token change may reconnect after a transient failure.
-      }
-    });
-
-    socket.on('connect_error', async (error) => {
-      const unauthorized = isSocketAuthenticationFailure(error.message);
-      if (!unauthorized || socketRefreshAttempted || !socket) return;
-
-      const now = Date.now();
-      if (lastSocketRefresh && now - lastSocketRefresh < 5000) return;
-      lastSocketRefresh = now;
-      socketRefreshAttempted = true;
-      try {
-        await refreshAccessToken();
-        socket?.connect();
-      } catch {
-        // The REST client redirects only after an explicit refresh 401/403.
-      }
-    });
-
-    socket.on('connect', () => { void recovery.request(); });
-    socket.on('realtime:resync-required', () => { void recovery.request(); });
-
-    socket.on('chat:message', (data: { message: Message; conversationId: string; accountId?: string }) => {
-      const accId = data.accountId;
-      if (accId && data.message.senderType !== 'self' && data.conversationId !== selectedConvId.value) {
-        accountUnreadMap.value[accId] = (accountUnreadMap.value[accId] || 0) + 1;
-      }
-
-      // Add to messages if viewing this conversation
-      if (data.conversationId === selectedConvId.value) {
-        // Avoid duplicates
-        if (!messages.value.find(m => m.id === data.message.id)) {
-          messages.value.push(data.message);
-        }
-      }
-      // Refresh conversation list to update last message / unread count
+    if (socket.connected) {
       void recovery.request();
-    });
-
-    socket.on('chat:message:attachments-updated', (data: { accountId: string; conversationId: string; messageId: string; attachments: any[] }) => {
-      if (data.conversationId === selectedConvId.value) {
-        const msg = messages.value.find(m => m.id === data.messageId);
-        if (msg) {
-          msg.attachments = data.attachments;
-        }
-      }
-    });
-
-    socket.on('chat:deleted', (data: { accountId: string; conversationId?: string; msgId: string }) => {
-      const msg = selectedConv.value?.zaloAccount?.id === data.accountId && selectedConv.value?.id === data.conversationId
-        ? messages.value.find(m => m.zaloMsgId === data.msgId) : undefined;
-      if (msg) {
-        msg.isDeleted = true;
-      }
-      void recovery.request();
-    });
+    }
   }
 
   function destroySocket() {
     recovery.cancel();
     if (socket) unbindCopilotSocket(socket);
-    socket?.removeAllListeners();
-    socket?.disconnect();
+    detachChatListeners();
     socket = null;
-    socketRefreshAttempted = false;
-    if (removeTokenListener) {
-      removeTokenListener();
-      removeTokenListener = null;
-    }
   }
 
   onUnmounted(() => {
