@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    # Run daily at 00:00 UTC (07:00 VN) for automated dependency vulnerability monitoring
+    - cron: '0 0 * * *'
 
 permissions:
   contents: read
@@ -90,8 +93,20 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
 
-  audit-and-build:
-    name: Audit and Build
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+
+  audit:
+    name: Production Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -101,7 +116,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run audit:production
-      - run: npm run build
 
   container-verify:
     name: Container Verification

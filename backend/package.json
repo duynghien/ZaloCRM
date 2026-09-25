@@ -20,6 +20,7 @@
     "ai:smoke": "tsx src/modules/ai-reports/gemini-model-smoke.ts",
     "operator:reset-cron-leases": "tsx scripts/reset-cron-leases.ts",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude '**/integration/**'",
     "test:watch": "vitest"
   },
   "prisma": {
