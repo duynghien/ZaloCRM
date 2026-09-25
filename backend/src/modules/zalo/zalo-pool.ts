@@ -38,6 +38,18 @@ const { Zalo } = require('zca-js') as {
   }) => any;
 };
 
+export type ZaloFactory = (opts: {
+  logging: boolean;
+  selfListen?: boolean;
+  imageMetadataGetter?: (filePath: string) => Promise<{ width: number; height: number; size: number }>;
+}) => any;
+
+let defaultZaloFactory: ZaloFactory = (opts) => new Zalo(opts);
+
+export function setZaloFactoryForTesting(factory: ZaloFactory | null): void {
+  defaultZaloFactory = factory || ((opts) => new Zalo(opts));
+}
+
 const imageMetadataGetter = async (filePath: string) => {
   try {
     const buffer = await fs.promises.readFile(filePath);
@@ -60,6 +72,14 @@ export interface ZaloCredentials {
   userAgent: string;
 }
 
+export function sanitizeZaloError(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  return raw
+    .replace(/imei=[^&\s]+/gi, 'imei=[REDACTED]')
+    .replace(/signkey=[^&\s]+/gi, 'signkey=[REDACTED]')
+    .replace(/cookie:[^;\n]+/gi, 'cookie:[REDACTED]');
+}
+
 interface ZaloInstance {
   zalo: any;
   api: any;
@@ -72,7 +92,7 @@ interface ZaloInstance {
   drainListener?: () => Promise<void>;
 }
 
-class ZaloAccountPool {
+export class ZaloAccountPool {
   private instances = new Map<string, ZaloInstance>();
   private io: Server | null = null;
   // Shared user-info cache passed into each listener context
@@ -95,8 +115,8 @@ class ZaloAccountPool {
   }
 
   async handleFatalAuth(accountId: string, err: unknown): Promise<void> {
-    const errMsg = String(err);
-    logger.error(`[zalo:${accountId}] Fatal auth error encountered: ${errMsg}`);
+    const safeMsg = sanitizeZaloError(err);
+    logger.error(`[zalo:${accountId}] Fatal auth error encountered: ${safeMsg}`);
     stopAccountHeartbeat(accountId);
     clearTimeout(this.reconnectTimers.get(accountId));
     this.reconnectTimers.delete(accountId);
@@ -116,7 +136,10 @@ class ZaloAccountPool {
     }
     await this.updateAccountDB(accountId, 'qr_pending', null);
     await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
-    await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+    await this.emitForAccount(accountId, 'zalo:reconnect-failed', {
+      accountId,
+      error: 'Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR để tiếp tục.',
+    });
   }
 
   setIO(io: Server): void {
@@ -151,15 +174,17 @@ class ZaloAccountPool {
     try {
       const accountRec = await prisma.zaloAccount.findUnique({
         where: { id: accountId },
-        select: { orgId: true, displayName: true },
+        select: { orgId: true, displayName: true, zaloUid: true },
       });
       if (this.connectionAttempts.get(accountId) !== attempt) return;
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
+      const zalo = defaultZaloFactory({ logging: false, selfListen: true, imageMetadataGetter });
       const pending: ZaloInstance = { zalo, api: null, status: 'qr_pending', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
+
+      let scannedCredentials: ZaloCredentials | null = null;
 
       try {
         const api = await zalo.loginQR({}, (event: any) => {
@@ -180,11 +205,11 @@ class ZaloAccountPool {
               });
               break;
             case 4: // GotLoginInfo
-              this.saveCredentials(accountId, {
+              scannedCredentials = {
                 cookie: event.data.cookie,
                 imei: event.data.imei,
                 userAgent: event.data.userAgent,
-              });
+              };
               break;
           }
         });
@@ -199,6 +224,19 @@ class ZaloAccountPool {
 
         const ownId = await api.getOwnId();
         if (this.instances.get(accountId) !== pending) { api.listener?.stop(); return; }
+        if (accountRec.zaloUid && accountRec.zaloUid !== ownId) {
+          logger.error(`[zalo:${accountId}] QR scan identity mismatch: expected ${accountRec.zaloUid}, got ${ownId}`);
+          api.listener?.stop();
+          this.disconnect(accountId);
+          await this.emitForAccount(accountId, 'zalo:error', {
+            accountId,
+            error: 'Tài khoản Zalo quét không khớp với tài khoản đã liên kết.',
+          });
+          return;
+        }
+        if (scannedCredentials) {
+          this.saveCredentials(accountId, scannedCredentials);
+        }
         instance.zaloUid = ownId;
 
         // Fetch own profile info for avatar
@@ -235,9 +273,14 @@ class ZaloAccountPool {
       } catch (err) {
         const instance = this.instances.get(accountId);
         if (instance !== pending) return;
+        const safeMsg = sanitizeZaloError(err);
+        logger.error(`[zalo:${accountId}] QR login failed: ${safeMsg}`);
         instance.status = 'disconnected';
         await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
-        await this.emitForAccount(accountId, 'zalo:error', { accountId, error: String(err) });
+        await this.emitForAccount(accountId, 'zalo:error', {
+          accountId,
+          error: 'Đăng nhập QR thất bại, vui lòng thử lại.',
+        });
         throw err;
       }
     } finally {
@@ -259,7 +302,7 @@ class ZaloAccountPool {
       if (!accountRec) throw new Error('Zalo account not found');
       const orgId = accountRec.orgId;
 
-      const zalo = new Zalo({ logging: false, selfListen: true, imageMetadataGetter });
+      const zalo = defaultZaloFactory({ logging: false, selfListen: true, imageMetadataGetter });
       const pending: ZaloInstance = { zalo, api: null, status: 'connecting', orgId, lastActivity: new Date() };
       this.instances.set(accountId, pending);
 
@@ -316,20 +359,33 @@ class ZaloAccountPool {
       } catch (err) {
         const instance = this.instances.get(accountId);
         if (instance !== pending) return;
-        const errMsg = String(err);
+        const safeMsg = sanitizeZaloError(err);
         const failures = (this.reconnectFailures.get(accountId) || 0) + 1;
         this.reconnectFailures.set(accountId, failures);
 
+        logger.warn(
+          `[zalo:${accountId}] Reconnect attempt ${failures}/${ZaloAccountPool.BACKOFF_DELAYS.length} failed: ${safeMsg}`
+        );
+
         if (failures > ZaloAccountPool.BACKOFF_DELAYS.length || isFatalAuthError(err)) {
+          logger.warn(
+            `[zalo:${accountId}] Max reconnect attempts reached or fatal auth error, switching to qr_pending: ${safeMsg}`
+          );
           instance.status = 'qr_pending';
           await this.updateAccountDB(accountId, 'qr_pending', null);
           await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
-          await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+          await this.emitForAccount(accountId, 'zalo:reconnect-failed', {
+            accountId,
+            error: 'Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR để tiếp tục.',
+          });
         } else {
           instance.status = 'disconnected';
           await this.updateAccountDB(accountId, 'disconnected', null);
           await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
-          await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
+          await this.emitForAccount(accountId, 'zalo:reconnect-failed', {
+            accountId,
+            error: 'Đang thử kết nối lại...',
+          });
           this.scheduleReconnect(accountId, ZaloAccountPool.BACKOFF_DELAYS[failures - 1]);
         }
       }
@@ -465,25 +521,21 @@ class ZaloAccountPool {
         inst.status = 'qr_pending';
         await this.updateAccountDB(accountId, 'qr_pending', null);
         await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
-        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: 'No saved session' });
+        await this.emitForAccount(accountId, 'zalo:reconnect-failed', {
+          accountId,
+          error: 'Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR để tiếp tục.',
+        });
       }
     } catch (err) {
-      logger.error(`[zalo:${accountId}] Auto-reconnect failed:`, err);
-      const errMsg = String(err);
-      const failures = (this.reconnectFailures.get(accountId) || 0) + 1;
-      this.reconnectFailures.set(accountId, failures);
-
-      if (failures > ZaloAccountPool.BACKOFF_DELAYS.length || isFatalAuthError(err)) {
-        inst.status = 'qr_pending';
-        await this.updateAccountDB(accountId, 'qr_pending', null);
-        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
-        await this.emitForAccount(accountId, 'zalo:reconnect-failed', { accountId, error: errMsg });
-      } else {
-        inst.status = 'disconnected';
-        await this.updateAccountDB(accountId, 'disconnected', null);
-        await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'disconnected' });
-        this.scheduleReconnect(accountId, ZaloAccountPool.BACKOFF_DELAYS[failures - 1]);
-      }
+      const safeMsg = sanitizeZaloError(err);
+      logger.error(`[zalo:${accountId}] Auto-reconnect failed: ${safeMsg}`);
+      inst.status = 'qr_pending';
+      await this.updateAccountDB(accountId, 'qr_pending', null);
+      await this.emitForAccount(accountId, 'zalo:status-changed', { accountId, status: 'qr_pending' });
+      await this.emitForAccount(accountId, 'zalo:reconnect-failed', {
+        accountId,
+        error: 'Phiên đăng nhập Zalo đã hết hạn. Vui lòng quét lại mã QR để tiếp tục.',
+      });
     }
   }
 

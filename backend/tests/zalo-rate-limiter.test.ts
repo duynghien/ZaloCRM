@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { zaloRateLimiter } from '../src/modules/zalo/zalo-rate-limiter.js';
+import { getVnDateString } from '../src/shared/utils/date-utils.js';
 
 describe('ZaloRateLimiter', () => {
   const accountId = 'acc-test-rate-limit';
@@ -47,7 +48,7 @@ describe('ZaloRateLimiter', () => {
   });
 
   it('flags daily limit exceeded and indicates canForce: true', () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getVnDateString();
     (zaloRateLimiter as any).dailyCounts.set(accountId, { count: 200, date: today });
 
     const limits = zaloRateLimiter.checkLimits(accountId);
