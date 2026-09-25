@@ -15,8 +15,8 @@ import {
 export type { ContentPart } from './providers/ai-provider-interface.js';
 
 export interface GenerateContentOptions {
-  budget: ReportJobBudget;
-  executionGuard: () => Promise<void>;
+  budget?: ReportJobBudget;
+  executionGuard?: () => Promise<void>;
   orgId?: string;
   taskType?: string;
   signal?: AbortSignal;
@@ -24,6 +24,7 @@ export interface GenerateContentOptions {
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  responseMimeType?: string;
   onUsage?: (usage: any) => void;
   onFallback?: (telemetry: FallbackTelemetry) => void;
   /** Router-level output validation — if provided and returns false, Router treats the result as a failure and fails over. */
@@ -86,7 +87,8 @@ export async function generateContent(
   prompt: string | ContentPart[],
   options: GenerateContentOptions,
 ): Promise<string> {
-  await runReportExecutionGuard(options.executionGuard);
+  const executionGuard = options.executionGuard || (async () => {});
+  await runReportExecutionGuard(executionGuard);
 
   const orgSettings = options.orgId
     ? await getOrgAiProviderCredentials(options.orgId)
@@ -96,7 +98,7 @@ export async function generateContent(
 
   return router.generateContent(prompt, {
     budget: options.budget,
-    executionGuard: options.executionGuard,
+    executionGuard,
     orgId: options.orgId,
     taskType: options.taskType,
     onUsage: options.onUsage,
@@ -104,6 +106,7 @@ export async function generateContent(
     systemInstruction: options.systemInstruction,
     temperature: options.temperature,
     maxOutputTokens: options.maxOutputTokens,
+    responseMimeType: options.responseMimeType,
     onFallback: options.onFallback,
     validateOutput: options.validateOutput,
   });

@@ -91,7 +91,9 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
     try {
       if (options.signal?.aborted) throw new Error('Generation aborted');
-      await runReportExecutionGuard(options.executionGuard);
+      if (options.executionGuard) {
+        await runReportExecutionGuard(options.executionGuard);
+      }
 
       const messages = this.formatMessages(prompt, options.systemInstruction);
       const completion = await this.client.chat.completions.create(
@@ -100,6 +102,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
           messages,
           temperature: options.temperature ?? 0.2,
           max_tokens: options.maxOutputTokens ?? 4096,
+          ...(options.responseMimeType === 'application/json' ? { response_format: { type: 'json_object' } } : {}),
         },
         { signal: options.signal },
       );
@@ -134,7 +137,7 @@ export class OpenAiCompatibleProvider implements AiProvider {
         });
       }
 
-      if (options.attemptKey) {
+      if (options.attemptKey && options.budget) {
         await options.budget.complete(options.attemptKey, {
           inputTokens,
           outputTokens,

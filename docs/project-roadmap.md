@@ -22,6 +22,8 @@ gantt
     AI Telemetry & Cost Analytics (Phase 9) :done, des9, 2026-09, 2026-09
     Two-Way Media Messaging (Phase 10) :done, des10, 2026-09, 2026-09
     DeepSeek Multimodal & Failover (Phase 11) :done, des11, 2026-09, 2026-09
+    KiotViet Sync & Outbox (Phase 13) :done, des13, 2026-09, 2026-09
+    Continuous Learning & Knowledge Base (Phase 14) :done, des14, 2026-09, 2026-09
     Edge Cases & Optimization (Phase 12) :active, des12, 2026-09, 2026-10
 ```
 
@@ -165,5 +167,26 @@ gantt
   - Component `KiotvietCustomerPicker.vue`: Tìm và chọn khách hàng KiotViet có hỗ trợ phân xử trùng lặp.
   - Component `KiotvietSettingsCard.vue` & `KiotvietCatalogSyncPanel.vue`: Quản lý cấu hình, kiểm tra kết nối với thông tin draft, kích hoạt đồng bộ danh mục và theo dõi tiến độ.
   - Phân quyền giao diện: Tab KiotViet và các tính năng cấu hình/đối soát chỉ hiển thị cho Admin/Owner.
+
+---
+
+### Phase 14: Học Hỏi Liên Tục & Kho Tri Thức Vận Hành 3 Cấp (ĐÃ HOÀN THÀNH)
+- [x] **Cơ Sở Dữ Liệu & Phân Cấp Tri Thức (Data Models & 3-Tier Hierarchy):**
+  - Bổ sung các model: `AiKnowledgeRule` (quản trị tri thức 3 cấp: Org, Branch, Group) và `AiReportFeedback` (tiếp nhận góp ý, liên kết quy tắc chắt lọc).
+  - Khóa ngoại tổng hợp bảo vệ phân lập dữ liệu đa tổ chức `(orgId, id)`.
+  - Phân loại tri thức thực tế: `personnel` (nhân sự & vai trò), `sop` (quy trình vận hành), `terminology` (thuật ngữ F&B), `correction` (đính chính sai sót), `general` (quy định chung).
+- [x] **Động Cơ Chắt Lọc Quy Tắc Tự Động (Auto-Distillation Engine):**
+  - Chắt lọc quy tắc tức thời bằng low-latency LLM (`temperature: 0.1`, structured JSON) trong ~2 giây.
+  - Tự động kích hoạt ngay lập tức (`isActive: true`) sau khi chắt lọc để nạp vào các báo cáo tiếp theo.
+  - Cơ chế dự phòng an toàn (Safe Fallback): tự động lưu trữ quy tắc dạng đính chính từ phản hồi thô nếu AI gặp lỗi timeout/429 hoặc malformed JSON.
+- [x] **Tiêm Ngữ Cảnh Kiểm Soát Ngân Sách (Budget-Aware Context Injection):**
+  - Đóng gói quy tắc chuẩn hóa vào thẻ `<verified_operational_knowledge>` trong Tier 1 (Group Digest), Tier 2 (COO Synthesis) và AI Group Audit.
+  - Lọc sạch thẻ đóng và CDATA phòng chống Prompt Injection.
+  - Kiểm soát nghiêm ngặt ngân sách token (< 600 tokens, tối đa 15 quy tắc) với cơ chế ưu tiên: Group > Branch > Org.
+- [x] **Giao Diện Người Dùng Chuẩn Neo-Brutalism CQA:**
+  - `AiReportFeedbackDialog.vue`: Hộp thoại góp ý nhanh trực tiếp trên báo cáo, hiển thị kết quả chắt lọc ngay khi hoàn tất.
+  - `AiKnowledgeBaseTab.vue`: Tab 5 trong `AiReportsView.vue` cho phép tìm kiếm, lọc theo cấp/danh mục, bật/tắt tức thì.
+  - `AiKnowledgeRuleDialog.vue`: Hộp thoại thêm mới hoặc chỉnh sửa quy tắc tri thức thủ công.
+  - Modular hóa 100%: Toàn bộ component mới đều giữ dưới 200 dòng code.
 
 

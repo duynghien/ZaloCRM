@@ -60,6 +60,12 @@ ZaloCRM/
 │       │   ├── integrations/ # Tích hợp nền tảng ngoại vi
 │       │   │   └── kiotviet/ # KiotViet Public API, OAuth2 token rotation, rate limit bucket, distributed lease, catalog sync worker, invoice outbox worker, customer resolver, reconciliation
 │       │   ├── ai-reports/   # Multi-provider router, Burst sampler, Two-tier audit, Action item broadcast, Cron, Telemetry, Dual-PDF dispatch
+│       │   │   ├── knowledge/               # Kho tri thức 3 cấp & động cơ chắt lọc quy tắc từ góp ý Admin
+│       │   │   │   ├── ai-knowledge-service.ts        # CRUD, toggle, truy vấn 3 cấp, kiểm tra hợp lệ
+│       │   │   │   ├── ai-knowledge-routes.ts         # Fastify REST endpoints (Owner/Admin)
+│       │   │   │   ├── ai-feedback-distillation-service.ts # Tiếp nhận góp ý, LLM distillation, auto-activate, safe fallback
+│       │   │   │   ├── ai-feedback-routes.ts          # Feedback REST endpoints (Owner/Admin)
+│       │   │   │   └── ai-knowledge-prompt-formatter.ts # Đóng gói thẻ <verified_operational_knowledge>, budget < 600 tokens
 │       │   │   ├── providers/               # AI Adapters: Gemini, OpenAI, DeepSeek, Hybrid Vision Bridge
 │       │   │   ├── attachment-burst-sampler.ts # Khử trùng URL, prompt injection sanitization, pool 4 worker
 │       │   │   ├── attachment-image-loader.ts  # Nạp ảnh đa phương thức, kiểm soát trần 12MB, chống traversal
@@ -113,7 +119,7 @@ ZaloCRM/
     └── src/
         ├── App.vue           # Root Vue Component
         ├── main.ts           # Entrypoint Vue app
-        ├── api/              # Axios HTTP client, Session state in-memory, AI Report API, AI Usage API
+        ├── api/              # Axios HTTP client, Session state in-memory, AI Report API, AI Usage API, AI Knowledge API (ai-knowledge-api.ts)
         ├── composables/      # Vue composables (useChat, useChatCopilot, useStagedMedia, useChatRecovery, useZaloAccounts, useDashboard,...)
         ├── components/       # Reusable components
         │   ├── chat/         # AccountRail, ConversationList, MessageThread, MessagePhotoGrid, StagedMediaBar, MediaLightboxDialog (Gallery), ChatCopilotBar, ChatAiDraftCard, ChatAnomalyBanner, ChatAppointments, ChatOrders
@@ -123,7 +129,7 @@ ZaloCRM/
         │   ├── reports/      # AiUsageReportTab, ai-usage-charts, ai-usage-metric-cards
         │   ├── settings/     # OrgSettings, TeamManagement, ZaloAccessDialog
         │   ├── zalo/         # ZaloAccountCard, ZaloAccountEditDialog, zalo-account-add-dialog
-        │   ├── ai-reports/   # AiProviderSettingsCard, AiAuditRulesCard, AiAuditRuleDialog
+        │   ├── ai-reports/   # AiProviderSettingsCard, AiAuditRulesCard, AiAuditRuleDialog, AiKnowledgeBaseTab, AiKnowledgeRuleDialog, AiReportFeedbackDialog
         │   └── navigation/   # NavUserProfile, nav-menu-items
         ├── layouts/          # DefaultLayout, AuthLayout
         ├── plugins/          # Vuetify 4, Pinia, Socket.IO, Custom Icons registry
@@ -145,7 +151,7 @@ ZaloCRM/
 | **contacts** | Danh bạ khách hàng, phân loại Pipeline 5 trạng thái (`new` → `lost`), tự lành liên kết hội thoại và cập nhật tên Zalo, ràng buộc duy nhất `@@unique([orgId, zaloUid])`, lịch hẹn tư vấn và tiến trình tự động nhắc hẹn qua Socket/Zalo. | `contact-routes.ts`, `contact-sub-resource-routes.ts`, `appointment-routes.ts`, `appointment-reminder.ts` |
 | **orders** | Quản lý đơn hàng bán hàng gắn với contact/conversation, cấp mã đơn hàng tuần tự nguyên tử `ORD-YYYYMMDD-NNN`, chi tiết sản phẩm `OrderItem`, phân quyền điều chỉnh giá/chiết khấu, khóa tài chính `order-invoice-lock.ts` khi đã xuất/đối soát hóa đơn KiotViet, làm tròn tiền VNĐ cấp dòng và phân bổ phần dư, serialize an toàn BigInt/Decimal. | `order-routes.ts`, `order-code-service.ts`, `order-item-validation.ts`, `order-item-totals.ts`, `order-invoice-lock.ts`, `order-response-serializer.ts` |
 | **integrations / kiotviet** | Tích hợp KiotViet Public API: OAuth2 token rotation an toàn (`kiotviet-auth-service.ts`), token bucket rate limiting 180 req/m (`kiotviet-rate-limit-service.ts`), vendor cooldown độc lập (`kiotviet_vendor_cooldown`), distributed optimistic lease (`kiotviet-retailer-lease`), đồng bộ danh mục nền (`kiotviet-catalog-worker.ts`) có trần duyệt 50.000 sản phẩm và cảnh báo Socket.IO, tìm kiếm sản phẩm phân vùng Postgres (`kiotviet-product-service.ts`), nhận diện khách hàng theo SĐT (`kiotviet-customer-service.ts`), invoice outbox worker với commit pre-dispatch và CAS uncertain reconciliation (`kiotviet-invoice-service.ts`, `kiotviet-invoice-worker.ts`, `kiotviet-invoice-reconciliation.ts`). | `kiotviet-routes.ts`, `kiotviet-client.ts`, `kiotviet-types.ts`, `kiotviet-serializer.ts`, `kiotviet-settings-service.ts`, `kiotviet-auth-service.ts`, `kiotviet-rate-limit-service.ts`, `kiotviet-catalog-worker.ts`, `kiotviet-product-service.ts`, `kiotviet-customer-service.ts`, `kiotviet-invoice-service.ts`, `kiotviet-invoice-mapper.ts`, `kiotviet-invoice-worker.ts`, `kiotviet-invoice-reconciliation.ts` |
-| **ai-reports & telemetry** | Động cơ AI Multi-Provider (DeepSeek Primary, Gemini, OpenAI, Local Gateway) với DeepSeek-V4.1-Flash Native Multimodal, chuỗi failover 3 tầng (DeepSeek -> Gemini -> OpenAI), single-layer budget reservation với tính toán đầy đủ system instruction & giải phóng token khi fail attempt, Multimodal Burst Sampling (pool 4 worker, trần 12MB), Two-Tier Cross-Verification (Tier 1 đối soát văn bản-ảnh, Tier 2 trích xuất & phát sóng Action Items qua Zalo), Quy tắc giám sát nhóm tự động có non-blocking cron leases (`CronJobLease`), và Hệ thống đo lường token usage/chi phí USD/VND theo thời gian thực. | `ai-report-routes.ts`, `ai-audit-rule-routes.ts`, `ai-audit-rule-service.ts`, `ai-audit-evaluator.ts`, `audit-rule-cron-runner.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `ai-usage-tracker.ts`, `ai-pricing-catalog.ts`, `ai-usage-serializer.ts`, `ai-budget-alert-service.ts`, `attachment-burst-sampler.ts`, `attachment-image-loader.ts`, `report-action-item-parser.ts`, `ai-provider-settings-service.ts`, `ai-gateway-validator.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts` |
+| **ai-reports & telemetry** | Động cơ AI Multi-Provider (DeepSeek Primary, Gemini, OpenAI, Local Gateway) với DeepSeek-V4.1-Flash Native Multimodal, chuỗi failover 3 tầng (DeepSeek -> Gemini -> OpenAI), single-layer budget reservation với tính toán đầy đủ system instruction & giải phóng token khi fail attempt, Multimodal Burst Sampling (pool 4 worker, trần 12MB), Two-Tier Cross-Verification (Tier 1 đối soát văn bản-ảnh, Tier 2 trích xuất & phát sóng Action Items qua Zalo), Quy tắc giám sát nhóm tự động có non-blocking cron leases (`CronJobLease`), Hệ thống Kho Tri Thức 3 Cấp (`AiKnowledgeRule`: Org, Branch, Group) và Vòng lặp phản hồi Admin tự động chắt lọc bài học (`AiReportFeedback`) nạp ngữ cảnh tối ưu ngân sách (< 600 tokens), cùng Hệ thống đo lường token usage/chi phí USD/VND theo thời gian thực. | `ai-report-routes.ts`, `ai-knowledge-routes.ts`, `ai-feedback-routes.ts`, `ai-knowledge-service.ts`, `ai-feedback-distillation-service.ts`, `ai-knowledge-prompt-formatter.ts`, `ai-audit-rule-routes.ts`, `ai-audit-rule-service.ts`, `ai-audit-evaluator.ts`, `audit-rule-cron-runner.ts`, `report-job-service.ts`, `report-job-worker.ts`, `report-job-budget.ts`, `ai-usage-tracker.ts`, `ai-pricing-catalog.ts`, `ai-usage-serializer.ts`, `ai-budget-alert-service.ts`, `attachment-burst-sampler.ts`, `attachment-image-loader.ts`, `report-action-item-parser.ts`, `ai-provider-settings-service.ts`, `ai-gateway-validator.ts`, `summarizer-service.ts`, `zalo-report-sender.ts`, `email-service.ts`, `report-cron.ts` |
 | **attachments** | Khay chờ media (staging), tải lên multipart an toàn, phân lập tệp đính kèm theo thư mục tổ chức `attachments/<orgId>/`, durable background download worker (`AttachmentDownloadJob`) với concurrency `pLimit(5)`, cập nhật `jsonb_set` nguyên tử, đối soát tệp cũ trên đĩa qua toán tử JSONB `@>` có chỉ mục GIN trên `messages.attachments`, di chuyển nguyên tử (.part -> rename) và xóa file gốc dọn đĩa, kiểm tra magic bytes (`image-size`), tạo vé streaming HMAC ngắn hạn (60s) phục vụ Zalo server tải media, cron dọn dẹp tệp mồ côi theo giờ (kèm dọn dẹp outbox 30/90 ngày), tải stream có giới hạn byte, kiểm tra SSRF, trích xuất văn bản từ PDF/Excel đa sheet kèm bộ lọc Unicode null byte (Postgres 22P05). | `attachment-routes.ts`, `attachment-validator.ts`, `attachment-ticket-service.ts`, `attachment-legacy-migration.ts`, `orphan-cleanup-task.ts`, `attachment-downloader.ts`, `attachment-parser.ts`, `attachment-processor.ts`, `attachment-download-worker.ts`, `attachment-json-sanitizer.ts`, `attachment-parser-worker.ts` |
 | **dashboard & reports** | Thống kê tin nhắn theo ngày, KPI nhân viên bán hàng, Thẻ KPI chi phí AI (`AiCostKpiCard`), Tab báo cáo chi tiết sử dụng AI, biểu đồ tăng trưởng đường ống và nguồn khách, bộ lọc thời gian nâng cao, xuất báo cáo tổng hợp ra file Excel (gồm cả sheet chi phí AI). | `dashboard-routes.ts`, `dashboard-ai-kpi-handler.ts`, `report-routes.ts`, `report-ai-usage-handler.ts`, `excel-sheet-builders.ts`, `ai-report-sheet-builder.ts` |
 | **api** | Cung cấp Public REST API xác thực bằng SHA-256 `publicApiKeyHash` (loại bỏ lưu trữ plaintext), giới hạn đầu vào 10.000 ký tự tin nhắn, và hệ thống Webhook Outbox bền vững (`WebhookOutbox`) kích hoạt sự kiện bên ngoài với chữ ký HMAC SHA-256, exponential backoff và Dead-Letter Queue. | `public-api-routes.ts`, `public-api-schemas.ts`, `webhook-settings-routes.ts`, `webhook-service.ts` |
@@ -352,6 +358,15 @@ POST   /api/v1/ai-reports/rules               # Tạo quy tắc giám sát mới
 PUT    /api/v1/ai-reports/rules/:id           # Cập nhật quy tắc giám sát (Owner/Admin)
 DELETE /api/v1/ai-reports/rules/:id           # Xóa quy tắc giám sát (Owner/Admin)
 POST   /api/v1/ai-reports/rules/:id/run-now   # Kích hoạt đánh giá tức thì (Run Now, Owner/Admin)
+GET    /api/v1/ai-reports/knowledge-rules     # Danh sách quy tắc tri thức 3 cấp (Owner/Admin)
+POST   /api/v1/ai-reports/knowledge-rules     # Thêm mới quy tắc tri thức thủ công (Owner/Admin)
+PUT    /api/v1/ai-reports/knowledge-rules/:id # Cập nhật quy tắc tri thức (Owner/Admin)
+DELETE /api/v1/ai-reports/knowledge-rules/:id # Xóa quy tắc tri thức (Owner/Admin)
+PATCH  /api/v1/ai-reports/knowledge-rules/:id/toggle # Bật/tắt nhanh quy tắc tri thức (Owner/Admin)
+GET    /api/v1/ai-reports/knowledge-branches  # Danh sách thẻ chi nhánh đã sử dụng (Owner/Admin)
+POST   /api/v1/ai-reports/reports/:id/feedback # Gửi góp ý báo cáo & tự động chắt lọc quy tắc (Owner/Admin)
+GET    /api/v1/ai-reports/reports/:id/feedbacks # Lịch sử góp ý của một báo cáo (Owner/Admin)
+GET    /api/v1/ai-reports/feedbacks           # Danh sách toàn bộ góp ý trong tổ chức (Owner/Admin)
 ```
 
 ### 4.12. Thông Báo (Hybrid Real-Time Notifications) & Tìm Kiếm

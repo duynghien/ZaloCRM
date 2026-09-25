@@ -78,7 +78,9 @@ export class GeminiProvider implements AiProvider {
 
     try {
       if (options.signal?.aborted) throw new Error('Generation aborted');
-      await runReportExecutionGuard(options.executionGuard);
+      if (options.executionGuard) {
+        await runReportExecutionGuard(options.executionGuard);
+      }
 
       const contents = this.formatContents(prompt, options.systemInstruction);
       const response = await ai.models.generateContent({
@@ -87,6 +89,7 @@ export class GeminiProvider implements AiProvider {
         config: {
           temperature: options.temperature ?? 0.2,
           maxOutputTokens: options.maxOutputTokens ?? 8192,
+          ...(options.responseMimeType ? { responseMimeType: options.responseMimeType } : {}),
         },
       });
 
@@ -110,7 +113,7 @@ export class GeminiProvider implements AiProvider {
         });
       }
 
-      if (options.attemptKey) {
+      if (options.attemptKey && options.budget) {
         await options.budget.complete(options.attemptKey, {
           inputTokens,
           outputTokens,

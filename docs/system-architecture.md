@@ -52,7 +52,7 @@ graph TD
 - **Kiên cường kết nối & Chống Flapping:** Cơ chế retry exponential backoff tường minh `[30s, 2m, 5m]` cho các lỗi mạng tạm thời mà không gán `qr_pending` tức thì; chỉ chuyển `qr_pending` khi vượt quá 3 lần thử thất bại liên tiếp hoặc gặp lỗi fatal auth (`isFatalAuthError`). Duy trì circuit breaker `disconnectHistory` (cửa sổ trượt 5 phút) để bảo vệ tài khoản khi socket bị flapping liên tục.
 
 ### 2.4. Data Storage & Persistence (PostgreSQL 16 + Prisma 7 ORM)
-- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 37 Data Models phân tách theo nghiệp vụ:
+- **PostgreSQL 16:** Cơ sở dữ liệu quan hệ chính với 39 Data Models phân tách theo nghiệp vụ:
   - *Đa tổ chức & Người dùng:* `Organization`, `Team`, `User`
   - *Phiên xác thực bền vững:* `AuthSession` (lưu SHA-256 hash của refresh token, quản lý xoay vòng và family revocation)
   - *Tài khoản Zalo & Phân quyền:* `ZaloAccount` (hỗ trợ `branchTag`, `colorTag`, lưu session mã hóa AES-256-GCM), `ZaloAccountAccess` (quyền read, chat, admin)
@@ -61,6 +61,7 @@ graph TD
   - *Đơn hàng & Cấp mã tuần tự:* `Order`, `OrderItem`, `OrderCodeCounter` (cấp mã nguyên tử theo org/ngày UTC)
   - *Thông báo & Hoạt động:* `Notification`, `ActivityLog`, `DailyMessageStat`
   - *Báo cáo Điều hành AI Digest v2:* `GroupReportConfig`, `GeneratedReport`, `AiReportJob`, `AiReportJobDispatch`, `AiReportBudgetReservation`, `AiReportResend`, `AiReportResendDispatch`
+  - *Kho Tri Thức & Phản Hồi AI 3 Cấp:* `AiKnowledgeRule` (quản trị tri thức 3 cấp: Org, Branch, Group; 5 phân loại: personnel, sop, terminology, correction, general), `AiReportFeedback` (nhật ký góp ý Admin và tự động chắt lọc quy tắc tri thức)
   - *AI Telemetry & Đo lường Chi phí:* `AiUsageLog` (nhật ký giao dịch token từng tác vụ AI), `DailyAiUsageStat` (tổng hợp chi phí ngày atomic UTC+7)
   - *KiotViet Integration & Distributed Outbox:* `KiotvietProduct`, `KiotvietSyncState`, `KiotvietRateLimitBucket`, `KiotvietRetailerLease`, `KiotvietInvoiceJob`, `KiotvietVendorCooldown`
   - *Zalo Distributed Rate & Outbox:* `ZaloAccountRateState` (trạng thái rate limit durable xuyên vòng đời tiến trình), `ZaloOutboundMessage` (outbox gửi tin cậy và chống trùng lặp)
@@ -328,11 +329,48 @@ sequenceDiagram
   - Bảng `kiotviet_retailer_leases`: Đảm bảo chỉ có tối đa 1 worker xử lý danh mục hoặc hóa đơn cho mỗi `retailer` tại một thời điểm (sử dụng cơ chế CAS optimistic lease).
   - Bảng `kiotviet_rate_limit_buckets`: Quản lý hạn mức gọi API KiotViet (mặc định 180 req/phút/retailer), tự động backoff khi gặp mã 429 từ nhà cung cấp.
 
-### 3.2. Luồng Mã Hóa & Bảo Mật Phiên Zalo (Session Encryption Flow)
-1. Khi người dùng quét mã QR thành công, `zca-js` trả về đối tượng `sessionData` chứa `cookie`, `imei`, `userAgent`.
-2. Hệ thống gọi `encryptData(sessionData, ENCRYPTION_KEY)` mã hóa chuỗi JSON thành binary bằng thuật toán `AES-256-GCM` với IV ngẫu nhiên và Auth Tag.
-3. Chuỗi mã hóa được lưu vào cột `session_data` trong bảng `zalo_accounts`.
-4. Khi khởi động lại hệ thống, hàm `decryptData` sử dụng `ENCRYPTION_KEY` để giải mã dữ liệu an toàn.
+### 3.3. Luồng Học Hỏi Liên Tục & Nạp Tri Thức Báo Cáo AI (Continuous Learning & Knowledge Injection Flow)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as Quản trị viên (Owner/Admin)
+    participant UI as Vue 3 UI (AiReportsView)
+    participant API as Fastify (aiFeedbackRoutes / aiKnowledgeRoutes)
+    participant Engine as Distillation Engine (Low-latency LLM)
+    participant DB as PostgreSQL (AiKnowledgeRule, AiReportFeedback)
+    participant Summarizer as Report Engine (summarizer-service / ai-audit-evaluator)
+
+    Admin->>UI: Xem báo cáo AI & Bấm "Góp ý & Dạy AI"
+    UI->>API: POST /api/v1/ai-reports/reports/:id/feedback
+    API->>DB: Lưu AiReportFeedback (status = 'pending')
+    API->>Engine: Gửi prompt chắt lọc quy tắc (temperature: 0.1)
+    alt AI chắt lọc thành công
+        Engine-->>API: JSON: { title, content, category, scope }
+        API->>DB: INSERT AiKnowledgeRule (isActive = true)
+        API->>DB: UPDATE AiReportFeedback (status = 'distilled', distilledRuleId)
+    else AI thất bại / 429 / Parse Error
+        API->>DB: INSERT AiKnowledgeRule (category = 'correction', content = raw_comment)
+        API->>DB: UPDATE AiReportFeedback (status = 'distilled', fallback = true)
+    end
+    API-->>UI: 201 Created (feedback + distilledRule)
+    UI-->>Admin: Hiển thị quy tắc chắt lọc tức thì & Kích hoạt thành công
+
+    Note over Summarizer,DB: Lần tạo báo cáo / thẩm định tiếp theo
+    Summarizer->>DB: fetchHierarchicalKnowledge(orgId, branchTag, groupThreadId)
+    DB-->>Summarizer: Danh sách quy tắc 3 tầng (isActive = true)
+    Summarizer->>Summarizer: sanitizeRuleContent & enforceTokenBudget (< 600 tokens)
+    Summarizer->>Summarizer: Đóng gói thẻ <verified_operational_knowledge>
+    Summarizer->>Engine: Prompt tổng hợp kèm tri thức vận hành đã thẩm định
+```
+
+- **Phân Cấp Tri Thức 3 Tầng (3-Tier Hierarchical Knowledge):**
+  - **Tier 1 (Org-level):** Tri thức toàn hệ thống, áp dụng cho mọi báo cáo và mọi nhóm.
+  - **Tier 2 (Branch-level):** Khớp theo `branchTag` của tài khoản Zalo hoặc chi nhánh.
+  - **Tier 3 (Group-level):** Khớp theo `groupThreadId` của nhóm chat cụ thể.
+- **Bảo Vệ Ngân Sách Token & Chống Prompt Injection:**
+  - Quy tắc được lọc sạch các thẻ đóng `</verified_operational_knowledge>` và `<![CDATA[` để triệt tiêu nguy cơ prompt escape.
+  - Giới hạn tối đa 15 quy tắc và ngân sách 600 tokens/lần gọi. Khi vượt ngân sách, thuật toán tự động cắt giảm từ tầng thấp nhất (Org) theo nguyên tắc LIFO để luôn bảo lưu tri thức đặc thù của Nhóm và Chi nhánh.
 
 ---
 

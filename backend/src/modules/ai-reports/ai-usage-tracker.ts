@@ -10,7 +10,7 @@ import {
 export interface RecordAiUsageOptions {
   orgId: string;
   userId?: string | null;
-  taskType: 'copilot' | 'executive_report' | 'audit_rule' | 'vision_ocr' | 'test_connection' | string;
+  taskType: 'copilot' | 'executive_report' | 'audit_rule' | 'vision_ocr' | 'test_connection' | 'knowledge_distillation' | string;
   provider: string;
   model: string;
   usage?: TokenUsageInput;

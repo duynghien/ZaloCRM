@@ -41,6 +41,12 @@ vi.mock('../src/shared/database/prisma-client.js', () => ({
       create: vi.fn(),
       update: vi.fn(),
     },
+    zaloAccount: {
+      findUnique: vi.fn(),
+    },
+    aiKnowledgeRule: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     $transaction: vi.fn(async (cb) => cb(prisma)),
     $queryRaw: vi.fn(),
   },

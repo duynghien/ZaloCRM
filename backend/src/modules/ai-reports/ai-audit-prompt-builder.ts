@@ -6,13 +6,14 @@ export interface AuditPromptParams {
   personnel: string[];
   formattedMessages: string;
   imageCount: number;
+  operationalKnowledge?: string;
 }
 
 /**
  * Builds instructions and context for multimodal audit evaluation with fuzzy matching.
  */
 export function buildAuditPrompt(params: AuditPromptParams): string {
-  const { rule, groupName, personnel, formattedMessages, imageCount } = params;
+  const { rule, groupName, personnel, formattedMessages, imageCount, operationalKnowledge } = params;
 
   let templateGuidance = '';
   switch (rule.templateType) {
@@ -39,12 +40,17 @@ export function buildAuditPrompt(params: AuditPromptParams): string {
       ? personnel.map((p, i) => `${i + 1}. ${p}`).join('\n')
       : '(Chưa có danh sách cố định - hãy phát hiện tất cả nhân sự xuất hiện hoặc gửi thông tin trong nhóm)';
 
+  const knowledgeSection = operationalKnowledge
+    ? `\n=== TRI THỨC VẬN HÀNH & QUY ĐỊNH ĐÃ XÁC NHẬN ===\n${operationalKnowledge}\nBẮT BUỘC áp dụng các quy định nhân sự/SOP trong thẻ <verified_operational_knowledge> khi đánh giá tính tuân thủ.\n`
+    : '';
+
   return `Bạn là Chuyên viên Kiểm toán & Giám sát Tuân thủ AI cấp cao của doanh nghiệp.
 Nhiệm vụ của bạn là thẩm định và đánh giá tính tuân thủ báo cáo trong nhóm Zalo "${groupName}" tính đến mốc thời gian chốt: ${rule.runTime}.
 
 === TIÊU CHÍ NGHIỆP VỤ ===
 ${templateGuidance}
 ${rule.customPrompt && rule.templateType !== 'custom' ? `Yêu cầu bổ sung:\n${rule.customPrompt}` : ''}
+${knowledgeSection}
 
 === QUY TẮC ĐỐI CHIẾU NHÂN SỰ & DANH TÍNH (FUZZY & ALIAS MATCHING) ===
 - Danh sách nhân sự cần kiểm tra (${personnel.length} người):

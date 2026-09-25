@@ -19,6 +19,10 @@ import {
   AuditEvaluationParseError,
 } from './ai-audit-evaluator-helpers.js';
 import { buildAuditPrompt } from './ai-audit-prompt-builder.js';
+import {
+  fetchHierarchicalKnowledge,
+  formatKnowledgeForPrompt,
+} from './knowledge/ai-knowledge-prompt-formatter.js';
 
 export interface EvaluateAuditRuleOptions {
   isTestRun?: boolean;
@@ -126,12 +130,24 @@ export async function evaluateAuditRule(
 
   let rawAiOutput = '';
   try {
+    let branchTag: string | null = null;
+    if (rule.zaloAccountId) {
+      const acc = await prisma.zaloAccount.findUnique({
+        where: { id: rule.zaloAccountId },
+        select: { branchTag: true },
+      });
+      branchTag = acc?.branchTag || null;
+    }
+    const knowledgeRules = await fetchHierarchicalKnowledge(orgId, branchTag, rule.groupThreadId);
+    const operationalKnowledge = formatKnowledgeForPrompt(knowledgeRules);
+
     const promptText = buildAuditPrompt({
       rule,
       groupName,
       personnel,
       formattedMessages,
       imageCount: imageParts.length,
+      operationalKnowledge: operationalKnowledge || undefined,
     });
     const promptParts: ContentPart[] = [{ text: promptText }, ...imageParts];
 

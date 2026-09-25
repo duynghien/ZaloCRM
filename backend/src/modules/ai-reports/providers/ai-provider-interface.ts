@@ -55,13 +55,14 @@ export class IncompleteAiGenerationError extends Error {
 }
 
 export interface GenerateOptions {
-  budget: ReportJobBudget;
+  budget?: ReportJobBudget;
   attemptKey?: string;
-  executionGuard: () => Promise<void>;
+  executionGuard?: () => Promise<void>;
   signal?: AbortSignal;
   systemInstruction?: string;
   temperature?: number;
   maxOutputTokens?: number;
+  responseMimeType?: string;
   orgId?: string;
   taskType?: string;
   onUsage?: (usage: UsageTelemetry) => void;

@@ -88,7 +88,9 @@ export class AiProviderRouter implements AiProvider {
   }
 
   async generateContent(prompt: string | ContentPart[], options: GenerateOptions): Promise<string> {
-    await runReportExecutionGuard(options.executionGuard);
+    if (options.executionGuard) {
+      await runReportExecutionGuard(options.executionGuard);
+    }
 
     const primary = this.providers.get(this.primaryProviderKey);
     if (!primary && this.providers.size === 0) {
@@ -140,7 +142,9 @@ export class AiProviderRouter implements AiProvider {
       const { key, provider, isFallback } = attempts[attemptIdx];
 
       if (options.signal?.aborted) throw new Error('Generation aborted');
-      await runReportExecutionGuard(options.executionGuard);
+      if (options.executionGuard) {
+        await runReportExecutionGuard(options.executionGuard);
+      }
 
       // Preprocess prompt if provider does not support vision
       const failedTypes = attempts.slice(0, attemptIdx).map((a) => a.provider.type);
@@ -152,12 +156,17 @@ export class AiProviderRouter implements AiProvider {
         options,
       );
 
-      // Explicit per-attempt token estimation & budget reservation
+      // Explicit per-attempt token estimation & budget reservation (if budget provided)
       const inputTokens = await provider.estimateTokens(preprocessedPrompt, options.systemInstruction);
-      const requestedOutputTokens = options.maxOutputTokens ?? 8192;
-      const reservation = await options.budget.reserve(inputTokens, requestedOutputTokens);
-      const currentAttemptKey = reservation.attemptKey;
-      const currentMaxOutputTokens = reservation.maxOutputTokens;
+      let currentAttemptKey: string | undefined;
+      let currentMaxOutputTokens: number = options.maxOutputTokens ?? 8192;
+
+      if (options.budget) {
+        const requestedOutputTokens = options.maxOutputTokens ?? 8192;
+        const reservation = await options.budget.reserve(inputTokens, requestedOutputTokens);
+        currentAttemptKey = reservation.attemptKey;
+        currentMaxOutputTokens = reservation.maxOutputTokens;
+      }
 
       try {
         const result = await provider.generateContent(preprocessedPrompt, {
@@ -199,7 +208,9 @@ export class AiProviderRouter implements AiProvider {
         const actualInput = Number.isSafeInteger(actualUsage?.inputTokens) && actualUsage.inputTokens >= 0 ? actualUsage.inputTokens : inputTokens;
 
         logger.warn(`[ai-provider-router] Provider ${key} attempt ${attemptIdx + 1} failed: ${err?.message || err}.`);
-        await Promise.resolve(options.budget.failAttempt?.(currentAttemptKey, { inputTokens: actualInput, outputTokens: actualOutput })).catch(() => {});
+        if (options.budget && currentAttemptKey) {
+          await Promise.resolve(options.budget.failAttempt?.(currentAttemptKey, { inputTokens: actualInput, outputTokens: actualOutput })).catch(() => {});
+        }
       }
     }
 

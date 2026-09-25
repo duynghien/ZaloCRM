@@ -93,6 +93,22 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
   - **Báo cáo sử dụng chi tiết (`AiUsageReportTab.vue`):** Biểu đồ phân bổ chi phí theo mô hình AI và tính năng nghiệp vụ, bảng kê chi tiết lượt gọi API có phân trang và bộ lọc theo khoảng thời gian.
   - **Xuất dữ liệu Excel:** Hỗ trợ xuất toàn bộ dữ liệu thống kê ra file Excel `.xlsx` phục vụ công tác đối soát kế toán và lập kế hoạch ngân sách (`GET /api/v1/reports/export?type=ai-usage`).
 
+### 3.11. Phân hệ Học Hỏi Liên Tục & Kho Tri Thức Vận Hành 3 Cấp (Continuous Learning & 3-Tier Knowledge Base)
+- **Quản trị Tri thức 3 Tầng Phân Cấp (3-Tier Operational Hierarchy):**
+  - **Cấp 1 - Toàn hệ thống (Organization / System-wide):** Quy chuẩn thương hiệu, văn phong điều hành, từ khóa thuật ngữ & chữ viết tắt F&B chung (`scope = 'org'`).
+  - **Cấp 2 - Chi nhánh (Branch-level):** Khớp theo `branchTag` của tài khoản Zalo hoặc chi nhánh, lưu trữ quy định ca kíp, phân luồng kho/kế toán cơ sở (`scope = 'branch'`).
+  - **Cấp 3 - Nhóm Zalo cụ thể (Group-specific):** Khớp theo `groupThreadId`, lưu trữ danh sách nhân sự thực tế (Bếp trưởng, Thu ngân, Pha chế, Quản lý ca) và các SOP/quy ước nội bộ nhóm (`scope = 'group'`).
+- **Vòng lặp Phản hồi Admin & Tự Động Chắt Lọc Quy Tắc (Admin Feedback & Auto-Distillation):**
+  - Quản trị viên (`owner`, `admin`) có thể gửi góp ý, đính chính trực tiếp ngay trên từng báo cáo AI (`POST /api/v1/ai-reports/reports/:reportId/feedback`).
+  - Động cơ chắt lọc quy tắc phân tích sự sai lệch giữa báo cáo gốc và ý kiến chỉ đạo của quản lý, tự động cô đọng thành quy tắc chuẩn hóa ngắn gọn (< 40 từ) và **tự động kích hoạt ngay** (`isActive: true`).
+  - Cơ chế dự phòng an toàn (Safe Fallback): nếu mô hình AI gặp sự cố hoặc trả về phản hồi sai cấu trúc, hệ thống tự động lưu trữ quy tắc dạng đính chính (`category: 'correction'`) từ góp ý thô của Admin mà không làm gián đoạn hay trả lỗi 500.
+- **Tiêm Ngữ Cảnh Kiểm Soát Ngân Sách Token (Budget-Aware Context Injection):**
+  - Nạp quy tắc phù hợp qua thẻ chuẩn hóa `<verified_operational_knowledge>` vào prompt của Tier 1 (Tóm tắt nhóm), Tier 2 (Điều hành tổng hợp COO) và AI Group Audit.
+  - Kiểm soát nghiêm ngặt ngân sách token (< 600 tokens/lần gọi) với cơ chế ưu tiên: Group > Branch > Org, luật mới nhất ưu tiên cao hơn. Lọc sạch thẻ đóng và CDATA chống Prompt Injection.
+- **Giao Diện Quản Trị Trực Quan Chuẩn Neo-Brutalism CQA:**
+  - Tab 5 *"Tài liệu cho AI"* (`AiKnowledgeBaseTab.vue`) tích hợp trong `AiReportsView.vue` với bộ lọc đa chiều (Cấp độ, Phân loại, Tìm kiếm từ khóa), công tắc Bật/Tắt tức thì và modal thêm/sửa quy tắc thủ công (`AiKnowledgeRuleDialog.vue`).
+  - Modal góp ý trực tiếp (`AiReportFeedbackDialog.vue`) cho phép xem ngay quy tắc vừa được AI chắt lọc thành công trước khi đóng.
+
 ---
 
 ## 4. Yêu Cầu Phi Chức Năng (Non-Functional Requirements)

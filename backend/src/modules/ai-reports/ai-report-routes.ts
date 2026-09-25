@@ -32,6 +32,8 @@ import { validateAiGatewayUrl } from './ai-gateway-validator.js';
 import { fetchProviderModelList } from './ai-model-catalog-service.js';
 import { recordAiUsage } from './ai-usage-tracker.js';
 import { aiAuditRuleRoutes } from './ai-audit-rule-routes.js';
+import { aiKnowledgeRoutes } from './knowledge/ai-knowledge-routes.js';
+import { aiFeedbackRoutes } from './knowledge/ai-feedback-routes.js';
 import './ai-audit-evaluator.js';
 
 interface GenerateBody {
@@ -94,6 +96,8 @@ export async function aiReportRoutes(app: FastifyInstance) {
   app.addHook('preHandler', async request => validateReportHttpRequest(request));
 
   await app.register(aiAuditRuleRoutes);
+  await app.register(aiKnowledgeRoutes);
+  await app.register(aiFeedbackRoutes);
 
   // ── 1. List all Zalo groups with their monitoring config status ──────────────
   app.get('/api/v1/ai-reports/groups', async (request: FastifyRequest) => {

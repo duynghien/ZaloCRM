@@ -38,6 +38,8 @@ model Organization {
   kiotvietInvoiceJobs      KiotvietInvoiceJob[]
   orderItems               OrderItem[]
   zaloOutboundMessages     ZaloOutboundMessage[]
+  aiKnowledgeRules         AiKnowledgeRule[]
+  aiReportFeedbacks        AiReportFeedback[]
 
   @@map("organizations")
 }
@@ -81,7 +83,9 @@ model User {
   reportJobs       AiReportJob[]       @relation("CreatedReportJobs")
   authSessions     AuthSession[]
   aiUsageLogs      AiUsageLog[]
-  notifications    Notification[]
+  notifications         Notification[]
+  createdKnowledgeRules AiKnowledgeRule[]   @relation("CreatedKnowledgeRules")
+  aiReportFeedbacks     AiReportFeedback[]
 
   @@unique([orgId, id])
   @@map("users")
@@ -391,8 +395,10 @@ model GeneratedReport {
 
   org       Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
   createdBy User?            @relation("CreatedReports", fields: [createdById], references: [id])
-  job       AiReportJob?     @relation("ResultReport")
-  resends   AiReportResend[]
+  job                  AiReportJob?        @relation("ResultReport")
+  resends              AiReportResend[]
+  sourceKnowledgeRules AiKnowledgeRule[]   @relation("SourceReportRules")
+  reportFeedbacks      AiReportFeedback[]
 
   @@index([orgId, createdAt])
   @@map("generated_reports")
@@ -894,5 +900,61 @@ model WebhookOutbox {
   @@index([status, nextAttemptAt])
   @@map("webhook_outbox")
 }
+
+// Operational Knowledge Rules (3-Tier Hierarchy: Org, Branch, Group)
+model AiKnowledgeRule {
+  id             String   @id @default(uuid())
+  orgId          String   @map("org_id")
+  scope          String   @default("org") // 'org' | 'branch' | 'group'
+  branchTag      String?  @map("branch_tag")
+  groupThreadId  String?  @map("group_thread_id")
+  zaloAccountId  String?  @map("zalo_account_id")
+  category       String   @default("general") // 'personnel' | 'sop' | 'terminology' | 'correction' | 'general'
+  title          String
+  ruleContent    String   @map("rule_content") @db.Text
+  isActive       Boolean  @default(true) @map("is_active")
+  sourceReportId String?  @map("source_report_id")
+  createdById    String?  @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  org           Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdByUser User?              @relation("CreatedKnowledgeRules", fields: [createdById], references: [id], onDelete: SetNull)
+  sourceReport  GeneratedReport?   @relation("SourceReportRules", fields: [sourceReportId], references: [id], onDelete: SetNull)
+  feedbacks     AiReportFeedback[]
+
+  @@unique([orgId, id])
+  @@index([orgId, scope, isActive])
+  @@index([orgId, groupThreadId, isActive])
+  @@index([orgId, branchTag, isActive])
+  @@map("ai_knowledge_rules")
+}
+
+// Admin Feedback & Knowledge Distillation Log
+model AiReportFeedback {
+  id              String   @id @default(uuid())
+  orgId           String   @map("org_id")
+  reportId        String   @map("report_id")
+  userId          String   @map("user_id")
+  sectionKey      String   @default("general") @map("section_key") // 'highlights' | 'completed' | 'blockers' | 'metrics' | 'actions' | 'general'
+  originalSnippet String   @map("original_snippet") @db.Text
+  feedbackComment String   @map("feedback_comment") @db.Text
+  targetScope     String   @default("group") @map("target_scope") // 'org' | 'branch' | 'group'
+  branchTag       String?  @map("branch_tag")
+  groupThreadId   String?  @map("group_thread_id")
+  status          String   @default("pending") // 'pending' | 'distilled' | 'manual_rule' | 'dismissed'
+  distilledRuleId String?  @map("distilled_rule_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  org           Organization     @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  report        GeneratedReport  @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  distilledRule AiKnowledgeRule? @relation(fields: [distilledRuleId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, reportId])
+  @@index([orgId, status])
+  @@map("ai_report_feedbacks")
+}
+
 
 

@@ -14,6 +14,11 @@ import { extractLoadedPhotoCandidates } from './attachment-image-loader.js';
 import { extractVisualFacts, formatVerifiedFactsForPrompt } from './visual-fact-extractor.js';
 import { parseActionItemsFromMarkdown, type ReportActionItem } from './report-action-item-parser.js';
 import type { FallbackTelemetry } from './providers/ai-provider-interface.js';
+import {
+  fetchHierarchicalKnowledge,
+  fetchMultiBranchKnowledge,
+  formatKnowledgeForPrompt,
+} from './knowledge/ai-knowledge-prompt-formatter.js';
 
 export interface GenerateReportParams {
   orgId: string;
@@ -62,6 +67,7 @@ async function summarizeGroupMessages(
   orgId?: string,
   signal?: AbortSignal,
   onFallback?: (telemetry: FallbackTelemetry) => void,
+  operationalKnowledge?: string,
 ): Promise<string> {
   await runReportExecutionGuard(executionGuard);
   if (messages.length === 0 && !formattedFacts) {
@@ -77,10 +83,14 @@ async function summarizeGroupMessages(
         : '';
     const customHint = customPrompt ? `\nYêu cầu trọng tâm bổ sung: ${customPrompt}` : '';
     const factsBlock = formattedFacts ? `\n${formattedFacts}\n` : '';
+    const knowledgeBlock = operationalKnowledge ? `\n${operationalKnowledge}\n` : '';
+    const knowledgeRequirement = operationalKnowledge
+      ? '\n7. BẮT BUỘC tuân thủ các quy tắc trong thẻ <verified_operational_knowledge> khi phân tích vai trò nhân sự, quy trình làm việc và số liệu.'
+      : '';
 
     const promptText = `Bạn là trợ lý AI chuyên nghiệp phân tích dữ liệu nhóm làm việc Zalo.
 Hãy đọc nội dung trao đổi sau đây của nhóm "${groupName}" và trích xuất tóm tắt ngắn gọn, mạch lạc:
-${factsBlock}
+${factsBlock}${knowledgeBlock}
 <untrusted_user_messages>
 ${transcript}
 </untrusted_user_messages>
@@ -101,7 +111,7 @@ YÊU CẦU:
      * Nếu nhân viên báo cáo số liệu (ví dụ: hủy 280gr kem) nhưng trong thẻ <verified_visual_evidence> ghi nhận "KHÔNG CÓ CÂN, KHÔNG CÓ MÀN HÌNH ĐO":
        CẤM TUYỆT ĐỐI không được tự bịa ra chiếc cân hoặc con số đo lường khác (như 320gr).
        Ghi nhận trung thực: "Nhân viên [Tên] báo cáo hủy [số lượng], ảnh đính kèm chỉ chụp hiện vật, thiếu ảnh cân/màn hình đo kiểm chứng".
-     * Nếu phát hiện mâu thuẫn thực sự (ví dụ: màn hình cân ghi nhận số đo khác; hoặc phiếu giao hàng lệch số lượng): ghi nhận rõ sự sai lệch để quản lý kiểm tra.`;
+     * Nếu phát hiện mâu thuẫn thực sự (ví dụ: màn hình cân ghi nhận số đo khác; hoặc phiếu giao hàng lệch số lượng): ghi nhận rõ sự sai lệch để quản lý kiểm tra.${knowledgeRequirement}`;
 
     const tier1NegativeConstraints = `
 QUY TẮC BẮT BUỘC VỀ ĐỊNH DẠNG:
@@ -142,15 +152,19 @@ QUY TẮC BẮT BUỘC VỀ ĐỊNH DẠNG:
     await runReportExecutionGuard(executionGuard);
     const transcript = formatTranscriptForPrompt(chunk);
     const factsBlock = idx === 0 && formattedFacts ? `\n${formattedFacts}\n` : '';
+    const knowledgeBlock = operationalKnowledge ? `\n${operationalKnowledge}\n` : '';
     const photoVerificationHint = idx === 0 && formattedFacts
       ? `\nĐỐI CHIẾU HÌNH ẢNH THỰC TẾ: Đối chiếu nội dung chat với dữ liệu thẻ <verified_visual_evidence>. Tuân thủ nghiêm ngặt nguyên tắc không tự bịa số đo cân khi ảnh không có cân.`
       : '';
+    const knowledgeHint = operationalKnowledge
+      ? `\nQUY TẮC TRI THỨC VẬN HÀNH: BẮT BUỘC tuân thủ các quy định trong thẻ <verified_operational_knowledge> khi phân tích vai trò nhân sự và quy trình.`
+      : '';
     const promptText = `Tóm tắt nhanh các điểm chính trong phần ${idx + 1}/${chunks.length} của nhóm "${groupName}":
-${factsBlock}
+${factsBlock}${knowledgeBlock}
 <untrusted_user_messages>
 ${transcript}
 </untrusted_user_messages>
-${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}${photoVerificationHint}`;
+${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}${photoVerificationHint}${knowledgeHint}`;
 
     const prompt = promptText;
 
@@ -172,11 +186,13 @@ ${customPrompt || ""}\n${focusKeywords?.join(", ") || ""}${photoVerificationHint
 
   // Reduce chunk summaries
   const factsBlock = formattedFacts ? `\n${formattedFacts}\n` : '';
+  const reduceKnowledgeBlock = operationalKnowledge ? `\n${operationalKnowledge}\n` : '';
   const reducePrompt = `Dưới đây là các tóm tắt từng phần của nhóm "${groupName}":
 ${chunkSummaries.join('\n\n')}
-${factsBlock}
+${factsBlock}${reduceKnowledgeBlock}
 Hãy tổng hợp lại thành một bản tóm tắt nhất quán, loại bỏ thông tin trùng lặp, nêu bật công việc hoàn thành, sự cố và số liệu chính.
-ĐẶC BIỆT: Nếu có mục ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ hoặc ghi nhận thiếu chứng từ kiểm chứng / sai lệch từ <verified_visual_evidence>, BẮT BUỘC phải giữ lại đầy đủ mục này trong bản tổng hợp.`;
+ĐẶC BIỆT: Nếu có mục ĐỐI CHIẾU HÌNH ẢNH THỰC TẾ hoặc ghi nhận thiếu chứng từ kiểm chứng / sai lệch từ <verified_visual_evidence>, BẮT BUỘC phải giữ lại đầy đủ mục này trong bản tổng hợp.
+${operationalKnowledge ? 'BẮT BUỘC tuân thủ các quy tắc trong thẻ <verified_operational_knowledge> khi phân tích vai trò nhân sự, quy trình làm việc và số liệu.' : ''}`;
 
   try {
     return await generateContent(reducePrompt, {
@@ -312,6 +328,7 @@ async function synthesizeExecutiveReport(
   orgId?: string,
   signal?: AbortSignal,
   onFallback?: (telemetry: FallbackTelemetry) => void,
+  operationalKnowledge?: string,
 ): Promise<string> {
   await runReportExecutionGuard(executionGuard);
   const fromStr = periodFrom.toLocaleString('vi-VN', {
@@ -341,12 +358,16 @@ async function synthesizeExecutiveReport(
     )
     .join('\n\n');
 
+  const knowledgeSection = operationalKnowledge
+    ? `\nTRI THỨC VẬN HÀNH TOÀN CHUỖI & CHI NHÁNH:\n${operationalKnowledge}\nBẮT BUỘC Giám đốc Vận hành phải nắm bắt và tuân thủ các quy định thương hiệu & chi nhánh trong thẻ <verified_operational_knowledge> khi đưa ra nhận định, đánh giá và phân công hành động.\n`
+    : '';
+
   const prompt = `Bạn là Giám đốc Vận hành (COO) / Cố vấn điều hành cấp cao.
 Nhiệm vụ của bạn là đọc các bản tóm tắt hoạt động từ các nhóm Zalo dưới đây và lập một BẢN BÁO CÁO ĐIỀU HÀNH TỔNG HỢP (Executive Summary) chất lượng cao, chuẩn xác, định hướng hành động.
 
 THỜI GIAN THEO DÕI: Từ ${fromStr} đến ${toStr}
 LOẠI BÁO CÁO: ${reportType === 'daily' ? 'Báo Cáo Ngày' : reportType === 'weekly' ? 'Báo Cáo Tuần' : 'Báo Cáo Theo Yêu Cầu (On-Demand)'}
-
+${knowledgeSection}
 DỮ LIỆU CÁC NHÓM CÔNG VIỆC:
 ${digestContext}
 
@@ -432,8 +453,15 @@ export async function generateDigestReport(params: GenerateReportParams) {
   for (const target of targets) {
     await runReportExecutionGuard(executionGuard);
     const scope = { id: target.conversationId, orgId, zaloAccountId: target.zaloAccountId, externalThreadId: target.groupThreadId, threadType: 'group', zaloAccount: { orgId } };
-    const conversation = await prisma.conversation.findFirst({ where: scope, include: { contact: { select: { fullName: true } } } });
+    const conversation = await prisma.conversation.findFirst({
+      where: scope,
+      include: {
+        contact: { select: { fullName: true } },
+        zaloAccount: { select: { branchTag: true } },
+      },
+    });
     if (!conversation) throw new ReportControlError('Report source changed');
+    const branchTag = conversation.zaloAccount?.branchTag || null;
     const configData = await prisma.groupReportConfig.findFirst({ where: { orgId, zaloAccountId: target.zaloAccountId, groupThreadId: target.groupThreadId, targetResolutionStatus: 'resolved' } });
     const rawMessages = await prisma.message.findMany({
       where: { conversationId: target.conversationId, conversation: scope, sentAt: { gte: periodFrom, lte: periodTo }, isDeleted: false },
@@ -442,16 +470,35 @@ export async function generateDigestReport(params: GenerateReportParams) {
     });
     messageCount += rawMessages.length;
     if (messageCount > config.aiReportMaxMessages) throw new ReportControlError('Report exceeds the configured message budget');
-    materialized.push({ target, configData, rawMessages, groupName: configData?.groupName || conversation.contact?.fullName || `Nhóm ${target.groupThreadId}` });
+    materialized.push({
+      target,
+      configData,
+      rawMessages,
+      groupName: configData?.groupName || conversation.contact?.fullName || `Nhóm ${target.groupThreadId}`,
+      branchTag,
+    });
   }
 
+  const uniqueBranchTags = Array.from(
+    new Set(
+      materialized
+        .map((m) => m.branchTag)
+        .filter((t): t is string => Boolean(t)),
+    ),
+  );
+
   const groupDigests: GroupDigestItem[] = [];
-  for (const { target, configData, rawMessages, groupName } of materialized) {
+  for (const { target, configData, rawMessages, groupName, branchTag } of materialized) {
     await runReportExecutionGuard(executionGuard);
     const cleaned = filterAndFormatMessages(rawMessages);
     const photoCandidates = await extractLoadedPhotoCandidates(rawMessages, 5, { orgId, executionGuard, signal });
     const verifiedFacts = await extractVisualFacts(photoCandidates, { budget, executionGuard, orgId, signal });
     const formattedFacts = formatVerifiedFactsForPrompt(verifiedFacts);
+
+    const groupKnowledgeRules = orgId
+      ? await fetchHierarchicalKnowledge(orgId, branchTag, target.groupThreadId)
+      : [];
+    const operationalKnowledge = formatKnowledgeForPrompt(groupKnowledgeRules);
 
     const summary = await summarizeGroupMessages(
       groupName,
@@ -464,9 +511,15 @@ export async function generateDigestReport(params: GenerateReportParams) {
       orgId,
       signal,
       onFallback,
+      operationalKnowledge,
     );
     groupDigests.push({ ...target, groupName, messageCount: rawMessages.length, filteredCount: cleaned.length, summary });
   }
+
+  const multiBranchKnowledgeRules = orgId
+    ? await fetchMultiBranchKnowledge(orgId, uniqueBranchTags)
+    : [];
+  const executiveKnowledge = formatKnowledgeForPrompt(multiBranchKnowledgeRules);
 
   let summaryContent = await synthesizeExecutiveReport(
     groupDigests,
@@ -478,6 +531,7 @@ export async function generateDigestReport(params: GenerateReportParams) {
     orgId,
     signal,
     onFallback,
+    executiveKnowledge,
   );
   await runReportExecutionGuard(executionGuard);
 

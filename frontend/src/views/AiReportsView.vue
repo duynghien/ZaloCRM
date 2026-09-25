@@ -42,6 +42,10 @@
           <v-icon start>mdi-target</v-icon>
           Quy tắc giám sát
         </v-tab>
+        <v-tab value="knowledge">
+          <v-icon start>mdi-file-document-multiple-outline</v-icon>
+          Tài liệu cho AI
+        </v-tab>
       </v-tabs>
     </v-card>
 
@@ -258,6 +262,16 @@
                   <v-btn color="primary" size="small" prepend-icon="mdi-send-outline" :disabled="!reportCanResend(currentReport)" @click="openResendDialog(currentReport)">
                     Gửi lại
                   </v-btn>
+                  <v-btn
+                    v-if="canManageKnowledge"
+                    color="amber-darken-3"
+                    variant="flat"
+                    size="small"
+                    prepend-icon="mdi-lightbulb-on-outline"
+                    @click="openFeedbackDialog(currentReport)"
+                  >
+                    Góp ý & Dạy AI
+                  </v-btn>
                 </div>
               </div>
 
@@ -473,6 +487,15 @@
                 <v-btn icon="mdi-eye-outline" size="small" variant="text" color="primary" aria-label="Xem chi tiết" @click="viewReportDetail(rep)" />
                 <v-btn icon="mdi-file-pdf-box" size="small" variant="text" color="primary" aria-label="Tải PDF" :loading="Boolean(downloadingPdfIds[rep.id])" @click="handleDownloadPdf(rep.id)" />
                 <v-btn icon="mdi-send-outline" size="small" variant="text" color="secondary" :disabled="!reportCanResend(rep)" aria-label="Gửi lại báo cáo" @click="openResendDialog(rep)" />
+                <v-btn
+                  v-if="canManageKnowledge"
+                  icon="mdi-lightbulb-on-outline"
+                  size="small"
+                  variant="text"
+                  color="amber-darken-3"
+                  aria-label="Góp ý & Dạy AI"
+                  @click="openFeedbackDialog(rep)"
+                />
               </td>
             </tr>
             <tr v-if="reports.length === 0">
@@ -724,6 +747,14 @@
       />
     </div>
 
+    <!-- ── TAB 5: AI KNOWLEDGE BASE ──────────────────────────────────────── -->
+    <div v-if="activeTab === 'knowledge'">
+      <AiKnowledgeBaseTab
+        :groups="groups"
+        :can-manage="canManageKnowledge"
+      />
+    </div>
+
     <!-- ── DIALOG: EDIT GROUP CONFIG ──────────────────────────────────────── -->
     <v-dialog v-model="editGroupDialog" max-width="560">
       <v-card v-if="editingGroup" class="pa-5 chart-card" elevation="0">
@@ -950,6 +981,15 @@
       </v-card>
     </v-dialog>
 
+    <!-- ── DIALOG: AI REPORT FEEDBACK & LEARNING ─────────────────────────── -->
+    <AiReportFeedbackDialog
+      v-model="showFeedbackDialog"
+      :report="feedbackTargetReport"
+      :groups="groups"
+      :available-branches="availableBranches"
+      @feedback-submitted="onFeedbackSubmitted"
+    />
+
     <v-alert v-if="deliveryError" type="warning" variant="tonal" class="mt-4" closable @click:close="deliveryError = ''">
       {{ deliveryError }}
     </v-alert>
@@ -966,6 +1006,10 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import AiProviderSettingsCard from '@/components/ai-reports/AiProviderSettingsCard.vue';
 import AiAuditRulesCard from '@/components/ai-reports/AiAuditRulesCard.vue';
+import AiKnowledgeBaseTab from '@/components/ai-reports/AiKnowledgeBaseTab.vue';
+import AiReportFeedbackDialog from '@/components/ai-reports/AiReportFeedbackDialog.vue';
+import { useAuthStore } from '@/stores/auth';
+import { aiKnowledgeApi, type SubmitReportFeedbackResponse } from '@/api/ai-knowledge-api';
 import { groupPairKey, groupAccountLabel, reportCanResend, resendAttemptKey, completeResendAttempt, resendNeedsReconciliation, markResendAttemptUncertain, reconcileResendAttempt, createDefaultAiProviderSettings, DEFAULT_AI_PROVIDERS } from '@/api/ai-report-view-helpers';
 import {
   aiReportApi,
@@ -977,6 +1021,31 @@ import {
   type AiProviderSettings,
   type ReportActionItem,
 } from '@/api/ai-report-api';
+
+const authStore = useAuthStore();
+const canManageKnowledge = computed(() => authStore.isAdmin);
+
+const availableBranches = ref<string[]>([]);
+const showFeedbackDialog = ref(false);
+const feedbackTargetReport = ref<GeneratedReportItem | null>(null);
+
+function openFeedbackDialog(report: GeneratedReportItem) {
+  feedbackTargetReport.value = report;
+  showFeedbackDialog.value = true;
+}
+
+function onFeedbackSubmitted(_res: SubmitReportFeedbackResponse) {
+  showSnackbar('Đã gửi phản hồi và cập nhật tri thức AI thành công!', 'success');
+}
+
+async function loadAvailableBranches() {
+  try {
+    const res = await aiKnowledgeApi.getAvailableBranches();
+    availableBranches.value = res.branches;
+  } catch (err) {
+    console.error('Lỗi khi tải danh sách chi nhánh:', err);
+  }
+}
 
 const activeTab = ref('generate');
 const deliveryError = ref('');
@@ -1697,6 +1766,7 @@ onMounted(() => {
     .catch(err => { showSnackbar('Không thể tải tài khoản gửi báo cáo', 'error'); loggerError('Load sender accounts', err); });
   loadReports();
   loadSettings();
+  loadAvailableBranches();
   const pendingJobId = sessionStorage.getItem(pendingJobStorageKey);
   if (pendingJobId) {
     activeJobId.value = pendingJobId;
