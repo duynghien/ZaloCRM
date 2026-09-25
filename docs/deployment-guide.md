@@ -74,6 +74,12 @@ docker compose ps
 ```
 `app` và `db` phải healthy, `backup` phải chạy; `migrator` hoàn tất với exit code 0 (xem `docker compose ps -a`). Tên container do Compose project quản lý; dùng tên service trong lệnh vận hành.
 
+> [!NOTE]
+> **Cấu hình Database Healthcheck chuẩn:**
+> Service `db` trong `docker-compose.yml` bắt buộc sử dụng:
+> `test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-crmuser} -d ${DB_NAME:-zalocrm}"]`
+> Tham số `-d ${DB_NAME:-zalocrm}` chỉ định chính xác tên database cần probe. Nếu thiếu `-d`, `pg_isready` sẽ mặc định kết nối vào database trùng tên với user (`crmuser`), làm phát sinh hàng chục ngàn dòng log `FATAL: database "crmuser" does not exist` làm tràn bộ đệm log trên Docker và OrbStack.
+
 > [!IMPORTANT]
 > **Giới Hạn Topology 1 Replica (Quyết định 4):**
 > Phiên bản hiện tại bắt buộc chạy đúng **1 instance** service `app`. Tuyệt đối không scale nhiều replica (`docker compose up --scale app=N` với `N > 1`), vì Zalo SDK quản lý phiên kết nối đơn và Socket.IO hub sử dụng adapter bộ nhớ trong. Deployment gate sẽ tự động từ chối và chặn triển khai nếu phát hiện cấu hình replica > 1 hoặc nhiều hơn 1 container `app` đang chạy.
