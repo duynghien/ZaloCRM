@@ -149,5 +149,21 @@ describe('Conversation Tags Frontend Tests', () => {
       await unassignTag('conv-1', 't-count');
       expect(tags.value[0]._count?.assignments).toBe(2);
     });
+
+    it('updates an existing tag locally and preserves sorting', async () => {
+      const { tags, updateTag } = useConversationTags();
+      tags.value = [
+        { id: 't1', orgId: 'org-1', name: 'Bắt đầu', color: '#10B981', createdAt: '', updatedAt: '' },
+      ];
+
+      vi.mocked(api.put).mockResolvedValueOnce({
+        data: { id: 't1', orgId: 'org-1', name: 'Đã hoàn thành', color: '#0068FF', createdAt: '', updatedAt: '' },
+      });
+
+      const updated = await updateTag('t1', { name: 'Đã hoàn thành', color: '#0068FF' });
+      expect(updated.name).toBe('Đã hoàn thành');
+      expect(tags.value[0].name).toBe('Đã hoàn thành');
+      expect(tags.value[0].color).toBe('#0068FF');
+    });
   });
 });

@@ -2,25 +2,26 @@
 import { ref, computed } from 'vue';
 import { useConversationTags } from '../../composables/use-conversation-tags';
 import ConversationTagDialog from './ConversationTagDialog.vue';
+import ConversationTagMenuItem from './ConversationTagMenuItem.vue';
 import type { Conversation } from '../../composables/use-chat';
 import type { ConversationTag } from '../../api/conversation-tag-api';
 
-const props = defineProps<{
-  conversation: Conversation;
-}>();
-
-const { tags, assignTag, unassignTag, createTag } = useConversationTags();
+const props = defineProps<{ conversation: Conversation }>();
+const { tags, assignTag, unassignTag, createTag, updateTag, deleteTag } = useConversationTags();
 
 const isOpen = ref(false);
-const showCreateDialog = ref(false);
+const showDialog = ref(false);
+const editingTag = ref<ConversationTag | null>(null);
+const searchQuery = ref('');
 const errorMsg = ref<string | null>(null);
 const loadingTagId = ref<string | null>(null);
 
-const assignedTagIds = computed(() => {
-  return new Set((props.conversation.tags || []).map((t) => t.tagId));
-});
-
+const assignedTagIds = computed(() => new Set((props.conversation.tags || []).map((t) => t.tagId)));
 const assignedCount = computed(() => assignedTagIds.value.size);
+const filteredTags = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase();
+  return q ? tags.value.filter((t) => t.name.toLowerCase().includes(q)) : tags.value;
+});
 
 function isAssigned(tagId: string): boolean {
   return assignedTagIds.value.has(tagId);
@@ -46,100 +47,146 @@ async function toggleTag(tag: ConversationTag) {
   }
 }
 
-async function handleCreateTag(data: { name: string; color: string; description?: string }) {
+function openCreateDialog() {
+  isOpen.value = false;
+  editingTag.value = null;
+  showDialog.value = true;
+}
+
+function openEditDialog(tag: ConversationTag, event: Event) {
+  event.stopPropagation();
+  isOpen.value = false;
+  editingTag.value = tag;
+  showDialog.value = true;
+}
+
+async function handleDeleteTag(tag: ConversationTag, event: Event) {
+  event.stopPropagation();
+  if (!confirm(`Bạn có chắc muốn xóa nhãn "${tag.name}" khỏi toàn bộ hệ thống?`)) return;
   try {
-    const created = await createTag(data);
-    showCreateDialog.value = false;
-    if (assignedCount.value < 6) {
-      await assignTag(props.conversation.id, created.id);
-    }
+    await deleteTag(tag.id);
   } catch (err: any) {
-    errorMsg.value = err?.response?.data?.error || err?.message || 'Không thể tạo nhãn';
+    errorMsg.value = err?.response?.data?.error || err?.message || 'Không thể xóa nhãn';
+  }
+}
+
+async function handleSaveTag(data: { name: string; color: string; description?: string }) {
+  try {
+    if (editingTag.value) {
+      await updateTag(editingTag.value.id, data);
+    } else {
+      const created = await createTag(data);
+      if (assignedCount.value < 6) await assignTag(props.conversation.id, created.id);
+    }
+    showDialog.value = false;
+    editingTag.value = null;
+  } catch (err: any) {
+    errorMsg.value = err?.response?.data?.error || err?.message || 'Lỗi khi lưu nhãn';
   }
 }
 </script>
 
 <template>
-  <div>
-    <v-menu v-model="isOpen" :close-on-content-click="false" location="bottom end">
+  <div class="conversation-tag-assign-wrapper">
+    <v-menu v-model="isOpen" :close-on-content-click="false" location="bottom end" offset="6">
       <template #activator="{ props: menuProps }">
         <v-btn
           v-bind="menuProps"
-          icon="mdi-tag-outline"
           size="small"
           variant="text"
-          :color="assignedCount > 0 ? 'primary' : undefined"
-          title="Gắn nhãn cuộc trò chuyện"
-        />
+          class="topbar-action-btn tag-menu-trigger"
+          :class="{ 'has-tags': assignedCount > 0 }"
+          :title="`Gắn nhãn (${assignedCount}/6)`"
+        >
+          <v-badge v-if="assignedCount > 0" :content="assignedCount" color="primary" floating offset-x="-2" offset-y="-2">
+            <v-icon size="18" color="primary">mdi-tag</v-icon>
+          </v-badge>
+          <v-icon v-else size="18">mdi-tag-outline</v-icon>
+        </v-btn>
       </template>
 
-      <v-card width="280" class="border-2 border-black rounded-none shadow-[4px_4px_0_0_#000] pa-0">
+      <v-card width="310" class="tag-menu-card pa-0" elevation="0">
         <!-- Header -->
-        <div class="pa-3 border-b-2 border-black bg-neutral-100 d-flex align-center justify-space-between">
+        <div class="px-3 py-2 border-b d-flex align-center justify-space-between bg-surface-variant">
           <div>
-            <div class="text-caption font-weight-black text-uppercase">Gắn nhãn hội thoại</div>
-            <div class="text-caption text-grey-darken-1 font-weight-bold" style="font-size: 0.7rem;">
+            <div class="font-weight-bold neo-subtitle text-caption" style="font-size: 0.72rem;">GẮN NHÃN HỘI THOẠI</div>
+            <div class="text-caption text-grey-darken-1 font-weight-medium" style="font-size: 0.68rem;">
               {{ assignedCount }}/6 nhãn đã chọn
             </div>
           </div>
-          <v-btn
-            size="x-small"
-            variant="text"
-            icon="mdi-close"
-            @click="isOpen = false"
+          <v-btn size="x-small" variant="text" icon="mdi-close" density="compact" @click="isOpen = false" />
+        </div>
+
+        <!-- Search input if > 4 tags -->
+        <div v-if="tags.length > 4" class="px-2 pt-2 pb-1 border-b">
+          <v-text-field
+            v-model="searchQuery"
+            placeholder="Tìm kiếm nhãn..."
+            density="compact"
+            variant="outlined"
+            rounded="lg"
+            prepend-inner-icon="mdi-magnify"
+            hide-details
           />
         </div>
 
         <!-- Error alert -->
-        <div v-if="errorMsg" class="pa-2 bg-red-lighten-5 text-red font-weight-bold text-caption border-b">
-          {{ errorMsg }}
+        <div v-if="errorMsg" class="px-3 py-1.5 bg-red-lighten-5 text-error font-weight-bold text-caption border-b d-flex align-center justify-space-between">
+          <span>{{ errorMsg }}</span>
+          <v-btn icon="mdi-close" size="x-small" variant="text" density="compact" @click="errorMsg = null" />
         </div>
 
         <!-- Tag list -->
-        <div class="overflow-y-auto" style="max-height: 240px;">
-          <div v-if="tags.length === 0" class="pa-4 text-center text-caption text-grey">
-            Chưa có nhãn nào. Bấm bên dưới để tạo nhãn đầu tiên.
+        <div class="tag-items-list">
+          <div v-if="filteredTags.length === 0" class="pa-4 text-center text-caption text-grey">
+            {{ searchQuery ? 'Không tìm thấy nhãn phù hợp' : 'Chưa có nhãn nào. Bấm nút bên dưới để tạo.' }}
           </div>
-          <div
-            v-for="tag in tags"
+          <ConversationTagMenuItem
+            v-for="tag in filteredTags"
             :key="tag.id"
-            class="d-flex align-center justify-space-between px-3 py-2 cursor-pointer hover:bg-neutral-50 border-b border-neutral-200"
-            @click="toggleTag(tag)"
-          >
-            <div class="d-flex align-center gap-2 overflow-hidden mr-2">
-              <span
-                class="d-inline-block rounded-full flex-shrink-0"
-                :style="{ backgroundColor: tag.color, width: '12px', height: '12px', border: '1px solid #000' }"
-              />
-              <span class="text-caption font-weight-bold text-truncate">{{ tag.name }}</span>
-            </div>
-            <v-checkbox-btn
-              :model-value="isAssigned(tag.id)"
-              :loading="loadingTagId === tag.id"
-              color="primary"
-              density="compact"
-              hide-details
-            />
-          </div>
+            :tag="tag"
+            :is-assigned="isAssigned(tag.id)"
+            :is-loading="loadingTagId === tag.id"
+            @toggle="toggleTag"
+            @edit="openEditDialog"
+            @delete="handleDeleteTag"
+          />
         </div>
 
-        <!-- Footer: Create tag button -->
-        <div class="pa-2 border-t-2 border-black bg-white">
-          <button
-            type="button"
-            class="w-full border-2 border-black bg-neutral-100 py-1.5 px-3 text-xs font-black uppercase text-black hover:bg-neutral-200"
-            @click="showCreateDialog = true"
+        <!-- Footer -->
+        <div class="pa-2 border-t bg-surface-card">
+          <v-btn
+            color="primary"
+            variant="tonal"
+            rounded="lg"
+            block
+            density="compact"
+            class="font-weight-bold text-caption"
+            @click="openCreateDialog"
           >
-            + Tạo nhãn mới
-          </button>
+            <v-icon start size="16">mdi-plus</v-icon>
+            Tạo nhãn mới
+          </v-btn>
         </div>
       </v-card>
     </v-menu>
 
-    <ConversationTagDialog
-      :show="showCreateDialog"
-      @close="showCreateDialog = false"
-      @save="handleCreateTag"
-    />
+    <!-- Modal Dialog outside menu context -->
+    <ConversationTagDialog :show="showDialog" :tag="editingTag" @close="showDialog = false" @save="handleSaveTag" />
   </div>
 </template>
+
+<style scoped>
+.tag-menu-card {
+  border: 1.5px solid var(--border-color) !important;
+  border-radius: 12px !important;
+  background-color: var(--surface-card, #FFFFFF) !important;
+  box-shadow: 4px 4px 0px 0px rgba(0, 0, 0, 0.15) !important;
+  overflow: hidden;
+}
+
+.tag-items-list {
+  max-height: 250px;
+  overflow-y: auto;
+}
+</style>

@@ -131,25 +131,25 @@
         <!-- Tag Chips (Max 3 + Badge) -->
         <div v-if="conv.tags && conv.tags.length > 0" class="d-flex align-center gap-1 mt-1 flex-wrap">
           <span
-            v-for="assignment in conv.tags.slice(0, 3)"
+            v-for="assignment in (conv.tags || []).slice(0, 3)"
             :key="assignment.tagId"
             class="neo-pill px-1.5 py-0 text-caption font-weight-bold"
             :style="{
-              backgroundColor: assignment.tag.color,
-              color: getContrastTextColor(assignment.tag.color),
-              border: '1px solid #000000',
+              backgroundColor: assignment.tag?.color || '#0068FF',
+              color: getContrastTextColor(assignment.tag?.color),
+              border: '1px solid #18181B',
               fontSize: '0.62rem !important',
               lineHeight: '1.2'
             }"
-            :title="assignment.tag.name"
+            :title="assignment.tag?.name"
           >
-            {{ assignment.tag.name }}
+            {{ assignment.tag?.name }}
           </span>
           <span
             v-if="conv.tags.length > 3"
             class="neo-pill px-1 py-0 text-caption font-weight-bold bg-grey-lighten-2 text-black"
-            style="border: 1px solid #000000; font-size: 0.60rem !important; line-height: 1.2;"
-            :title="conv.tags.slice(3).map(t => t.tag.name).join(', ')"
+            style="border: 1px solid #18181B; font-size: 0.60rem !important; line-height: 1.2;"
+            :title="(conv.tags || []).slice(3).map(t => t.tag?.name).filter(Boolean).join(', ')"
           >
             +{{ conv.tags.length - 3 }}
           </span>
