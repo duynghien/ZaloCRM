@@ -53,6 +53,9 @@
       />
     </div>
 
+    <!-- Conversation Tag Bar Filter -->
+    <ConversationTagBar />
+
     <!-- Conversations List -->
     <v-list class="flex-grow-1 overflow-y-auto pa-0" density="compact">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -125,6 +128,33 @@
           />
         </v-list-item-subtitle>
 
+        <!-- Tag Chips (Max 3 + Badge) -->
+        <div v-if="conv.tags && conv.tags.length > 0" class="d-flex align-center gap-1 mt-1 flex-wrap">
+          <span
+            v-for="assignment in conv.tags.slice(0, 3)"
+            :key="assignment.tagId"
+            class="neo-pill px-1.5 py-0 text-caption font-weight-bold"
+            :style="{
+              backgroundColor: assignment.tag.color,
+              color: getContrastTextColor(assignment.tag.color),
+              border: '1px solid #000000',
+              fontSize: '0.62rem !important',
+              lineHeight: '1.2'
+            }"
+            :title="assignment.tag.name"
+          >
+            {{ assignment.tag.name }}
+          </span>
+          <span
+            v-if="conv.tags.length > 3"
+            class="neo-pill px-1 py-0 text-caption font-weight-bold bg-grey-lighten-2 text-black"
+            style="border: 1px solid #000000; font-size: 0.60rem !important; line-height: 1.2;"
+            :title="conv.tags.slice(3).map(t => t.tag.name).join(', ')"
+          >
+            +{{ conv.tags.length - 3 }}
+          </span>
+        </div>
+
         <!-- Brand / Account Pill indicator -->
         <template #append>
           <div v-if="conv.zaloAccount" class="d-flex flex-column align-end">
@@ -167,8 +197,9 @@
 import { computed } from 'vue';
 import type { Conversation } from '@/composables/use-chat';
 import type { ZaloAccount } from '@/composables/use-zalo-accounts';
-import { getDeterministicAccountColor } from '@/utils/account-colors';
+import { getDeterministicAccountColor, getContrastTextColor } from '@/utils/account-colors';
 import { useChatCopilot } from '@/composables/use-chat-copilot';
+import ConversationTagBar from './ConversationTagBar.vue';
 
 const { activeAnomalyMap } = useChatCopilot();
 

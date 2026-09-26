@@ -49,6 +49,9 @@
         </span>
       </div>
     </div>
+    <!-- Conversation Tag Assign Menu -->
+    <ConversationTagAssignMenu :conversation="conversation" class="mr-1" />
+
     <v-btn
       :icon="showContactPanel ? 'mdi-account-details' : 'water.svg'"
       size="small"
@@ -61,6 +64,7 @@
 
 <script setup lang="ts">
 import type { Conversation } from '@/composables/use-chat';
+import ConversationTagAssignMenu from './ConversationTagAssignMenu.vue';
 
 defineProps<{
   conversation: Conversation;

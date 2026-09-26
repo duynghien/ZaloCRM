@@ -34,6 +34,8 @@ import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js'
 import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { chatCopilotRoutes } from './modules/chat/copilot/chat-copilot-routes.js';
+import { quickReplyRoutes } from './modules/chat/quick-replies/quick-reply-routes.js';
+import { conversationTagRoutes } from './modules/chat/tags/conversation-tag-routes.js';
 import { chatTurnDebouncer } from './modules/chat/copilot/chat-turn-debouncer.js';
 import { kiotvietRoutes } from './modules/integrations/kiotviet/kiotviet-routes.js';
 
@@ -112,6 +114,8 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   await app.register(chatRoutes);
   await app.register(attachmentRoutes);
   await app.register(chatCopilotRoutes);
+  await app.register(quickReplyRoutes);
+  await app.register(conversationTagRoutes);
   await app.register(contactRoutes);
   await app.register(contactSubResourceRoutes);
   await app.register(appointmentRoutes);

@@ -23,14 +23,18 @@ export async function chatRoutes(app: FastifyInstance) {
   // ── List conversations (paginated) ──────────────────────────────────────
   app.get('/api/v1/conversations', async (request: FastifyRequest, reply: FastifyReply) => {
     const user = request.user!;
-    const { page = '1', limit = '50', search = '', accountId = '' } = request.query as QueryParams;
+    const { page = '1', limit = '50', search = '', accountId = '', tagId = '' } = request.query as QueryParams;
     const pageNum = boundedPositiveInt(page, 1, 10_000);
     const limitNum = boundedPositiveInt(limit, 50, 100);
     const safeSearch = boundedString(search, 200);
     const safeAccountId = boundedString(accountId, 128);
+    const safeTagId = boundedString(tagId, 128);
 
     const where: any = { orgId: user.orgId };
     if (safeAccountId) where.zaloAccountId = safeAccountId;
+    if (safeTagId) {
+      where.tags = { some: { tagId: safeTagId, orgId: user.orgId } };
+    }
     if (safeSearch) {
       where.contact = {
         OR: [
@@ -60,6 +64,10 @@ export async function chatRoutes(app: FastifyInstance) {
         include: {
           contact: { select: { id: true, fullName: true, phone: true, avatarUrl: true, zaloUid: true, metadata: true } },
           zaloAccount: { select: { id: true, displayName: true, zaloUid: true, branchTag: true, colorTag: true } },
+          tags: {
+            include: { tag: true },
+            orderBy: { assignedAt: 'asc' },
+          },
           messages: {
             take: 1,
             orderBy: { sentAt: 'desc' },
@@ -100,6 +108,10 @@ export async function chatRoutes(app: FastifyInstance) {
       include: {
         contact: true,
         zaloAccount: { select: { id: true, displayName: true, zaloUid: true, status: true, branchTag: true, colorTag: true } },
+        tags: {
+          include: { tag: true },
+          orderBy: { assignedAt: 'asc' },
+        },
       },
     });
     if (!conversation) return reply.status(404).send({ error: 'Not found' });

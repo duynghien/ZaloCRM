@@ -5,7 +5,7 @@ import type { Conversation, Message } from './use-chat';
 type State = {
   conversations: Ref<Conversation[]>; selectedConvId: Ref<string | null>; messages: Ref<Message[]>;
   loadingConvs: Ref<boolean>; loadingMsgs: Ref<boolean>;
-  searchQuery: Ref<string>; accountFilter: Ref<string | null>;
+  searchQuery: Ref<string>; accountFilter: Ref<string | null>; tagFilter?: Ref<string | null>;
 };
 
 const unavailable = (error: unknown) => [403, 404].includes(
@@ -27,13 +27,21 @@ export function useChatRecovery(state: State) {
     const convId = state.selectedConvId.value;
     const search = state.searchQuery.value;
     const accountId = state.accountFilter.value;
+    const tagId = state.tagFilter?.value;
     const current = () => !disposed && revision === version
       && state.selectedConvId.value === convId && search === state.searchQuery.value
-      && accountId === state.accountFilter.value;
+      && accountId === state.accountFilter.value && tagId === state.tagFilter?.value;
     state.loadingConvs.value = true;
     state.loadingMsgs.value = !!convId;
     const [list, detail, messages] = await Promise.allSettled([
-      api.get('/conversations', { params: { limit: 100, search, accountId: accountId || undefined } }),
+      api.get('/conversations', {
+        params: {
+          limit: 100,
+          search,
+          accountId: accountId || undefined,
+          tagId: tagId || undefined,
+        },
+      }),
       convId ? api.get(`/conversations/${convId}`) : Promise.resolve(null),
       convId ? api.get(`/conversations/${convId}/messages`, { params: { limit: 100 } }) : Promise.resolve(null),
     ]);

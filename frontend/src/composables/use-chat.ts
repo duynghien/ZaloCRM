@@ -5,6 +5,7 @@ import type { Socket } from 'socket.io-client';
 import { getSharedSocket } from '../services/socket-service';
 import type { Contact } from '@/composables/use-contacts';
 import { bindCopilotSocket, unbindCopilotSocket, useChatCopilot } from './use-chat-copilot';
+import { useConversationTags } from './use-conversation-tags';
 
 export interface ZaloAccount {
   id: string;
@@ -33,6 +34,14 @@ export interface Conversation {
   isReplied: boolean;
   messages?: ConversationMessage[];
   metadata?: Record<string, any> | null;
+  tags?: Array<{
+    orgId: string;
+    conversationId: string;
+    tagId: string;
+    assignedAt?: string;
+    assignedById?: string | null;
+    tag: { id: string; name: string; color: string; description?: string | null };
+  }>;
 }
 
 export interface MessageAttachment {
@@ -81,10 +90,13 @@ export function useChat() {
     conversations.value.find(c => c.id === selectedConvId.value) || null,
   );
 
+  const { activeTagId } = useConversationTags();
+
   const recovery = useChatRecovery({ conversations, selectedConvId, messages,
-    loadingConvs, loadingMsgs, searchQuery, accountFilter });
+    loadingConvs, loadingMsgs, searchQuery, accountFilter, tagFilter: activeTagId });
   const fetchConversations = recovery.request;
   watch(selectedConvId, () => { messages.value = []; recovery.invalidate(); }, { flush: 'sync' });
+  watch(activeTagId, () => { recovery.invalidate(); void recovery.request(); });
 
   async function fetchAccountUnreads() {
     try {
@@ -215,6 +227,21 @@ export function useChat() {
     void recovery.request();
   }
 
+  function onConversationTagsUpdated(data: { conversationId: string; tags: any[] }) {
+    const conv = conversations.value.find(c => c.id === data.conversationId);
+    if (conv) {
+      conv.tags = data.tags;
+    }
+  }
+
+  function onConversationTagDeleted(data: { tagId: string }) {
+    for (const conv of conversations.value) {
+      if (conv.tags) {
+        conv.tags = conv.tags.filter(t => t.tagId !== data.tagId);
+      }
+    }
+  }
+
   function attachChatListeners() {
     if (!socket) return;
     socket.on('connect', onConnect);
@@ -222,6 +249,8 @@ export function useChat() {
     socket.on('chat:message', onChatMessage);
     socket.on('chat:message:attachments-updated', onAttachmentsUpdated);
     socket.on('chat:deleted', onChatDeleted);
+    socket.on('conversation:tags-updated', onConversationTagsUpdated);
+    socket.on('conversation:tag-deleted', onConversationTagDeleted);
   }
 
   function detachChatListeners() {
@@ -231,6 +260,8 @@ export function useChat() {
     socket.off('chat:message', onChatMessage);
     socket.off('chat:message:attachments-updated', onAttachmentsUpdated);
     socket.off('chat:deleted', onChatDeleted);
+    socket.off('conversation:tags-updated', onConversationTagsUpdated);
+    socket.off('conversation:tag-deleted', onConversationTagDeleted);
   }
 
   function initSocket() {
