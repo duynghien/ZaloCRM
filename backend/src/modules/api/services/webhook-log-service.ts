@@ -109,7 +109,7 @@ export async function getWebhookStats(orgId: string) {
   const counts = await prisma.webhookOutbox.groupBy({
     by: ['status'],
     where: { orgId },
-    _count: true,
+    _count: { id: true },
   });
 
   const stats: Record<string, number> = {
@@ -121,7 +121,7 @@ export async function getWebhookStats(orgId: string) {
   };
 
   for (const c of counts) {
-    stats[c.status] = c._count;
+    stats[c.status] = (c as any)._count?.id ?? (c as any)._count ?? 0;
   }
 
   return stats;

@@ -179,4 +179,18 @@ describe('Webhook Settings & Outbox DLQ Integration Tests', () => {
     expect(capturedSubscription.secretEncrypted).toBeDefined();
     expect(capturedSubscription.secretEncrypted).not.toBe('my-custom-shared-secret-12345');
   });
+
+  it('GET /api/v1/settings/webhooks/logs accepts limit=50 and returns logs with stats', async () => {
+    vi.mocked(prisma.webhookOutbox.findMany).mockResolvedValueOnce([{ id: 'log-1', status: 'delivered' }] as any);
+    vi.mocked(prisma.webhookOutbox.count).mockResolvedValueOnce(1);
+    vi.mocked(prisma.webhookOutbox.groupBy).mockResolvedValueOnce([{ status: 'delivered', _count: { id: 1 } }] as any);
+
+    const res = await app.inject({ method: 'GET', url: '/api/v1/settings/webhooks/logs?limit=50' });
+    expect(res.statusCode).toBe(200);
+    const body = JSON.parse(res.body);
+    expect(body.logs).toHaveLength(1);
+    expect(body.pagination.limit).toBe(50);
+    expect(body.pagination.page).toBe(1);
+    expect(body.stats.delivered).toBe(1);
+  });
 });

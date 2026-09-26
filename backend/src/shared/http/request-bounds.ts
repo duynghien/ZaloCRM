@@ -1,6 +1,10 @@
 import { calendarInstant, RequestValidationError } from './request-schemas.js';
 export function boundedPositiveInt(value: unknown, fallback: number, maximum: number): number {
   if (value === undefined) return fallback;
+  if (typeof value === 'number') {
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new RequestValidationError('Pagination out of range');
+    return value;
+  }
   if (typeof value !== 'string' || !/^\d+$/.test(value)) throw new RequestValidationError('Invalid pagination');
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > maximum) throw new RequestValidationError('Pagination out of range');

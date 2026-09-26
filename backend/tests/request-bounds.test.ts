@@ -5,6 +5,8 @@ it('defaults only omitted pagination and preserves public limit 200', () => {
   expect(boundedPositiveInt(undefined, 50, 200)).toBe(50);
   expect(boundedPositiveInt('200', 50, 200)).toBe(200);
   expect(boundedPositiveInt('10000', 1, 10000)).toBe(10000);
+  expect(boundedPositiveInt(50, 20, 100)).toBe(50);
+  expect(boundedPositiveInt(1, 1, 10000)).toBe(1);
 });
 it.each([null, 0, '', '0', '-1', '1.5', 'NaN', '10001', ['1'], {}, '9007199254740993'])('rejects supplied malformed pagination %j', value => {
   expect(() => boundedPositiveInt(value, 1, 10000)).toThrow();

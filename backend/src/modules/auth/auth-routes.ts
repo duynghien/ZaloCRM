@@ -62,6 +62,10 @@ function assertBrowserRequest(request: FastifyRequest): void {
       if (isLoopback && (isDevPort || !config.isProduction)) {
         isAllowedOrigin = true;
       }
+      const rawHost = ((request.headers['x-forwarded-host'] as string) || request.headers.host || '').split(',')[0].trim();
+      if (rawHost && (parsed.host === rawHost || parsed.hostname === rawHost.split(':')[0])) {
+        isAllowedOrigin = true;
+      }
     } catch {}
   }
 
