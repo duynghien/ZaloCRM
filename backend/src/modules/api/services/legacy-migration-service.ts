@@ -13,7 +13,7 @@ export async function runLegacyApiAndWebhookMigration(): Promise<void> {
   try {
     await prisma.$transaction(async (tx) => {
       // 1. Acquire transaction-level advisory lock to serialize multi-instance execution
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext('zalo_crm_legacy_gateway_migration'))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('zalo_crm_legacy_gateway_migration'))`;
 
       // ── Migrate Legacy API Keys ───────────────────────────────────────────
       const legacyKeySettings = await tx.appSetting.findMany({
