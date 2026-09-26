@@ -4,27 +4,30 @@ import { useConversationTags } from '../../composables/use-conversation-tags';
 import { getContrastTextColor } from '../../utils/account-colors';
 import ConversationTagDialog from './ConversationTagDialog.vue';
 
-const {
-  tags,
-  activeTagId,
-  loadTags,
-  createTag,
-  setActiveTag,
-} = useConversationTags();
+const { tags, activeTagId, loadTags, createTag, setActiveTag } = useConversationTags();
 
 const showCreateDialog = ref(false);
+const isSaving = ref(false);
+const dialogError = ref<string | null>(null);
 
-onMounted(() => {
-  loadTags();
-});
+onMounted(() => { loadTags(); });
 
 async function handleCreateTag(data: { name: string; color: string; description?: string }) {
+  dialogError.value = null;
+  isSaving.value = true;
   try {
     await createTag(data);
     showCreateDialog.value = false;
   } catch (err: any) {
-    alert(err?.response?.data?.error || err?.message || 'Lỗi khi tạo nhãn');
+    dialogError.value = err?.response?.data?.error || err?.message || 'Lỗi khi tạo nhãn';
+  } finally {
+    isSaving.value = false;
   }
+}
+
+function openCreateDialog() {
+  dialogError.value = null;
+  showCreateDialog.value = true;
 }
 </script>
 
@@ -51,24 +54,13 @@ async function handleCreateTag(data: { name: string; color: string; description?
         :style="{
           backgroundColor: activeTagId === tag.id ? tag.color : 'var(--surface-card, #FFFFFF)',
           color: activeTagId === tag.id ? getContrastTextColor(tag.color) : 'var(--text-main, #18181B)',
-          borderColor: activeTagId === tag.id ? 'var(--border-color)' : 'var(--border-color)',
+          borderColor: 'var(--border-color)',
         }"
         :title="tag.description ? `${tag.name}: ${tag.description}` : tag.name"
         @click="setActiveTag(tag.id)"
       >
-        <span
-          v-if="activeTagId !== tag.id"
-          class="tag-color-bullet"
-          :style="{ backgroundColor: tag.color }"
-        />
-        <v-icon
-          v-else
-          size="12"
-          class="mr-0.5"
-          :color="getContrastTextColor(tag.color)"
-        >
-          mdi-check
-        </v-icon>
+        <span v-if="activeTagId !== tag.id" class="tag-color-bullet" :style="{ backgroundColor: tag.color }" />
+        <v-icon v-else size="12" class="mr-0.5" :color="getContrastTextColor(tag.color)">mdi-check</v-icon>
         <span class="text-truncate" style="max-width: 100px;">{{ tag.name }}</span>
         <span
           v-if="tag._count && tag._count.assignments > 0"
@@ -83,12 +75,7 @@ async function handleCreateTag(data: { name: string; color: string; description?
       </button>
 
       <!-- Quick Add Tag Button -->
-      <button
-        type="button"
-        class="tag-filter-chip add-tag-btn"
-        title="Tạo nhãn mới"
-        @click="showCreateDialog = true"
-      >
+      <button type="button" class="tag-filter-chip add-tag-btn" title="Tạo nhãn mới" @click="openCreateDialog">
         <v-icon size="13" class="mr-0.5">mdi-plus</v-icon>
         <span>{{ tags.length === 0 ? 'Thêm nhãn' : 'Nhãn' }}</span>
       </button>
@@ -97,7 +84,10 @@ async function handleCreateTag(data: { name: string; color: string; description?
     <!-- Create tag modal dialog -->
     <ConversationTagDialog
       :show="showCreateDialog"
+      :saving="isSaving"
+      :server-error="dialogError"
       @close="showCreateDialog = false"
+      @clear-error="dialogError = null"
       @save="handleCreateTag"
     />
   </div>
@@ -119,10 +109,7 @@ async function handleCreateTag(data: { name: string; color: string; description?
   width: 100%;
   padding-bottom: 2px;
 }
-
-.tag-scroll-track::-webkit-scrollbar {
-  display: none;
-}
+.tag-scroll-track::-webkit-scrollbar { display: none; }
 
 .tag-filter-chip {
   display: inline-flex;
@@ -139,24 +126,11 @@ async function handleCreateTag(data: { name: string; color: string; description?
   transition: transform 0.1s ease, background-color 0.15s ease;
   user-select: none;
 }
+.tag-filter-chip:active { transform: translate(1px, 1px); }
 
-.tag-filter-chip:active {
-  transform: translate(1px, 1px);
-}
-
-.all-chip {
-  background-color: var(--surface-variant, #F4F4F5);
-  color: var(--text-main, #18181B);
-}
-
-.all-chip.chip-active {
-  background-color: var(--text-main, #18181B);
-  color: #FFFFFF;
-}
-
-.custom-tag-chip {
-  background-color: var(--surface-card, #FFFFFF);
-}
+.all-chip { background-color: var(--surface-variant, #F4F4F5); color: var(--text-main, #18181B); }
+.all-chip.chip-active { background-color: var(--text-main, #18181B); color: #FFFFFF; }
+.custom-tag-chip { background-color: var(--surface-card, #FFFFFF); }
 
 .tag-color-bullet {
   width: 8px;
@@ -183,7 +157,6 @@ async function handleCreateTag(data: { name: string; color: string; description?
   background-color: transparent;
   color: var(--text-muted, #71717A);
 }
-
 .add-tag-btn:hover {
   border-color: var(--text-main, #18181B);
   color: var(--text-main, #18181B);

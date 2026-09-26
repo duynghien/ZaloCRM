@@ -2,14 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ref } from 'vue';
 import { useQuickReplyTrigger } from '../src/composables/use-quick-reply-trigger';
 import { useQuickReplies } from '../src/composables/use-quick-replies';
+import { api } from '@/api/index';
+import { fetchQuickReplies, createQuickReply, updateQuickReply, deleteQuickReply } from '../src/api/quick-reply-api';
 
 vi.mock('@/api/index', () => ({
-  api: {
-    get: vi.fn(),
-    post: vi.fn(),
-    put: vi.fn(),
-    delete: vi.fn(),
-  },
+  api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() },
   getAccessToken: () => 'fake-token',
   refreshAccessToken: vi.fn(),
   isSocketAuthenticationFailure: () => false,
@@ -168,6 +165,26 @@ describe('QuickReply Frontend Composables & Keyboard Interaction', () => {
       const paymentOnly = filterQuickReplies('', 'payment');
       expect(paymentOnly).toHaveLength(1);
       expect(paymentOnly[0].shortcut).toBe('stk');
+    });
+  });
+
+  describe('QuickReply API Endpoint Routing', () => {
+    it('calls API routes without duplicate /api/v1 prefix', async () => {
+      vi.mocked(api.get).mockResolvedValueOnce({ data: { quickReplies: [] } });
+      await fetchQuickReplies();
+      expect(api.get).toHaveBeenCalledWith('/quick-replies', { params: undefined });
+
+      vi.mocked(api.post).mockResolvedValueOnce({ data: { id: 'qr-1' } });
+      await createQuickReply({ shortcut: 'test', title: 'Test', content: 'Content' });
+      expect(api.post).toHaveBeenCalledWith('/quick-replies', expect.anything());
+
+      vi.mocked(api.put).mockResolvedValueOnce({ data: { id: 'qr-1' } });
+      await updateQuickReply('qr-1', { title: 'Updated' });
+      expect(api.put).toHaveBeenCalledWith('/quick-replies/qr-1', expect.anything());
+
+      vi.mocked(api.delete).mockResolvedValueOnce({ data: { success: true } });
+      await deleteQuickReply('qr-1');
+      expect(api.delete).toHaveBeenCalledWith('/quick-replies/qr-1');
     });
   });
 });

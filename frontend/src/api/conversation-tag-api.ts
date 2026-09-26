@@ -38,14 +38,14 @@ export interface UpdateConversationTagInput {
 }
 
 export async function fetchConversationTags(): Promise<ConversationTag[]> {
-  const res = await api.get('/api/v1/conversation-tags');
+  const res = await api.get('/conversation-tags');
   return res.data?.tags || [];
 }
 
 export async function createConversationTag(
   data: CreateConversationTagInput
 ): Promise<ConversationTag> {
-  const res = await api.post('/api/v1/conversation-tags', data);
+  const res = await api.post('/conversation-tags', data);
   return res.data;
 }
 
@@ -53,12 +53,12 @@ export async function updateConversationTag(
   id: string,
   data: UpdateConversationTagInput
 ): Promise<ConversationTag> {
-  const res = await api.put(`/api/v1/conversation-tags/${id}`, data);
+  const res = await api.put(`/conversation-tags/${id}`, data);
   return res.data;
 }
 
 export async function deleteConversationTag(id: string): Promise<boolean> {
-  const res = await api.delete(`/api/v1/conversation-tags/${id}`);
+  const res = await api.delete(`/conversation-tags/${id}`);
   return !!res.data?.success;
 }
 
@@ -66,7 +66,7 @@ export async function assignConversationTag(
   conversationId: string,
   tagId: string
 ): Promise<ConversationTagAssignment[]> {
-  const res = await api.post(`/api/v1/conversations/${conversationId}/tags`, { tagId });
+  const res = await api.post(`/conversations/${conversationId}/tags`, { tagId });
   return res.data?.tags || [];
 }
 
@@ -74,6 +74,6 @@ export async function unassignConversationTag(
   conversationId: string,
   tagId: string
 ): Promise<ConversationTagAssignment[]> {
-  const res = await api.delete(`/api/v1/conversations/${conversationId}/tags/${tagId}`);
+  const res = await api.delete(`/conversations/${conversationId}/tags/${tagId}`);
   return res.data?.tags || [];
 }

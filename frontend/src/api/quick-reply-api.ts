@@ -36,12 +36,12 @@ export async function fetchQuickReplies(params?: {
   category?: string;
   search?: string;
 }): Promise<QuickReply[]> {
-  const res = await api.get('/api/v1/quick-replies', { params });
+  const res = await api.get('/quick-replies', { params });
   return res.data?.quickReplies || [];
 }
 
 export async function createQuickReply(data: CreateQuickReplyInput): Promise<QuickReply> {
-  const res = await api.post('/api/v1/quick-replies', data);
+  const res = await api.post('/quick-replies', data);
   return res.data;
 }
 
@@ -49,11 +49,11 @@ export async function updateQuickReply(
   id: string,
   data: UpdateQuickReplyInput
 ): Promise<QuickReply> {
-  const res = await api.put(`/api/v1/quick-replies/${id}`, data);
+  const res = await api.put(`/quick-replies/${id}`, data);
   return res.data;
 }
 
 export async function deleteQuickReply(id: string): Promise<boolean> {
-  const res = await api.delete(`/api/v1/quick-replies/${id}`);
+  const res = await api.delete(`/quick-replies/${id}`);
   return !!res.data?.success;
 }

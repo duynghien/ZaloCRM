@@ -65,6 +65,7 @@ describe('Conversation Tags Frontend Tests', () => {
       const { tags, loadTags } = useConversationTags();
       await loadTags(true);
 
+      expect(api.get).toHaveBeenCalledWith('/conversation-tags');
       expect(tags.value).toHaveLength(3);
       expect(tags.value[0].name).toBe('Chờ cọc');
       expect(tags.value[1].name).toBe('Đã chốt');
@@ -94,6 +95,7 @@ describe('Conversation Tags Frontend Tests', () => {
       const { tags, createTag } = useConversationTags();
       const res = await createTag({ name: 'Cần gọi lại', color: '#8B5CF6' });
 
+      expect(api.post).toHaveBeenCalledWith('/conversation-tags', { name: 'Cần gọi lại', color: '#8B5CF6' });
       expect(res.id).toBe('t4');
       expect(tags.value.some((t) => t.id === 't4')).toBe(true);
     });
@@ -109,6 +111,7 @@ describe('Conversation Tags Frontend Tests', () => {
       expect(activeTagId.value).toBe('tag-del');
 
       const success = await deleteTag('tag-del');
+      expect(api.delete).toHaveBeenCalledWith('/conversation-tags/tag-del');
       expect(success).toBe(true);
       expect(tags.value.find((t) => t.id === 'tag-del')).toBeUndefined();
       expect(activeTagId.value).toBeNull();
@@ -143,10 +146,12 @@ describe('Conversation Tags Frontend Tests', () => {
 
       vi.mocked(api.post).mockResolvedValueOnce({ data: { tags: [] } });
       await assignTag('conv-1', 't-count');
+      expect(api.post).toHaveBeenCalledWith('/conversations/conv-1/tags', { tagId: 't-count' });
       expect(tags.value[0]._count?.assignments).toBe(3);
 
       vi.mocked(api.delete).mockResolvedValueOnce({ data: { tags: [] } });
       await unassignTag('conv-1', 't-count');
+      expect(api.delete).toHaveBeenCalledWith('/conversations/conv-1/tags/t-count');
       expect(tags.value[0]._count?.assignments).toBe(2);
     });
 
@@ -161,6 +166,7 @@ describe('Conversation Tags Frontend Tests', () => {
       });
 
       const updated = await updateTag('t1', { name: 'Đã hoàn thành', color: '#0068FF' });
+      expect(api.put).toHaveBeenCalledWith('/conversation-tags/t1', { name: 'Đã hoàn thành', color: '#0068FF' });
       expect(updated.name).toBe('Đã hoàn thành');
       expect(tags.value[0].name).toBe('Đã hoàn thành');
       expect(tags.value[0].color).toBe('#0068FF');

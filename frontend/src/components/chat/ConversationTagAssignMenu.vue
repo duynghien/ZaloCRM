@@ -15,6 +15,8 @@ const editingTag = ref<ConversationTag | null>(null);
 const searchQuery = ref('');
 const errorMsg = ref<string | null>(null);
 const loadingTagId = ref<string | null>(null);
+const isSaving = ref(false);
+const dialogError = ref<string | null>(null);
 
 const assignedTagIds = computed(() => new Set((props.conversation.tags || []).map((t) => t.tagId)));
 const assignedCount = computed(() => assignedTagIds.value.size);
@@ -47,16 +49,11 @@ async function toggleTag(tag: ConversationTag) {
   }
 }
 
-function openCreateDialog() {
-  isOpen.value = false;
-  editingTag.value = null;
-  showDialog.value = true;
-}
-
-function openEditDialog(tag: ConversationTag, event: Event) {
-  event.stopPropagation();
+function openTagDialog(tag: ConversationTag | null = null, event?: Event) {
+  if (event) event.stopPropagation();
   isOpen.value = false;
   editingTag.value = tag;
+  dialogError.value = null;
   showDialog.value = true;
 }
 
@@ -71,6 +68,8 @@ async function handleDeleteTag(tag: ConversationTag, event: Event) {
 }
 
 async function handleSaveTag(data: { name: string; color: string; description?: string }) {
+  dialogError.value = null;
+  isSaving.value = true;
   try {
     if (editingTag.value) {
       await updateTag(editingTag.value.id, data);
@@ -81,7 +80,9 @@ async function handleSaveTag(data: { name: string; color: string; description?: 
     showDialog.value = false;
     editingTag.value = null;
   } catch (err: any) {
-    errorMsg.value = err?.response?.data?.error || err?.message || 'Lỗi khi lưu nhãn';
+    dialogError.value = err?.response?.data?.error || err?.message || 'Lỗi khi lưu nhãn';
+  } finally {
+    isSaving.value = false;
   }
 }
 </script>
@@ -148,22 +149,14 @@ async function handleSaveTag(data: { name: string; color: string; description?: 
             :is-assigned="isAssigned(tag.id)"
             :is-loading="loadingTagId === tag.id"
             @toggle="toggleTag"
-            @edit="openEditDialog"
+            @edit="(t, e) => openTagDialog(t, e)"
             @delete="handleDeleteTag"
           />
         </div>
 
         <!-- Footer -->
         <div class="pa-2 border-t bg-surface-card">
-          <v-btn
-            color="primary"
-            variant="tonal"
-            rounded="lg"
-            block
-            density="compact"
-            class="font-weight-bold text-caption"
-            @click="openCreateDialog"
-          >
+          <v-btn color="primary" variant="tonal" rounded="lg" block density="compact" class="font-weight-bold text-caption" @click="openTagDialog(null)">
             <v-icon start size="16">mdi-plus</v-icon>
             Tạo nhãn mới
           </v-btn>
@@ -172,7 +165,15 @@ async function handleSaveTag(data: { name: string; color: string; description?: 
     </v-menu>
 
     <!-- Modal Dialog outside menu context -->
-    <ConversationTagDialog :show="showDialog" :tag="editingTag" @close="showDialog = false" @save="handleSaveTag" />
+    <ConversationTagDialog
+      :show="showDialog"
+      :tag="editingTag"
+      :saving="isSaving"
+      :server-error="dialogError"
+      @close="showDialog = false"
+      @clear-error="dialogError = null"
+      @save="handleSaveTag"
+    />
   </div>
 </template>
 

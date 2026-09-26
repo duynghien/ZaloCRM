@@ -3,10 +3,16 @@ import { ref, watch, computed } from 'vue';
 import { NEO_BRUTALISM_PALETTE, getContrastTextColor } from '../../utils/account-colors';
 import type { ConversationTag } from '../../api/conversation-tag-api';
 
-const props = defineProps<{ show: boolean; tag?: ConversationTag | null }>();
+const props = defineProps<{
+  show: boolean;
+  tag?: ConversationTag | null;
+  saving?: boolean;
+  serverError?: string | null;
+}>();
 const emit = defineEmits<{
   (e: 'close'): void;
   (e: 'save', data: { name: string; color: string; description?: string }): void;
+  (e: 'clear-error'): void;
 }>();
 
 const name = ref('');
@@ -70,8 +76,16 @@ function handleSave() {
         <v-btn icon="mdi-close" variant="text" size="small" density="compact" @click="emit('close')" />
       </div>
 
-      <v-alert v-if="error" type="error" density="compact" variant="tonal" closable class="mb-3 font-weight-bold" @click:close="error = null">
-        {{ error }}
+      <v-alert
+        v-if="error || serverError"
+        type="error"
+        density="compact"
+        variant="tonal"
+        closable
+        class="mb-3 font-weight-bold"
+        @click:close="error = null; emit('clear-error')"
+      >
+        {{ error || serverError }}
       </v-alert>
 
       <div class="mb-4 pa-3 rounded-lg preview-box" style="border: 1.5px dashed var(--border-color); background: var(--surface-variant);">
@@ -124,7 +138,13 @@ function handleSave() {
 
       <div class="d-flex justify-end gap-2 pt-3 border-t">
         <v-btn variant="outlined" rounded="lg" class="px-4" @click="emit('close')">Hủy</v-btn>
-        <v-btn color="primary" rounded="lg" class="primary-cta-btn font-weight-bold px-5" @click="handleSave">
+        <v-btn
+          color="primary"
+          rounded="lg"
+          class="primary-cta-btn font-weight-bold px-5"
+          :loading="saving"
+          @click="handleSave"
+        >
           {{ tag ? 'Lưu thay đổi' : 'Tạo nhãn' }}
         </v-btn>
       </div>
