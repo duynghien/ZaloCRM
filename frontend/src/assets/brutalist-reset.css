@@ -37,6 +37,12 @@
 .v-table {
   border: 1.5px solid var(--border-color) !important;
   border-radius: var(--radius-card, 12px) !important;
+  overflow: hidden !important;
+}
+
+.v-card .v-table {
+  border: none !important;
+  border-radius: 0 !important;
 }
 
 /* Scoped Avatar & Badge (exclude avatars in chips) */

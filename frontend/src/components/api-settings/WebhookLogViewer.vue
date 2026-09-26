@@ -27,9 +27,8 @@
       </v-chip>
     </div>
 
-    <v-card elevation="0" class="neo-card">
-      <v-table density="comfortable" class="neo-table">
-        <thead>
+    <v-table density="comfortable" class="neo-table">
+      <thead>
           <tr>
             <th>THỜI GIAN</th>
             <th>SỰ KIỆN</th>
@@ -95,7 +94,6 @@
           </tr>
         </tbody>
       </v-table>
-    </v-card>
 
     <!-- Detail Drawer/Modal -->
     <v-dialog v-model="detailDialog" max-width="600">

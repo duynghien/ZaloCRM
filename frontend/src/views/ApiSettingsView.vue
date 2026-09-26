@@ -5,8 +5,8 @@
       <p class="text-caption text-medium-emphasis mb-0">Hệ thống Multi-Key API Gateway, Webhook Đa Đích & Quản Trị DLQ theo chuẩn Enterprise</p>
     </div>
 
-    <!-- 4 Neo-Brutalism Navigation Tabs -->
-    <v-tabs v-model="tab" color="primary" class="mb-4 neo-tabs" density="comfortable">
+    <!-- 4 Navigation Tabs -->
+    <v-tabs v-model="tab" color="primary" class="mb-4" density="comfortable">
       <v-tab value="keys" prepend-icon="mdi-key-variant">Khóa API (API Keys)</v-tab>
       <v-tab value="webhooks" prepend-icon="mdi-webhook">Webhooks (Điểm Nhận Tin)</v-tab>
       <v-tab value="logs" prepend-icon="mdi-history">Nhật Ký & DLQ (Delivery Monitor)</v-tab>
@@ -119,9 +119,3 @@ onMounted(() => {
   loadSubs();
 });
 </script>
-
-<style scoped>
-.neo-tabs {
-  border-bottom: 1.5px solid var(--border-color);
-}
-</style>

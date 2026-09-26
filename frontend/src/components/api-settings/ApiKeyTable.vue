@@ -18,9 +18,8 @@
       </v-btn>
     </div>
 
-    <v-card elevation="0" class="neo-card">
-      <v-table density="comfortable" class="neo-table">
-        <thead>
+    <v-table density="comfortable" class="neo-table">
+      <thead>
           <tr>
             <th>TÊN KHÓA</th>
             <th>TIỀN TỐ (PREFIX)</th>
@@ -100,7 +99,6 @@
           </tr>
         </tbody>
       </v-table>
-    </v-card>
 
     <!-- Revoke Confirmation Dialog -->
     <v-dialog v-model="revokeDialog" max-width="450">
