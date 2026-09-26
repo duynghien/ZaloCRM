@@ -38,6 +38,18 @@ function messageBody(value: unknown) {
   }
 }
 
+function orderBody(value: unknown) {
+  const body = objectInput(value);
+  if (body.contactId !== undefined) identifierInput(body.contactId);
+  if (body.phone !== undefined) stringInput(body.phone, 50, true);
+  if (body.fullName !== undefined) stringInput(body.fullName, 255, true);
+  if (body.notes !== undefined) stringInput(body.notes, 1000, true);
+  if (body.status !== undefined) stringInput(body.status, 50, true);
+  if (body.items !== undefined) {
+    if (!Array.isArray(body.items)) throw new RequestValidationError('items must be an array');
+  }
+}
+
 /** Validate original types before handlers; Fastify's default AJV coercion must not rewrite writes. */
 export async function validatePublicRequest(request: FastifyRequest) {
   const route = request.routeOptions.url!;
@@ -49,7 +61,7 @@ export async function validatePublicRequest(request: FastifyRequest) {
       boundedString(query.search, 200);
       if (query.status !== undefined && query.status !== '') enumInput(query.status, contactStatuses);
     }
-    if (route.endsWith('/contacts') || route.endsWith('/conversations') || route.endsWith('/messages')) {
+    if (route.endsWith('/contacts') || route.endsWith('/conversations') || route.endsWith('/messages') || route.endsWith('/orders')) {
       boundedPositiveInt(query.limit, route.endsWith('/messages') ? 50 : 20, route.endsWith('/messages') ? 200 : 100);
     }
     if (route.endsWith('/appointments')) {
@@ -63,5 +75,7 @@ export async function validatePublicRequest(request: FastifyRequest) {
     appointmentBody(request.body);
   } else if (route === '/api/public/messages/send') {
     messageBody(request.body);
+  } else if (route === '/api/public/orders') {
+    orderBody(request.body);
   }
 }

@@ -31,6 +31,9 @@ import { notificationRoutes } from './modules/notifications/notification-routes.
 import { searchRoutes } from './modules/search/search-routes.js';
 import { publicApiRoutes } from './modules/api/public-api-routes.js';
 import { webhookSettingsRoutes } from './modules/api/webhook-settings-routes.js';
+import { apiKeyManagementRoutes } from './modules/api/routes/api-key-management-routes.js';
+import { webhookSubscriptionRoutes } from './modules/api/routes/webhook-subscription-routes.js';
+import { webhookLogRoutes } from './modules/api/routes/webhook-log-routes.js';
 import { orderRoutes } from './modules/orders/order-routes.js';
 import { aiReportRoutes } from './modules/ai-reports/ai-report-routes.js';
 import { chatCopilotRoutes } from './modules/chat/copilot/chat-copilot-routes.js';
@@ -130,6 +133,9 @@ export async function createApp(options: { https?: { key: Buffer; cert: Buffer }
   await app.register(searchRoutes);
   await app.register(publicApiRoutes);
   await app.register(webhookSettingsRoutes);
+  await app.register(apiKeyManagementRoutes);
+  await app.register(webhookSubscriptionRoutes);
+  await app.register(webhookLogRoutes);
   await app.register(orderRoutes);
   await app.register(aiReportRoutes);
   await app.register(kiotvietRoutes);

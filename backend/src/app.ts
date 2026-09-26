@@ -26,6 +26,7 @@ import { startChatSlaMonitor, stopChatSlaMonitor } from './modules/chat/chat-sla
 import { startCatalogWorker, stopCatalogWorker } from './modules/integrations/kiotviet/kiotviet-catalog-worker.js';
 import { startInvoiceWorker, stopInvoiceWorker } from './modules/integrations/kiotviet/kiotviet-invoice-worker.js';
 import { startWebhookWorker, stopWebhookWorker } from './modules/api/webhook-service.js';
+import { runLegacyApiAndWebhookMigration } from './modules/api/services/legacy-migration-service.js';
 
 let application: FastifyInstance | undefined;
 let shutdownPromise: Promise<void> | undefined;
@@ -84,6 +85,7 @@ async function bootstrap() {
 
   try {
     await validateConfiguredPrimaryModel();
+    await runLegacyApiAndWebhookMigration();
     await app.listen({ port: config.port, host: config.host });
     logger.info(`Zalo CRM running on http://${config.host}:${config.port}`);
     logger.info(`Environment: ${config.nodeEnv}`);

@@ -29,6 +29,7 @@ describe('chatCopilotRoutes & contact patch', () => {
 
   beforeEach(async () => {
     vi.restoreAllMocks();
+    vi.spyOn(prisma, '$transaction').mockImplementation(async (cb: any) => cb(prisma));
     app = Fastify({ logger: false });
     await app.register(fastifyCookie);
     await app.register(fastifyJwt, { secret: 'test_jwt_secret_32_characters_long_12345' });

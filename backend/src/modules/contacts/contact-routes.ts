@@ -11,6 +11,7 @@ import { assertUserInOrg } from '../../shared/security/tenant-assertions.js';
 import { TenantIsolationError } from '../../shared/errors/index.js';
 import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
 import { RequestValidationError } from '../../shared/http/request-schemas.js';
+import { enqueueWebhook } from '../api/webhook-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -153,23 +154,27 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         await assertUserInOrg(prisma, user.orgId, body.assignedUserId);
       }
 
-      const contact = await prisma.contact.create({
-        data: {
-          orgId: user.orgId,
-          fullName: body.fullName,
-          phone: body.phone,
-          email: body.email,
-          zaloUid: body.zaloUid,
-          avatarUrl: body.avatarUrl,
-          source: body.source,
-          sourceDate: body.sourceDate ? new Date(body.sourceDate) : undefined,
-          status: body.status ?? 'new',
-          nextAppointment: body.nextAppointment ? new Date(body.nextAppointment) : undefined,
-          assignedUserId: body.assignedUserId,
-          notes: body.notes,
-          tags: body.tags ?? [],
-          metadata: body.metadata ?? {},
-        },
+      const contact = await prisma.$transaction(async (tx) => {
+        const created = await tx.contact.create({
+          data: {
+            orgId: user.orgId,
+            fullName: body.fullName,
+            phone: body.phone,
+            email: body.email,
+            zaloUid: body.zaloUid,
+            avatarUrl: body.avatarUrl,
+            source: body.source,
+            sourceDate: body.sourceDate ? new Date(body.sourceDate) : undefined,
+            status: body.status ?? 'new',
+            nextAppointment: body.nextAppointment ? new Date(body.nextAppointment) : undefined,
+            assignedUserId: body.assignedUserId,
+            notes: body.notes,
+            tags: body.tags ?? [],
+            metadata: body.metadata ?? {},
+          },
+        });
+        await enqueueWebhook(tx, user.orgId, 'contact.created', created);
+        return created;
       });
 
       return reply.status(201).send(contact);
@@ -214,14 +219,18 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         updateData.firstContactDate = body.firstContactDate ? new Date(body.firstContactDate) : null;
       }
 
-      const updated = await prisma.contact.update({
-        where: { id },
-        data: updateData,
-        include: {
-          assignedUser: { select: { id: true, fullName: true, email: true } },
-          appointments: { orderBy: { appointmentDate: 'desc' }, take: 10 },
-          _count: { select: { conversations: true } },
-        },
+      const updated = await prisma.$transaction(async (tx) => {
+        const res = await tx.contact.update({
+          where: { id },
+          data: updateData,
+          include: {
+            assignedUser: { select: { id: true, fullName: true, email: true } },
+            appointments: { orderBy: { appointmentDate: 'desc' }, take: 10 },
+            _count: { select: { conversations: true } },
+          },
+        });
+        await enqueueWebhook(tx, user.orgId, 'contact.updated', res);
+        return res;
       });
 
       return updated;
@@ -285,13 +294,17 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
 
       updateData.metadata = mergedMetadata;
 
-      const updated = await prisma.contact.update({
-        where: { id },
-        data: updateData,
-        include: {
-          assignedUser: { select: { id: true, fullName: true, email: true } },
-          _count: { select: { conversations: true } },
-        },
+      const updated = await prisma.$transaction(async (tx) => {
+        const res = await tx.contact.update({
+          where: { id },
+          data: updateData,
+          include: {
+            assignedUser: { select: { id: true, fullName: true, email: true } },
+            _count: { select: { conversations: true } },
+          },
+        });
+        await enqueueWebhook(tx, user.orgId, 'contact.updated', res);
+        return res;
       });
 
       return updated;
@@ -316,7 +329,11 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
-      const updated = await prisma.contact.update({ where: { id }, data: { tags } });
+      const updated = await prisma.$transaction(async (tx) => {
+        const res = await tx.contact.update({ where: { id }, data: { tags } });
+        await enqueueWebhook(tx, user.orgId, 'contact.updated', res);
+        return res;
+      });
       return updated;
     } catch (err) {
       logger.error('[contacts] Update tags error:', err);
@@ -330,7 +347,10 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params as { id: string };
 
-      const existing = await prisma.contact.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
+      const existing = await prisma.contact.findFirst({
+        where: { id, orgId: user.orgId },
+        select: { id: true, fullName: true, phone: true },
+      });
       if (!existing) return reply.status(404).send({ error: 'Contact not found' });
 
       // Guard: Check if contact has orders with active or synced KiotViet invoice jobs
@@ -353,7 +373,14 @@ export async function contactRoutes(app: FastifyInstance): Promise<void> {
         });
       }
 
-      await prisma.contact.delete({ where: { id } });
+      await prisma.$transaction(async (tx) => {
+        await tx.contact.delete({ where: { id } });
+        await enqueueWebhook(tx, user.orgId, 'contact.deleted', {
+          id: existing.id,
+          fullName: existing.fullName,
+          phone: existing.phone,
+        });
+      });
       return { success: true };
     } catch (err) {
       logger.error('[contacts] Delete error:', err);

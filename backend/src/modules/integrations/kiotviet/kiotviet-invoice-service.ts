@@ -93,6 +93,14 @@ export async function enqueueInvoiceTx(tx: Prisma.TransactionClient, params: Enq
       );
     }
 
+    const hasGenericItems = order.items.some(item => !item.kiotvietProductId);
+    if (hasGenericItems) {
+      throw new KiotvietConflictError(
+        'Order contains items not linked to KiotViet products and cannot be synced to KiotViet',
+        'order_has_generic_items'
+      );
+    }
+
     // 5. Fetch execution config
     const config = await getKiotvietConfig(orgId, tx);
     if (!config || !config.retailer || !config.branchId) {
@@ -105,7 +113,7 @@ export async function enqueueInvoiceTx(tx: Prisma.TransactionClient, params: Enq
 
     // 6. Build immutable snapshot
     const snapshotItems: KiotvietSnapshotItem[] = order.items.map(item => ({
-      kiotvietProductId: item.kiotvietProductId.toString(),
+      kiotvietProductId: item.kiotvietProductId!.toString(),
       productCode: item.productCode,
       productName: item.productName,
       unit: item.unit,

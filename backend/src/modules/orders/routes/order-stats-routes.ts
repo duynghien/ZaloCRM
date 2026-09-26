@@ -58,7 +58,9 @@ export async function orderStatsRoutes(app: FastifyInstance): Promise<void> {
       _sum: { totalAmount: true },
     });
 
-    const userIds = staffStats.map((s) => s.createdByUserId);
+    const userIds = staffStats
+      .map((s) => s.createdByUserId)
+      .filter((id): id is string => Boolean(id));
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, fullName: true },
@@ -67,7 +69,7 @@ export async function orderStatsRoutes(app: FastifyInstance): Promise<void> {
 
     const result = staffStats.map((s) => ({
       userId: s.createdByUserId,
-      fullName: userMap.get(s.createdByUserId) || 'Unknown',
+      fullName: s.createdByUserId ? (userMap.get(s.createdByUserId) || 'Unknown') : 'API Key / Machine',
       orderCount: s._count,
       totalRevenue: s._sum.totalAmount || 0,
     }));

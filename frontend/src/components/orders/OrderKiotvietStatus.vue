@@ -113,20 +113,26 @@ const statusColor = computed(() => kiotvietStatusColor(status.value));
 const statusLabel = computed(() => kiotvietStatusLabel(status.value));
 
 const hasItems = computed(() => (props.order.items?.length ?? 0) > 0);
+const hasGenericItems = computed(() => {
+  return props.order.items?.some((item: any) => !item.kiotvietProductId) ?? false;
+});
 
 const missingItemsReason = computed(() => {
   if (!hasItems.value && (status.value === 'none' || status.value === 'failed')) {
     return 'Cần bổ sung sản phẩm KiotViet';
   }
+  if (hasGenericItems.value && (status.value === 'none' || status.value === 'failed')) {
+    return 'Đơn hàng chứa sản phẩm ngoài (không đồng bộ KiotViet)';
+  }
   return null;
 });
 
 const canSyncButton = computed(() => {
-  return status.value === 'none' || status.value === 'failed';
+  return !hasGenericItems.value && (status.value === 'none' || status.value === 'failed');
 });
 
 const syncDisabled = computed(() => {
-  return !hasItems.value || props.order.canSync === false;
+  return !hasItems.value || hasGenericItems.value || props.order.canSync === false;
 });
 
 function copyInvoiceCode() {

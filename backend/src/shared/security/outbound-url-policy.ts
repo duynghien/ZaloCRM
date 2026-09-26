@@ -100,6 +100,21 @@ async function resolvePublicAddress(url: URL): Promise<string> {
   return addresses[0].address;
 }
 
+export async function assertPublicHttpsUrl(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new OutboundUrlPolicyError('Invalid URL format');
+  }
+  await resolvePublicAddress(parsed);
+  return parsed;
+}
+
+export async function resolvePublicAddressForUrl(url: URL): Promise<string> {
+  return resolvePublicAddress(url);
+}
+
 function createPinnedLookup(address: string) {
   const family = isIP(address) || 4;
   return (_hostname: string, options: any, callback?: any) => {

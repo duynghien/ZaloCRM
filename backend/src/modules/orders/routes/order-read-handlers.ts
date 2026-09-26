@@ -30,6 +30,7 @@ export async function listOrdersHandler(request: FastifyRequest) {
       include: {
         contact: { select: { id: true, fullName: true, phone: true } },
         createdBy: { select: { id: true, fullName: true } },
+        createdByKey: { select: { id: true, name: true, keyPrefix: true } },
         items: true,
         kiotvietJob: true,
       },
@@ -52,6 +53,7 @@ export async function getOrderHandler(request: FastifyRequest, reply: FastifyRep
     include: {
       contact: { select: { id: true, fullName: true, phone: true } },
       createdBy: { select: { id: true, fullName: true } },
+      createdByKey: { select: { id: true, name: true, keyPrefix: true } },
       items: true,
       kiotvietJob: true,
     },
@@ -59,7 +61,8 @@ export async function getOrderHandler(request: FastifyRequest, reply: FastifyRep
 
   if (!order) return reply.status(404).send({ error: 'Order not found' });
   const editable = !isOrderFinancialLocked(order);
-  const canSync = (order.items?.length ?? 0) > 0 && !isOrderFinancialLocked(order);
+  const hasGenericItems = order.items?.some(item => !item.kiotvietProductId) ?? false;
+  const canSync = (order.items?.length ?? 0) > 0 && !hasGenericItems && !isOrderFinancialLocked(order);
   return serializeOrderResponse({ order: { ...order, editable, canSync } });
 }
 

@@ -11,6 +11,7 @@ import { assertContactInOrg, assertUserInOrg } from '../../shared/security/tenan
 import { TenantIsolationError } from '../../shared/errors/index.js';
 import { boundedPositiveInt } from '../../shared/http/request-bounds.js';
 import { RequestValidationError } from '../../shared/http/request-schemas.js';
+import { enqueueWebhook } from '../api/webhook-service.js';
 
 type QueryParams = Record<string, string>;
 
@@ -177,18 +178,22 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         return reply.status(409).send({ error: 'Lịch hẹn đã tồn tại cho ngày này' });
       }
 
-      const appointment = await prisma.appointment.create({
-        data: {
-          orgId: user.orgId,
-          contactId: body.contactId,
-          assignedUserId: body.assignedUserId ?? user.id,
-          appointmentDate,
-          appointmentTime: body.appointmentTime,
-          type: body.type,
-          status: body.status ?? 'scheduled',
-          notes: body.notes,
-        },
-        include: APPOINTMENT_INCLUDE,
+      const appointment = await prisma.$transaction(async (tx) => {
+        const created = await tx.appointment.create({
+          data: {
+            orgId: user.orgId,
+            contactId: body.contactId,
+            assignedUserId: body.assignedUserId ?? user.id,
+            appointmentDate,
+            appointmentTime: body.appointmentTime,
+            type: body.type,
+            status: body.status ?? 'scheduled',
+            notes: body.notes,
+          },
+          include: APPOINTMENT_INCLUDE,
+        });
+        await enqueueWebhook(tx, user.orgId, 'appointment.created', created);
+        return created;
       });
 
       return reply.status(201).send(appointment);
@@ -226,18 +231,23 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
         }
       }
 
-      const updated = await prisma.appointment.update({
-        where: { id },
-        data: {
-          contactId: body.contactId,
-          assignedUserId: body.assignedUserId,
-          appointmentDate: parsedDate,
-          appointmentTime: body.appointmentTime,
-          type: body.type,
-          status: body.status,
-          notes: body.notes,
-        },
-        include: APPOINTMENT_INCLUDE,
+      const updated = await prisma.$transaction(async (tx) => {
+        const res = await tx.appointment.update({
+          where: { id },
+          data: {
+            contactId: body.contactId,
+            assignedUserId: body.assignedUserId,
+            appointmentDate: parsedDate,
+            appointmentTime: body.appointmentTime,
+            type: body.type,
+            status: body.status,
+            notes: body.notes,
+          },
+          include: APPOINTMENT_INCLUDE,
+        });
+        const eventType = res.status === 'cancelled' ? 'appointment.cancelled' : 'appointment.updated';
+        await enqueueWebhook(tx, user.orgId, eventType, res);
+        return res;
       });
 
       return updated;
@@ -256,10 +266,19 @@ export async function appointmentRoutes(app: FastifyInstance): Promise<void> {
       const user = request.user!;
       const { id } = request.params as { id: string };
 
-      const existing = await prisma.appointment.findFirst({ where: { id, orgId: user.orgId }, select: { id: true } });
+      const existing = await prisma.appointment.findFirst({
+        where: { id, orgId: user.orgId },
+        select: { id: true, contactId: true },
+      });
       if (!existing) return reply.status(404).send({ error: 'Appointment not found' });
 
-      await prisma.appointment.delete({ where: { id } });
+      await prisma.$transaction(async (tx) => {
+        await tx.appointment.delete({ where: { id } });
+        await enqueueWebhook(tx, user.orgId, 'appointment.cancelled', {
+          id: existing.id,
+          contactId: existing.contactId,
+        });
+      });
       return { success: true };
     } catch (err) {
       logger.error('[appointments] Delete error:', err);

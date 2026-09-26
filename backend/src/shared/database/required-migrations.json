@@ -90,5 +90,9 @@
   {
     "name": "20260926000002_conversation_tags",
     "checksum": "355b5c014970cf72d4b99d7a0c7a1b3377ece0c155bd1567c70e71c07f37bd50"
+  },
+  {
+    "name": "20260926000003_pro_api_and_webhook_gateway",
+    "checksum": "17d03d7a982c82a74f66bca48fda38c416f2ef261c24a37c72a6de04a2592182"
   }
 ]
