@@ -36,10 +36,18 @@ export async function chatCopilotRoutes(app: FastifyInstance): Promise<void> {
       if (!conv) return reply.status(404).send({ error: 'Conversation not found' });
 
       const rawMsgs = await prisma.message.findMany({
-        where: { conversationId: id, isDeleted: false },
+        where: { conversationId: id },
         orderBy: { sentAt: 'desc' },
-        take: 12,
-        select: { id: true, senderType: true, senderName: true, content: true, contentType: true, sentAt: true },
+        take: 40,
+        select: {
+          id: true,
+          senderType: true,
+          senderName: true,
+          content: true,
+          contentType: true,
+          sentAt: true,
+          isDeleted: true,
+        },
       });
       const messages: CopilotMessageContext[] = rawMsgs.reverse().map((m) => ({
         id: m.id,
@@ -48,6 +56,7 @@ export async function chatCopilotRoutes(app: FastifyInstance): Promise<void> {
         content: m.content,
         contentType: m.contentType,
         sentAt: m.sentAt,
+        isDeleted: m.isDeleted,
       }));
 
       const contact: CopilotContactContext | null = conv.contact ? {

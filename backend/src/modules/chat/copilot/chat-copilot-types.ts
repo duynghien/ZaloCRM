@@ -78,6 +78,7 @@ export interface CopilotMessageContext {
   content: string | null;
   contentType: string;
   sentAt: Date | string;
+  isDeleted?: boolean;
 }
 
 export interface CopilotContactContext {

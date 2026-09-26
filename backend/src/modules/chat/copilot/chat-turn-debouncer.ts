@@ -138,12 +138,20 @@ export class ChatTurnDebouncer {
     entry.timer = undefined;
 
     try {
-      // Load last 12 messages in chronological order
+      // Load last 40 messages in chronological order for Copilot pruning
       const rawMsgs = await prisma.message.findMany({
-        where: { conversationId, isDeleted: false },
+        where: { conversationId },
         orderBy: { sentAt: 'desc' },
-        take: 12,
-        select: { id: true, senderType: true, senderName: true, content: true, contentType: true, sentAt: true },
+        take: 40,
+        select: {
+          id: true,
+          senderType: true,
+          senderName: true,
+          content: true,
+          contentType: true,
+          sentAt: true,
+          isDeleted: true,
+        },
       });
       const messages: CopilotMessageContext[] = rawMsgs.reverse().map((m) => ({
         id: m.id,
@@ -152,6 +160,7 @@ export class ChatTurnDebouncer {
         content: m.content,
         contentType: m.contentType,
         sentAt: m.sentAt,
+        isDeleted: m.isDeleted,
       }));
 
       // Load contact information

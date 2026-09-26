@@ -1,7 +1,90 @@
 /**
- * chat-copilot-prompt-builder.ts — Generates prompt & system instruction with XML isolation against prompt injection.
+ * chat-copilot-prompt-builder.ts — Generates prompt & system instruction with XML isolation against prompt injection,
+ * and context pruning to remove noise (stickers, emoji-only, deleted, consecutive images).
  */
 import type { CopilotContactContext, CopilotMessageContext } from './chat-copilot-types.js';
+
+export function escapeXmlAttr(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function escapeXmlContent(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+export function isEmojiOnly(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (/[\p{L}\p{N}]/u.test(trimmed)) return false;
+  return /^[\p{Extended_Pictographic}\p{Emoji_Presentation}\p{Emoji_Modifier}\p{Emoji_Component}\s\u200d\ufe0f!.,?~:;+-]+$/u.test(trimmed);
+}
+
+export function pruneCopilotMessages(messages: CopilotMessageContext[]): CopilotMessageContext[] {
+  if (!messages || messages.length === 0) return [];
+
+  // Step 1: Filter out deleted, stickers, and emoji-only messages
+  const filtered: CopilotMessageContext[] = [];
+
+  for (const m of messages) {
+    if (m.isDeleted) continue;
+    if (m.contentType === 'sticker') continue;
+
+    const text = (m.content || '').trim();
+    if (m.contentType === 'text' && (!text || isEmojiOnly(text))) {
+      continue;
+    }
+
+    filtered.push(m);
+  }
+
+  // Step 2: Cluster consecutive pure image messages from the same sender
+  const clustered: CopilotMessageContext[] = [];
+  let imageCluster: CopilotMessageContext[] = [];
+
+  const flushImageCluster = () => {
+    if (imageCluster.length === 0) return;
+    const first = imageCluster[0];
+    const last = imageCluster[imageCluster.length - 1];
+    const count = imageCluster.length;
+    const label = first.senderType === 'self' ? 'Nhân viên' : 'Khách';
+    const text = count === 1 ? `[${label} gửi hình ảnh]` : `[${label} gửi ${count} hình ảnh]`;
+
+    clustered.push({
+      id: last.id,
+      senderType: first.senderType,
+      senderName: last.senderName,
+      content: text,
+      contentType: 'image',
+      sentAt: last.sentAt,
+    });
+    imageCluster = [];
+  };
+
+  for (const m of filtered) {
+    const isPureImage = m.contentType === 'image' && !(m.content || '').trim();
+    if (isPureImage) {
+      if (imageCluster.length > 0 && imageCluster[0].senderType !== m.senderType) {
+        flushImageCluster();
+      }
+      imageCluster.push(m);
+    } else {
+      flushImageCluster();
+      clustered.push(m);
+    }
+  }
+  flushImageCluster();
+
+  // Step 3: Take the latest 12 meaningful messages
+  return clustered.slice(-12);
+}
 
 export class ChatCopilotPromptBuilder {
   static buildSystemInstruction(businessContext?: string | null): string {
@@ -70,7 +153,7 @@ QUY TẮC PHÂN TÍCH:
     contact?: CopilotContactContext | null,
     isGroup = false,
   ): string {
-    const recent = messages.slice(-12);
+    const recent = pruneCopilotMessages(messages);
     const contactBlock = !isGroup && contact
       ? `HỒ SƠ KHÁCH HÀNG:
 - ID: ${contact.id || 'N/A'}
@@ -84,17 +167,16 @@ QUY TẮC PHÂN TÍCH:
       const sender = m.senderType === 'self' ? 'Nhân viên tư vấn' : (m.senderName || 'Khách hàng');
       let text = (m.content || '').trim();
       if (!text && m.contentType === 'image') {
-        text = '[Khách gửi hình ảnh]';
+        const label = m.senderType === 'self' ? 'Nhân viên' : 'Khách';
+        text = `[${label} gửi hình ảnh]`;
       } else if (!text) {
         text = `[Tin nhắn ${m.contentType}]`;
       }
-      // Escape critical XML characters in user content
-      const safeText = text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+
+      const safeSender = escapeXmlAttr(sender);
+      const safeText = escapeXmlContent(text);
       const sentTime = typeof m.sentAt === 'string' ? m.sentAt : m.sentAt.toISOString();
-      return `<customer_utterance id="${m.id}" sender="${sender}" type="${m.senderType}" time="${sentTime}">\n${safeText}\n</customer_utterance>`;
+      return `<customer_utterance id="${m.id}" sender="${safeSender}" type="${m.senderType}" time="${sentTime}">\n${safeText}\n</customer_utterance>`;
     }).join('\n');
 
     return `ID CUỘC TRÒ CHUYỆN: ${conversationId}
