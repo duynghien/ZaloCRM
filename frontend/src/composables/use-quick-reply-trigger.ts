@@ -69,7 +69,7 @@ export function useQuickReplyTrigger(
 
   function insertReply(reply: QuickReply) {
     const current = getInputText();
-    const replaced = current.replace(/(^|\s)\/[a-zA-Z0-9_-]*$/, (match, prefix) => {
+    const replaced = current.replace(/(^|\s)\/[a-zA-Z0-9_-]*$/, (_match, prefix) => {
       return (prefix || '') + reply.content;
     });
     updateInputText(replaced);
