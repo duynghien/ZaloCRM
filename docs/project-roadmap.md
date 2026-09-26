@@ -24,7 +24,8 @@ gantt
     DeepSeek Multimodal & Failover (Phase 11) :done, des11, 2026-09, 2026-09
     KiotViet Sync & Outbox (Phase 13) :done, des13, 2026-09, 2026-09
     Continuous Learning & Knowledge Base (Phase 14) :done, des14, 2026-09, 2026-09
-    Code Review & Remediation (Phase 15) :active, des15, 2026-09, 2026-10
+    Code Review & Remediation (Phase 15 & 16) :done, des15, 2026-09, 2026-09
+    Hybrid Hardening & Sales Velocity (Phase 17) :done, des17, 2026-09, 2026-09
 ```
 
 ---
@@ -205,22 +206,34 @@ gantt
 
 ---
 
-### Phase 16: Kế Hoạch Khắc Phục Edge Cases Đợt 2 & Hoàn Thiện Hệ Thống (ĐANG LẬP KẾ HOẠCH)
-- [ ] **Kế Hoạch Khắc Phục 10 Edge Cases Đợt 2:**
-  1. *Kích hoạt khôi phục Feedback AI mồ côi (`recoverPendingAiFeedbacks`):* Nối hàm `recoverPendingAiFeedbacks()` vào tiến trình khởi động `app.ts` và cron định kỳ để tự động chắt lọc các góp ý bị treo do server restart.
-  2. *Tái kích hoạt thông báo khi trùng `dedupKey`:* Cập nhật `NotificationService.createNotification` để reset `isRead: false`, `readAt: null` và cập nhật thời gian khi sự kiện cảnh báo (SLA, mất kết nối) tái diễn.
-  3. *Chuẩn hóa số điện thoại Việt Nam khi tra cứu KiotViet:* Chuyển đổi linh hoạt giữa đầu số `+84`/`84` và `0` trong `kiotviet-customer-service.ts` để nhận diện chính xác khách hàng đã có trên KiotViet.
-  4. *Xử lý lỗi NaN & kiểm soát trần phần trăm chiết khấu đơn hàng:* Kiểm tra `Number.isFinite` trên `OrderItemsSelector.vue` và chặn `discountInput > 100` khi ở chế độ phần trăm trong `order-item-validation.ts`.
-  5. *Khử lệch số học KiotViet do số lượng thập phân:* Điều chỉnh sai số làm tròn số học dòng hóa đơn trong `kiotviet-invoice-mapper.ts` cho các sản phẩm bán theo cân/lẻ có số lượng lẻ.
-  6. *Dọn dẹp định kỳ bộ nhớ Zalo Rate Limiter:* Bổ sung cron quét lúc 00:00 VN dọn dẹp các tài khoản không hoạt động > 48h khỏi `dailyCounts`, `recentSends`.
-  7. *Làm rõ nhãn chiết khấu dòng trên giao diện:* Phân định rõ chiết khấu theo dòng hay theo đơn vị trên `OrderItemsSelector.vue`.
-  8. *Bổ sung ràng buộc Tenant cho cập nhật Avatar:* Truyền `orgId` vào `updateContactAvatar()` tuân thủ nghiêm ngặt chuẩn phân lập dữ liệu.
-  9. *Khôi phục Socket sau sự cố gián đoạn mạng tạm thời:* Bổ sung lắng nghe sự kiện `online` trên trình duyệt để tự động thử lại kết nối Socket nếu lần refresh trước bị lỗi timeout mạng.
-  10. *Đồng bộ mã phản hồi HTTP tạo đơn hàng:* Chuẩn hóa tài liệu và hợp đồng API về mã `200 OK` (hoặc `201 Created` kèm tương thích ngược).
-- [ ] **Tối Ưu Hóa & Modularization Bổ Sung:**
-  - Phân rã `backend/src/modules/orders/order-routes.ts` (706 dòng) thành các route chuyên biệt.
-  - Tối ưu Context Pruning cho Chat Copilot (lọc bỏ sticker/emoji dư thừa trước khi nạp prompt).
-  - Bổ sung composite index `messages(conversation_id, sent_at DESC)` tăng tốc chat khi đạt hàng triệu tin.
+### Phase 16: Khắc Phục Edge Cases Đợt 2 & Hoàn Thiện Hệ Thống (ĐÃ HOÀN THÀNH)
+- [x] **Khắc Phục 10 Edge Cases Đợt 2 (Commit `c26419a`):**
+  - [x] *1. Kích hoạt khôi phục Feedback AI mồ côi (`recoverPendingAiFeedbacks`):* Nối hàm `recoverPendingAiFeedbacks()` vào tiến trình khởi động `app.ts` và cron định kỳ để tự động chắt lọc các góp ý bị treo do server restart.
+  - [x] *2. Tái kích hoạt thông báo khi trùng `dedupKey`:* Cập nhật `NotificationService.createNotification` để reset `isRead: false`, `readAt: null` và cập nhật thời gian khi sự kiện cảnh báo (SLA, mất kết nối) tái diễn.
+  - [x] *3. Chuẩn hóa số điện thoại Việt Nam khi tra cứu KiotViet:* Chuyển đổi linh hoạt giữa đầu số `+84`/`84` và `0` trong `kiotviet-customer-service.ts` để nhận diện chính xác khách hàng đã có trên KiotViet.
+  - [x] *4. Xử lý lỗi NaN & kiểm soát trần phần trăm chiết khấu đơn hàng:* Kiểm tra `Number.isFinite` trên `OrderItemsSelector.vue` và chặn `discountInput > 100` khi ở chế độ phần trăm trong `order-item-validation.ts`.
+  - [x] *5. Khử lệch số học KiotViet do số lượng thập phân:* Điều chỉnh sai số làm tròn số học dòng hóa đơn trong `kiotviet-invoice-mapper.ts` cho các sản phẩm bán theo cân/lẻ có số lượng lẻ.
+  - [x] *6. Dọn dẹp định kỳ bộ nhớ Zalo Rate Limiter:* Bổ sung cron quét lúc 00:00 VN dọn dẹp các tài khoản không hoạt động > 48h khỏi `dailyCounts`, `recentSends`.
+  - [x] *7. Làm rõ nhãn chiết khấu dòng trên giao diện:* Phân định rõ chiết khấu theo dòng hay theo đơn vị trên `OrderItemsSelector.vue`.
+  - [x] *8. Bổ sung ràng buộc Tenant cho cập nhật Avatar:* Truyền `orgId` vào `updateContactAvatar()` tuân thủ nghiêm ngặt chuẩn phân lập dữ liệu.
+  - [x] *9. Khôi phục Socket sau sự cố gián đoạn mạng tạm thời:* Bổ sung lắng nghe sự kiện `online` trên trình duyệt để tự động thử lại kết nối Socket nếu lần refresh trước bị lỗi timeout mạng.
+  - [x] *10. Đồng bộ mã phản hồi HTTP tạo đơn hàng:* Chuẩn hóa tài liệu và hợp đồng API về mã `200 OK` (hoặc `201 Created` kèm tương thích ngược).
+
+---
+
+### Phase 17: Hybrid Hardening & Sales Velocity (ĐÃ HOÀN THÀNH)
+- [x] **Phase 01: Chuẩn Hóa Hạ Tầng, Đánh Chỉ Mục & Cắt Tỉa Token Copilot (ĐÃ HOÀN THÀNH):**
+  - [x] Phân rã `backend/src/modules/orders/order-routes.ts` (706 dòng -> 25 dòng root aggregator) thành `order-crud-routes.ts`, `order-read-handlers.ts`, `order-create-handler.ts`, `order-update-handler.ts`, `order-delete-handler.ts`, `order-stats-routes.ts`, `order-kiotviet-routes.ts`, `order-route-helpers.ts` (tất cả các tệp đều < 200 dòng).
+  - [x] Bổ sung composite index `Message(conversationId, sentAt DESC)` trong `schema.prisma` và script migration DDL ngoài transaction `scripts/migrate-message-index-concurrently.ts` cho zero downtime.
+  - [x] Context Pruning và Anti-Prompt-Injection trong `chat-copilot-prompt-builder.ts`: lọc sạch sticker, emoji-only, tin nhắn thu hồi, gom cụm ảnh liên tiếp `[Khách gửi N hình ảnh]`, nạp mở rộng 40 tin từ DB và escape chặt chẽ thuộc tính XML `sender`.
+- [x] **Phase 02: Thư Viện Tin Nhắn Mẫu Toàn Tổ Chức & Phím Tắt `/` Trong Khung Chat (ĐÃ HOÀN THÀNH):**
+  - [x] Model `QuickReply` trong `schema.prisma`, REST API CRUD bảo mật phân quyền Admin/Owner, chống trùng shortcut (409 Conflict), đồng bộ real-time cache qua Socket.IO `quick-reply:updated/deleted`.
+  - [x] Popup gợi ý Neo-Brutalism `QuickReplySelector.vue`, guard `isComposing` bảo vệ bộ gõ tiếng Việt EVKey/Unikey, phím tắt `/`, mũi tên + Enter/Tab thay thế nội dung, và modal `QuickRepliesManagerDialog.vue`.
+- [x] **Phase 03: Nhãn Hội Thoại Tùy Biến Màu Sắc & Bộ Lọc Đa Chiều Trên Giao Diện Chat (ĐÃ HOÀN THÀNH):**
+  - [x] Model `ConversationTag` & `ConversationTagAssignment` cô lập multi-tenant chặt chẽ bằng `orgId`, quota tối đa 6 nhãn/hội thoại, REST API gán/gỡ nhãn, mở rộng `GET /conversations?tagId=...`.
+  - [x] Thanh lọc nhãn `ConversationTagBar.vue`, chip nhãn màu sắc trên sidebar (tối đa 3 chip + badge `+N`), menu gán nhãn `ConversationTagAssignMenu.vue` tại `MessageThreadHeader.vue`.
+  - [x] Đảm bảo modularization: phân rã `conversation-tag-service.ts` và `conversation-tag-assignment-service.ts`, `MessageInputToolbar.vue` và `SafetyComposeBar.vue` (tất cả đều < 200 dòng).
+
 
 
 
