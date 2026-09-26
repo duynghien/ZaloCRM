@@ -176,6 +176,10 @@ export function refreshAccessToken(): Promise<string> {
 }
 
 api.interceptors.request.use((config) => {
+  if (config.url) {
+    const cleaned = config.url.replace(/^(\/?api\/v1)+/, '');
+    config.url = cleaned.startsWith('/') ? cleaned : '/' + cleaned;
+  }
   const token = getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   const csrfToken = getCookie('zalo_crm_csrf');

@@ -78,5 +78,17 @@
   {
     "name": "20260925000000_ai_knowledge_and_feedback",
     "checksum": "ac33f7128d8b03ed5c0c52ea3d598ffed45032b983ba99c7749bdc1a48c01ed4"
+  },
+  {
+    "name": "20260926000000_messages_conversation_sent_at_idx",
+    "checksum": "c3910060e119e34bc6301f2e62e32a5d82e12281fcb1035e45e6cb2cad798893"
+  },
+  {
+    "name": "20260926000001_quick_replies",
+    "checksum": "e49fa829e5f25bda8b9f1791c65e2200fec6caee2cf8672a483167091558e5c4"
+  },
+  {
+    "name": "20260926000002_conversation_tags",
+    "checksum": "355b5c014970cf72d4b99d7a0c7a1b3377ece0c155bd1567c70e71c07f37bd50"
   }
 ]
