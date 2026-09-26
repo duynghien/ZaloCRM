@@ -111,7 +111,26 @@ ZaloCRM/
 │       │   │   ├── notification-service.ts     # CRUD, deduplication, isolation, TTL cleanup
 │       │   │   └── notification-routes.ts      # REST endpoints (GET, PATCH, POST mark-all-read, DELETE)
 │       │   ├── search/       # Global multi-entity full-text search
-│       │   └── api/          # Public REST API (X-API-Key) & Webhook subscriptions
+│       │   └── api/          # Pro API & Webhook Gateway (Multi-Key, Scopes, Wildcards, DLQ, Public Endpoints)
+│       │       ├── routes/   # Modular API routes (<200 lines each)
+│       │       │   ├── api-key-management-routes.ts   # CRUD API Keys, single-reveal plaintext, SHA-256 hash
+│       │       │   ├── webhook-subscription-routes.ts # CRUD Webhook subscriptions, SSRF defense, pause reset
+│       │       │   ├── webhook-log-routes.ts          # Outbox logs, status filters, manual DLQ retry
+│       │       │   ├── public-orders-routes.ts        # Public orders creation (generic items, atomic codes)
+│       │       │   ├── public-zalo-accounts-routes.ts # Connected Zalo accounts whitelist (zero session leak)
+│       │       │   ├── public-contacts-routes.ts      # Public contacts CRUD & pagination
+│       │       │   ├── public-messages-routes.ts      # Public Zalo message outbound dispatch
+│       │       │   ├── public-appointments-routes.ts  # Public appointments CRUD
+│       │       │   └── public-conversations-routes.ts # Public conversation threads & messages
+│       │       ├── services/ # Modular services (<200 lines each)
+│       │       │   ├── webhook-signature-service.ts   # Dual HMAC V1/V2 with timestamp replay defense
+│       │       │   ├── webhook-log-service.ts         # Query outbox logs, stats & DLQ manual retry
+│       │       │   └── webhook-test-dispatch-service.ts# Test webhook dispatch with SSRF checks
+│       │       ├── middleware/# Multi-key auth & scope guards
+│       │       │   ├── api-key-auth.ts                # SHA-256 lookup & atomic sliding-window rate limit
+│       │       │   └── scope-guard.ts                 # Least-privilege scope authorization
+│       │       ├── public-api-routes.ts               # Public route aggregator
+│       │       └── webhook-service.ts                 # Transactional outbox enqueue, wildcard dispatch, circuit breaker
 │       └── shared/           # Thư viện dùng chung
 │           ├── database/     # Prisma client, Schema compatibility checker
 │           ├── realtime/     # Socket server, Authorization, Invalidation & Event delivery queue
@@ -338,14 +357,23 @@ PUT    /api/v1/users/:id/password             # Đặt lại mật khẩu ngư�
 DELETE /api/v1/users/:id                      # Vô hiệu hóa người dùng (Owner)
 ```
 
-### 4.10. Cấu Hình Tích Hợp Webhook & API Key (Settings)
+### 4.10. Cổng Tích Hợp API Đa Khóa & Webhook Chuyên Nghiệp (Pro API & Webhook Settings)
 ```
-GET    /api/v1/settings/webhook               # Lấy cấu hình Webhook URL và Secret đã mask (Owner/Admin)
-PUT    /api/v1/settings/webhook               # Lưu cấu hình Webhook URL và Secret (Owner/Admin)
-POST   /api/v1/settings/webhook/test          # Gửi thử nghiệm sự kiện Webhook (Owner/Admin)
-GET    /api/v1/settings/api-key               # Xem Public API Key của tổ chức (Owner/Admin, no-store)
-POST   /api/v1/settings/api-key/generate      # Tạo mới/thu hồi và cấp lại API Key (Owner/Admin)
-DELETE /api/v1/settings/api-key               # Xóa API Key (Owner/Admin)
+GET    /api/v1/settings/api-keys              # Danh sách API Keys tổ chức (Owner/Admin)
+POST   /api/v1/settings/api-keys              # Tạo mới API Key (single-reveal plaintext, SHA-256 hash, no-store)
+DELETE /api/v1/settings/api-keys/:id          # Thu hồi API Key ngay lập tức (Owner/Admin)
+GET    /api/v1/settings/webhooks              # Danh sách Webhook Subscriptions kèm số lượng event paused
+POST   /api/v1/settings/webhooks              # Tạo Webhook Subscription (SSRF defense, AES-256-GCM secret, events: ['*'])
+PUT    /api/v1/settings/webhooks/:id          # Cập nhật Webhook (đặt lại circuit breaker consecutiveFails = 0)
+DELETE /api/v1/settings/webhooks/:id          # Xóa mềm Webhook Subscription
+POST   /api/v1/settings/webhooks/:id/test     # Gửi thử nghiệm sự kiện Webhook (SSRF validation, V1/V2 HMAC)
+GET    /api/v1/settings/webhooks/logs         # Lịch sử gửi Webhook Outbox (phân trang, lọc status, DLQ stats)
+POST   /api/v1/settings/webhooks/logs/:id/retry # Thử lại thủ công từ hàng đợi chết DLQ (IDOR scoped)
+GET    /api/v1/settings/api-key               # [Legacy] Xem API Key cũ (tương thích ngược)
+POST   /api/v1/settings/api-key               # [Legacy] Cập nhật API Key cũ
+GET    /api/v1/settings/webhook               # [Legacy] Xem Webhook URL/Secret cũ
+PUT    /api/v1/settings/webhook               # [Legacy] Cập nhật Webhook URL/Secret cũ
+POST   /api/v1/settings/webhook/test          # [Legacy] Gửi test Webhook cũ
 ```
 
 ### 4.11. Báo Cáo Điều Hành AI Digest (AI Reports v2), Multi-Provider & Quy Tắc Giám Sát Nhóm
@@ -390,33 +418,37 @@ DELETE /api/v1/notifications/:id              # Xóa thông báo (Owner/Admin ho
 GET    /api/v1/search                         # Tìm kiếm toàn văn trên Contacts, Messages, Appointments
 ```
 
-### 4.13. Public REST API (Xác thực qua Header X-API-Key)
+### 4.13. Public REST API (Xác thực qua Header X-API-Key, Atomic Rate Limit & Phân Quyền Scopes)
 ```
-GET    /api/public/contacts                   # Danh sách khách hàng
-GET    /api/public/contacts/:id               # Chi tiết khách hàng
-POST   /api/public/contacts                   # Tạo khách hàng mới
-PUT    /api/public/contacts/:id               # Cập nhật khách hàng
-GET    /api/public/conversations              # Danh sách cuộc trò chuyện
-GET    /api/public/conversations/:id/messages # Danh sách tin nhắn trong cuộc trò chuyện
-GET    /api/public/appointments               # Danh sách lịch hẹn
-POST   /api/public/appointments               # Tạo lịch hẹn mới
-POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách hàng
+GET    /api/public/contacts                   # Danh sách khách hàng (scope: contacts:read)
+GET    /api/public/contacts/:id               # Chi tiết khách hàng (scope: contacts:read)
+POST   /api/public/contacts                   # Tạo khách hàng mới (scope: contacts:write)
+PUT    /api/public/contacts/:id               # Cập nhật khách hàng (scope: contacts:write)
+GET    /api/public/orders                     # Danh sách đơn hàng phân trang, lọc theo contactId/status (scope: orders:read)
+GET    /api/public/orders/:id                 # Chi tiết đơn hàng kèm line items & attribution (scope: orders:read)
+POST   /api/public/orders                     # Tạo đơn hàng mới từ ERP/Landing page (scope: orders:write, contacts:write nếu tạo khách)
+GET    /api/public/zalo-accounts              # Danh sách Zalo Account đang kết nối (scope: zalo_accounts:read, tuyệt đối che session)
+GET    /api/public/conversations              # Danh sách cuộc trò chuyện (scope: conversations:read)
+GET    /api/public/conversations/:id/messages # Danh sách tin nhắn trong cuộc trò chuyện (scope: conversations:read)
+GET    /api/public/appointments               # Danh sách lịch hẹn (scope: appointments:read)
+POST   /api/public/appointments               # Tạo lịch hẹn mới (scope: appointments:write)
+POST   /api/public/messages/send              # Gửi tin nhắn Zalo cho khách hàng (scope: messages:send)
 ```
 
 ---
 
-## 5. Quality Baseline & Verification Matrix (Cập Nhật 2026-09-25)
+## 5. Quality Baseline & Verification Matrix (Cập Nhật 2026-09-26)
 
 | Chỉ số | Trạng thái thực tế | Ghi chú kiểm chứng |
 |---|---|---|
 | **TypeScript typecheck** | **PASS (0 errors)** | Cả backend (`tsc --noEmit`) và frontend (`vue-tsc --noEmit`) đạt chuẩn 100%. |
 | **Production build** | **PASS** | `npm run build` biên dịch thành công schema manifest, Fastify dist và Vite SPA bundle. |
 | **Clean install workspace** | **PASS** | Root `package-lock.json` duy nhất điều phối toàn bộ dependencies monorepo. |
-| **Unit tests** | **PASS (573 tests)** | Backend: 43 files (404 tests gồm media outbound, attachment tickets, copilot debouncer, action items, burst sampling, noise filter, audit evaluator, audit rule service, zalo report sender, failover, quota, bounds, kiotviet client/auth/invoice, ai knowledge, feedback distillation); Frontend: 22 files (169 tests gồm media messaging, staged tray, custom icons, account colors, provider settings, audit rules, chat recovery, qr subscription, router guards, kiotviet settings/orders, ai knowledge). |
-| **Integration test suites** | **55 test suites** | Kiểm thử Disposable Postgres: tenant isolation, Socket.IO delivery, message replay/undo, order code counter, AI budget & multi-provider failover, KiotViet invoice outbox, worker fencing, idempotency. |
+| **Unit tests** | **PASS (640+ tests)** | Backend: 47 files (452 tests); Frontend: 26 files (188 tests). 100% test suites pass. |
+| **Integration test suites** | **59 test suites** | Kiểm thử Disposable Postgres & Mock Fastify: multi-api-key auth, scope guards, granular webhook dispatcher, SSRF protection, outbox DLQ recovery, public orders & accounts. |
 | **Browser E2E specs** | **10 specs** | Playwright: session lifecycle, QR intent, chat recovery, account permissions, target qualification. |
 | **Dependency audit policy** | **PASS** | `npm run audit:production` kiểm soát chặt chẽ: chỉ chấp nhận 2 waiver Prisma CLI (`deepmerge-ts` / `GHSA-ggr8-5vv4-36mx`, `mysql2` / `GHSA-3f6p-5ww8-9rcr`). |
-| **Số file mã nguồn > 200 dòng** | **85 files** | Được đưa vào danh mục theo dõi tái cấu trúc (refactoring inventory: 37 frontend, 48 backend). |
+| **Số file mã nguồn > 200 dòng** | **Tuân thủ nghiêm ngặt** | Tất cả các files API, Webhooks, Vue views và components đều < 200 dòng. |
 
 ---
 

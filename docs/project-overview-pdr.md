@@ -123,6 +123,14 @@ Trở thành giải pháp CRM Zalo mượt mà, an toàn, thông minh và dễ t
 - **Tự Động Giải Quyết (Auto-Resolution):** Tự động đánh dấu đã đọc khi nhân viên tương tác giải quyết sự vụ liên quan (ví dụ: trả lời tin nhắn quá hạn SLA, kết nối lại tài khoản Zalo bị ngắt).
 - **Vòng Đời & Dọn Dẹp Định Kỳ (TTL Cleanup):** Cron định kỳ tự động xóa sạch các thông báo cũ quá 30 ngày, bảo đảm hiệu năng truy vấn chỉ số `unreadCount` luôn đạt tốc độ tối đa.
 
+### 3.14. Phân hệ Cổng API & Webhook Chuyên Nghiệp (Pro API & Webhook Gateway)
+- **Quản Trị Khóa API Đa Khóa (Multi-Key Management):** Tạo không giới hạn API Key độc lập theo từng đối tác/hệ thống (ERP, KiotViet, n8n, Landing Page), tiền tố `zcrm_`, chỉ hiển thị plaintext 1 lần duy nhất lúc tạo, lưu SHA-256 hash và trả về header `Cache-Control: no-store`.
+- **Phân Quyền Tối Thiểu (Least Privilege Scopes):** 9 scopes độc lập (`contacts:read`, `contacts:write`, `orders:read`, `orders:write`, `appointments:read`, `appointments:write`, `messages:send`, `conversations:read`, `zalo_accounts:read`).
+- **Giới Hạn Tốc Độ Cửa Sổ Trượt Nguyên Tử (Atomic Sliding-Window Rate Limiting):** Kiểm soát rate limit theo từng key thông qua bảng `api_key_rate_limit_buckets` và câu lệnh SQL nguyên tử, chống race condition và trả về chuẩn header `X-RateLimit-*`.
+- **Webhook Đa Điểm Nhận Tin & Khớp Sự Kiện Tiền Tố (Wildcard Pattern Matching):** Quản lý đa Webhook Subscription, mã hóa secret bằng `AES-256-GCM`, hỗ trợ lắng nghe sự kiện linh hoạt (`*`, `contact.*`, `order.*`,...).
+- **Chữ Ký Kép & Chống Phát Lại (HMAC V1/V2 with Replay Attack Defense):** Đi kèm header V1 (`X-ZaloCRM-Signature`) và V2 (`X-ZaloCRM-Signature-V2: t=timestamp,v2=hmac_hex`) với cửa sổ kiểm tra độ lệch thời gian (timestamp skew tolerance 300s).
+- **Phòng Vệ SSRF & Ngắt Mạch Tự Động (Circuit Breaker & DLQ):** Thẩm định địa chỉ đích bắt buộc HTTPS công khai, chặn IP nội bộ/loopback/cloud metadata; tự động tạm dừng subscription sau 50 lỗi liên tiếp; hỗ trợ kiểm tra và thử lại thủ công các gói tin từ Hàng đợi chết (Dead Letter Queue) trên giao diện Neo-Brutalism.
+
 ---
 
 ## 4. Yêu Cầu Phi Chức Năng (Non-Functional Requirements)

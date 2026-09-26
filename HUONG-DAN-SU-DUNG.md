@@ -208,38 +208,139 @@ Vào menu **Nhân viên** (chỉ Admin/Owner)
 
 ---
 
-## 8. API & Webhook
+## 8. Cổng API & Webhook Chuyên Nghiệp (Pro API & Webhook Gateway)
 
-Dành cho lập trình viên muốn tích hợp ZaloCRM với hệ thống khác.
+Dành cho lập trình viên và doanh nghiệp tích hợp ZaloCRM với các hệ thống ERP, KiotViet, Sapo, n8n, CRM bên ngoài hoặc ứng dụng nội bộ.
 
-### Tạo API Key
+### 8.1. Quản Lý Khóa API Đa Khóa (Multi-Key Management)
 
-1. Vào menu **API & Webhook**
-2. Nhấn **Tạo key mới** → copy API key
-3. Sử dụng trong header: `X-API-Key: your-key`
+ZaloCRM hỗ trợ tạo không giới hạn API Key độc lập cho từng hệ thống đối tác hoặc dịch vụ tích hợp với nguyên tắc phân quyền tối thiểu (Least Privilege).
 
-### Cấu hình Webhook
+1. Vào menu **Cấu hình** → tab **Khóa API**.
+2. Nhấn nút **+ Tạo Khóa API Mới**.
+3. Điền thông tin:
+   - **Tên khóa**: Định danh đối tác/hệ thống sử dụng (ví dụ: `KiotViet Sync`, `n8n Automation`).
+   - **Phân quyền (Scopes)**: Chọn chính xác các quyền cần thiết:
+     - `contacts:read`, `contacts:write`: Xem và quản lý danh bạ khách hàng.
+     - `orders:read`, `orders:write`: Xem và tạo đơn hàng (hỗ trợ line items tự do).
+     - `appointments:read`, `appointments:write`: Xem và tạo lịch hẹn tư vấn/chăm sóc.
+     - `messages:send`: Gửi tin nhắn Zalo đến khách hàng.
+     - `conversations:read`: Đọc dữ liệu hội thoại, tin nhắn.
+     - `zalo_accounts:read`: Xem danh sách tài khoản Zalo đang kết nối (tuyệt đối bảo mật session/cookies).
+   - **Giới hạn tốc độ (Rate Limit)**: Số request tối đa/phút (mặc định 60, tối đa 1000). Hệ thống kiểm soát qua bộ đếm trượt nguyên tử (Atomic Sliding-Window Rate Limiter).
+   - **Hạn dùng (Expiration)**: Để trống nếu không bao giờ hết hạn, hoặc chọn ngày thu hồi tự động.
+4. Nhấn **Tạo Khóa**: Hệ thống hiển thị khóa bí mật dạng `zcrm_...` **duy nhất 1 lần**. Hãy sao chép và lưu trữ an toàn vào biến môi trường!
 
-1. Nhập **Webhook URL** (địa chỉ server nhận thông báo)
-2. Nhập **Secret** (mã bí mật để xác thực)
-3. Nhấn **Lưu** → nhấn **Test Webhook** để kiểm tra
+### 8.2. Gọi API Công Khai (Public REST Endpoints)
 
-### Ví dụ sử dụng API
+Truyền API Key vào header `X-API-Key` trong mỗi yêu cầu:
 
 ```bash
-# Lấy danh sách khách hàng
-curl -H "X-API-Key: your-key" https://your-domain/api/public/contacts
+# 1. Lấy danh sách tài khoản Zalo đang kết nối
+curl -H "X-API-Key: zcrm_your_key_here" \
+  https://your-domain/api/public/zalo-accounts
 
-# Tạo khách hàng mới
-curl -X POST -H "X-API-Key: your-key" -H "Content-Type: application/json" \
-  -d '{"fullName":"Nguyễn Văn A","phone":"0901234567","source":"FB"}' \
-  https://your-domain/api/public/contacts
+# 2. Tạo đơn hàng mới từ Landing Page / ERP ngoài (hỗ trợ mặt hàng tự do & phân bổ mã đơn chống trùng lặp)
+curl -X POST -H "X-API-Key: zcrm_your_key_here" -H "Content-Type: application/json" \
+  -d '{
+    "phone": "0988888888",
+    "fullName": "Nguyễn Văn A",
+    "totalAmount": 450000,
+    "items": [
+      { "productName": "Combo Chăm Sóc Da Pro", "quantity": 1, "price": 450000 }
+    ],
+    "notes": "Đơn hàng từ Website Shopify"
+  }' \
+  https://your-domain/api/public/orders
 
-# Gửi tin nhắn
-curl -X POST -H "X-API-Key: your-key" -H "Content-Type: application/json" \
-  -d '{"zaloAccountId":"abc","threadId":"xyz","content":"Xin chào!","threadType":0}' \
+# 3. Gửi tin nhắn Zalo tự động
+curl -X POST -H "X-API-Key: zcrm_your_key_here" -H "Content-Type: application/json" \
+  -d '{
+    "zaloAccountId": "acc-uuid",
+    "threadId": "user-zalo-id",
+    "content": "Cảm ơn quý khách đã đặt hàng tại shop!",
+    "threadType": 0
+  }' \
   https://your-domain/api/public/messages/send
 ```
+
+### 8.3. Webhook Tinh Gọn (Granular Webhooks) & An Toàn SSRF
+
+Hệ thống cung cấp cơ chế Webhook Outbox với khả năng khớp sự kiện tiền tố (Wildcard Matching), mã hóa bí mật AES-256-GCM, phòng vệ SSRF nghiêm ngặt (chỉ chấp nhận HTTPS công khai) và ngắt mạch tự động (Circuit Breaker) sau 50 lần gửi thất bại liên tiếp:
+
+1. Vào tab **Webhook Subscriptions** → nhấn **+ Thêm Điểm Nhận Tin**.
+2. Nhập URL máy chủ nhận tin (bắt buộc giao thức HTTPS hợp lệ, không dùng IP nội bộ/loopback/cloud metadata).
+3. Đăng ký các sự kiện cần lắng nghe:
+   - `contact.*`: Tất cả sự kiện khách hàng (`contact.created`, `contact.updated`).
+   - `order.*`: Tất cả sự kiện đơn hàng (`order.created`, `order.updated`).
+   - `appointment.*`: Sự kiện lịch hẹn (`appointment.created`, `appointment.updated`).
+   - `*`: Nhận toàn bộ sự kiện hệ thống.
+4. Nhập hoặc sinh mã bảo mật (Shared Secret) dùng để ký HMAC.
+
+### 8.4. Xác Thực Chữ Ký Webhook & Chống Tấn Công Gửi Lại (Replay Attack Defense)
+
+Mỗi lượt gửi Webhook từ ZaloCRM đi kèm 2 header chữ ký:
+- `X-ZaloCRM-Signature`: Chữ ký HMAC-SHA256 chuẩn (V1 hex digest).
+- `X-ZaloCRM-Signature-V2`: Chữ ký phiên bản 2 chống phát lại với định dạng `t=<timestamp>,v2=<hmac-hex>`.
+
+#### Mẫu Xác Thực Bằng Node.js:
+```javascript
+import crypto from 'node:crypto';
+
+export function verifyZaloCrmWebhook(rawBody, signatureV2Header, sharedSecret) {
+  // 1. Phân tích header t=timestamp,v2=signature
+  const parts = Object.fromEntries(
+    signatureV2Header.split(',').map(kv => kv.trim().split('='))
+  );
+  const timestamp = parseInt(parts.t, 10);
+  const signature = parts.v2;
+
+  // 2. Chống Replay Attack: Từ chối gói tin quá 5 phút (300 giây)
+  const now = Math.floor(Date.now() / 1000);
+  if (Math.abs(now - timestamp) > 300) {
+    throw new Error('Webhook timestamp skew exceeds tolerance');
+  }
+
+  // 3. Tính toán HMAC-SHA256 trên chuỗi "${timestamp}.${rawBody}"
+  const payloadToSign = `${timestamp}.${rawBody}`;
+  const expectedSignature = crypto
+    .createHmac('sha256', sharedSecret)
+    .update(payloadToSign)
+    .digest('hex');
+
+  // 4. So sánh chuỗi với thời gian hằng số (Timing-safe comparison)
+  const isValid = crypto.timingSafeEqual(
+    Buffer.from(signature, 'hex'),
+    Buffer.from(expectedSignature, 'hex')
+  );
+
+  return isValid;
+}
+```
+
+#### Mẫu Xác Thực Bằng Python:
+```python
+import hmac, hashlib, time
+
+def verify_zalocrm_webhook(raw_body_bytes, signature_v2_header, shared_secret):
+    parts = dict(item.strip().split('=') for item in signature_v2_header.split(','))
+    timestamp = int(parts['t'])
+    expected_sig = parts['v2']
+
+    # Tolerance 300s
+    if abs(int(time.time()) - timestamp) > 300:
+        return False
+
+    signed_payload = f"{timestamp}.".encode('utf-8') + raw_body_bytes
+    computed_sig = hmac.new(shared_secret.encode('utf-8'), signed_payload, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(computed_sig, expected_sig)
+```
+
+### 8.5. Giám Sát Nhật Ký & Hàng Đợi Thất Bại (DLQ)
+
+- Tại tab **Nhật Ký & DLQ**, quản trị viên theo dõi trạng thái phân phát thời gian thực (`pending`, `delivered`, `failed`, `dead_letter`, `paused`).
+- Với các gói tin bị lỗi quá 5 lần hoặc webhook bị ngắt mạch, sau khi sửa xong server nhận tin, nhấn **Thử Lại (Retry)** để hệ thống đặt lại bộ đếm và gửi lại ngay lập tức.
+- Tab **Tài Liệu API** cung cấp giao diện OpenAPI/Swagger tương tác trực quan để thử nghiệm các endpoint trực tiếp trên trình duyệt.
 
 ---
 

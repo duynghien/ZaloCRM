@@ -26,6 +26,7 @@ gantt
     Continuous Learning & Knowledge Base (Phase 14) :done, des14, 2026-09, 2026-09
     Code Review & Remediation (Phase 15 & 16) :done, des15, 2026-09, 2026-09
     Hybrid Hardening & Sales Velocity (Phase 17) :done, des17, 2026-09, 2026-09
+    Pro API & Webhook Gateway (Phase 18) :done, des18, 2026-09, 2026-09
 ```
 
 ---
@@ -232,7 +233,29 @@ gantt
 - [x] **Phase 03: Nhãn Hội Thoại Tùy Biến Màu Sắc & Bộ Lọc Đa Chiều Trên Giao Diện Chat (ĐÃ HOÀN THÀNH):**
   - [x] Model `ConversationTag` & `ConversationTagAssignment` cô lập multi-tenant chặt chẽ bằng `orgId`, quota tối đa 6 nhãn/hội thoại, REST API gán/gỡ nhãn, mở rộng `GET /conversations?tagId=...`.
   - [x] Thanh lọc nhãn `ConversationTagBar.vue`, chip nhãn màu sắc trên sidebar (tối đa 3 chip + badge `+N`), menu gán nhãn `ConversationTagAssignMenu.vue` tại `MessageThreadHeader.vue`.
-  - [x] Đảm bảo modularization: phân rã `conversation-tag-service.ts` và `conversation-tag-assignment-service.ts`, `MessageInputToolbar.vue` và `SafetyComposeBar.vue` (tất cả đều < 200 dòng).
+### Phase 18: Cổng Tích Hợp API Đa Khóa & Webhook Chuyên Nghiệp (Pro API & Webhook Gateway) (ĐÃ HOÀN THÀNH)
+- [x] **Database Schema & Migrations:**
+  - [x] Model `ApiKey` hỗ trợ đa khóa theo tổ chức, tiền tố `zcrm_`, lưu SHA-256 hash, phân quyền mảng `scopes`, giới hạn `rateLimit` và ngày hết hạn `expiresAt`.
+  - [x] Model `ApiKeyRateLimitBucket` phục vụ thuật toán trượt nguyên tử (Atomic Sliding-Window Rate Limiting) tại tầng database.
+  - [x] Model `WebhookSubscription` quản lý đa điểm nhận tin, mã hóa secret `AES-256-GCM`, mảng sự kiện `events`, bộ đếm ngắt mạch `consecutiveFails` và cờ tương thích `sendV1Signature`.
+  - [x] Nâng cấp `WebhookOutbox` liên kết khóa ngoại với `WebhookSubscription`, lưu trữ `snapshotPayload` JSONB bất biến, bộ đếm thử lại `attemptCount`, lý do thất bại `lastError` và mã phản hồi HTTP `responseStatus`.
+  - [x] Nâng cấp `Order` & `OrderItem`: trường `createdByKeyId` ghi nhận machine-to-machine attribution độc lập và `canSync: false` cho các mặt hàng tự do từ sàn ngoài/ERP.
+- [x] **Multi-Key Authentication, Scope Guards & Public REST Endpoints:**
+  - [x] Middleware `apiKeyAuth` tra cứu theo SHA-256 hash, thực thi trượt cửa sổ nguyên tử bằng câu lệnh SQL `INSERT ... ON CONFLICT DO UPDATE` và trả về chuẩn header `X-RateLimit-*`.
+  - [x] Middleware `requireApiKeyScope` và helper `hasApiKeyScope` bảo đảm kiểm soát 9 scopes phân quyền tối thiểu (Least Privilege).
+  - [x] Phân hệ Public API gồm các endpoints chuẩn hóa: `contacts`, `orders`, `messages`, `appointments`, `conversations`, và `zalo-accounts` (whitelist an toàn, che giấu 100% sessionData).
+- [x] **Granular Webhook Dispatcher & Resilient Outbox:**
+  - [x] Thuật toán khớp mẫu sự kiện tiền tố `matchesEventPattern` hỗ trợ wildcard (`*`, `contact.*`, `order.*`).
+  - [x] Chữ ký số kép: V1 (`X-ZaloCRM-Signature`) và V2 chống Replay Attack (`X-ZaloCRM-Signature-V2: t=timestamp,v2=hmac_hex`).
+  - [x] Cơ chế ngắt mạch tự động (Circuit Breaker) tạm dừng subscription sau 50 lỗi liên tiếp; worker phân phát song song có bảo vệ SSRF.
+  - [x] Transactional outbox enqueue parity: ghi nhận sự kiện đồng thời trong transaction tạo Contact và Appointment.
+- [x] **Admin Management Routes & Neo-Brutalism CQA UI:**
+  - [x] Bộ REST API quản trị: `api-key-management-routes`, `webhook-subscription-routes`, `webhook-log-routes`, `webhook-settings-routes` (legacy adapter).
+  - [x] Giao diện Neo-Brutalism CQA 4 tabs trong `ApiSettingsView.vue`: Quản lý API Key, Quản lý Webhook Subscriptions, Nhật ký & Hàng đợi chết (DLQ) với nút Thử lại thủ công, và Tài liệu API tương tác.
+- [x] **Automated Testing & Modularization:**
+  - [x] 4 bộ kiểm thử tích hợp (20 tests) chạy xanh 100%: `multi-api-key-auth.test.ts`, `granular-webhook-dispatcher.test.ts`, `public-orders-and-accounts.test.ts`, `webhook-settings-and-dlq.test.ts`.
+  - [x] 100% tệp mã nguồn tạo mới và tái cấu trúc tuân thủ nghiêm ngặt giới hạn < 200 dòng.
+
 
 
 
