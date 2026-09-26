@@ -1,42 +1,11 @@
 <template>
   <div class="message-input-toolbar flex-shrink-0">
     <!-- Safety Compose Bar (Chốt chặn an toàn) -->
-    <div
-      v-if="conversation?.zaloAccount"
-      class="safety-compose-bar px-3 py-1 d-flex align-center justify-space-between"
-      :style="{
-        borderLeft: `4px solid ${accountColor}`,
-        borderTop: '1.5px solid var(--border-color)',
-        backgroundColor: 'var(--bg-main, #f8f9fa)',
-      }"
-    >
-      <div class="d-flex align-center text-caption font-weight-medium text-truncate mr-2">
-        <span class="mr-1 text-grey-darken-1 font-mono" style="font-size: 0.7rem;">ĐANG TRẢ LỜI BẰNG:</span>
-        <span class="font-weight-bold mr-2 text-truncate" :style="{ color: accountColor, fontSize: '0.78rem' }">
-          {{ conversation.zaloAccount.displayName || 'Zalo' }}
-        </span>
-        <span
-          v-if="conversation.zaloAccount.branchTag"
-          class="neo-pill px-1 py-0 font-weight-bold"
-          :style="{
-            backgroundColor: accountColor,
-            color: '#FFFFFF',
-            border: '1px solid var(--border-color)',
-            fontSize: '0.65rem !important',
-          }"
-        >
-          {{ conversation.zaloAccount.branchTag }}
-        </span>
-      </div>
-
-      <div class="d-flex align-center text-caption text-grey-darken-1 flex-shrink-0" style="font-size: 0.72rem;">
-        <span
-          class="status-dot mr-1"
-          :class="isAccountOnline ? 'status-online' : 'status-offline'"
-        />
-        <span>{{ isAccountOnline ? 'Online' : 'Mất kết nối' }}</span>
-      </div>
-    </div>
+    <SafetyComposeBar
+      :account="conversation?.zaloAccount"
+      :account-color="accountColor"
+      :is-account-online="isAccountOnline"
+    />
 
     <!-- Staged Media Bar -->
     <StagedMediaBar
@@ -46,8 +15,21 @@
       @remove="$emit('remove-staged-file', $event)"
     />
 
-    <!-- Input Area -->
-    <div class="pa-2 d-flex align-end chat-input-area">
+    <!-- Input Area with Quick Reply Popover -->
+    <div class="pa-2 d-flex align-end chat-input-area position-relative">
+      <!-- Quick Reply Selector Popup -->
+      <QuickReplySelector
+        ref="selectorRef"
+        :query="query"
+        :visible="showSelector"
+        @select="insertReply"
+        @close="showSelector = false"
+        @open-manager="showManager = true"
+      />
+
+      <!-- Quick Replies Manager Dialog -->
+      <QuickRepliesManagerDialog v-model="showManager" />
+
       <input
         ref="fileInput"
         type="file"
@@ -65,9 +47,18 @@
         title="Đính kèm tệp (Tối đa 5 tệp)"
         @click="triggerFileInput"
       />
+      <v-btn
+        icon="mdi-lightning-bolt"
+        variant="text"
+        rounded="lg"
+        class="mr-1 flex-shrink-0"
+        color="primary"
+        title="Tin nhắn mẫu (/ hoặc bấm để mở)"
+        @click="toggleSelector"
+      />
       <v-textarea
         :model-value="inputText"
-        placeholder="Nhập tin nhắn..."
+        placeholder="Nhập tin nhắn (gõ / để mở tin nhắn mẫu)..."
         variant="outlined"
         rounded="lg"
         density="compact"
@@ -75,8 +66,10 @@
         auto-grow
         rows="1"
         max-rows="3"
-        @update:model-value="$emit('update:inputText', $event)"
-        @keydown.enter.exact.prevent="$emit('send')"
+        @compositionstart="isComposing = true"
+        @compositionend="isComposing = false"
+        @update:model-value="onInputUpdate"
+        @keydown="onKeydown"
         @paste="$emit('paste', $event)"
         class="flex-grow-1 mr-2"
       />
@@ -96,12 +89,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
 import type { Conversation } from '@/composables/use-chat';
 import type { StagedFile } from '@/composables/use-staged-media';
+import { useQuickReplies } from '@/composables/use-quick-replies';
+import { useQuickReplyTrigger } from '@/composables/use-quick-reply-trigger';
 import StagedMediaBar from './StagedMediaBar.vue';
+import QuickReplySelector from './QuickReplySelector.vue';
+import QuickRepliesManagerDialog from './QuickRepliesManagerDialog.vue';
+import SafetyComposeBar from './SafetyComposeBar.vue';
 
-defineProps<{
+const props = defineProps<{
   conversation: Conversation | null;
   accountColor: string;
   isAccountOnline: boolean;
@@ -111,7 +109,7 @@ defineProps<{
   sending: boolean;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'update:inputText', text: string): void;
   (e: 'send'): void;
   (e: 'remove-staged-file', index: number): void;
@@ -120,37 +118,57 @@ defineEmits<{
 }>();
 
 const fileInput = ref<HTMLInputElement | null>(null);
+const selectorRef = ref<any>(null);
+const { loadQuickReplies } = useQuickReplies();
+
+const {
+  showSelector,
+  query,
+  isComposing,
+  showManager,
+  checkTrigger,
+  handleKeydown,
+  insertReply,
+} = useQuickReplyTrigger(
+  () => props.inputText,
+  (val) => emit('update:inputText', val)
+);
+
+onMounted(() => {
+  loadQuickReplies();
+});
 
 function triggerFileInput() {
   fileInput.value?.click();
 }
 
+function toggleSelector() {
+  if (showSelector.value) {
+    showSelector.value = false;
+  } else {
+    loadQuickReplies();
+    query.value = '';
+    showSelector.value = true;
+  }
+}
+
+function onInputUpdate(text: string) {
+  emit('update:inputText', text);
+  checkTrigger(text);
+}
+
+function onKeydown(e: KeyboardEvent) {
+  handleKeydown(e, selectorRef.value, () => emit('send'));
+}
+
 defineExpose({
   triggerFileInput,
+  toggleSelector,
 });
 </script>
 
 <style scoped>
-.safety-compose-bar {
-  user-select: none;
-}
-
 .chat-input-area {
   flex-shrink: 0;
-}
-
-.status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-
-.status-online {
-  background-color: #10B981;
-}
-
-.status-offline {
-  background-color: #9CA3AF;
 }
 </style>
