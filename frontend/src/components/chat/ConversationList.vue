@@ -91,16 +91,6 @@
           <span class="text-truncate" :class="{ 'font-weight-bold': conv.unreadCount > 0 }">
             {{ conv.threadType === 'group' ? (conv.contact?.fullName || 'Nhóm') : (conv.contact?.fullName || 'Khách hàng') }}
           </span>
-          <v-chip
-            v-if="conv.threadType === 'group'"
-            size="x-small"
-            color="info"
-            variant="tonal"
-            rounded="pill"
-            class="ml-1 neo-pill"
-          >
-            Nhóm
-          </v-chip>
           <span
             v-if="hasAnomaly(conv)"
             class="neo-pill ml-1 px-1 py-0 text-caption font-weight-bold d-inline-flex align-center gap-1"
@@ -133,13 +123,14 @@
           <span
             v-for="assignment in (conv.tags || []).slice(0, 3)"
             :key="assignment.tagId"
-            class="neo-pill px-1.5 py-0 text-caption font-weight-bold"
+            class="neo-pill text-caption font-weight-bold"
             :style="{
               backgroundColor: assignment.tag?.color || '#0068FF',
               color: getContrastTextColor(assignment.tag?.color),
               border: '1px solid #18181B',
               fontSize: '0.62rem !important',
-              lineHeight: '1.2'
+              lineHeight: '1.2',
+              padding: '2px 4px !important'
             }"
             :title="assignment.tag?.name"
           >
@@ -147,8 +138,8 @@
           </span>
           <span
             v-if="conv.tags.length > 3"
-            class="neo-pill px-1 py-0 text-caption font-weight-bold bg-grey-lighten-2 text-black"
-            style="border: 1px solid #18181B; font-size: 0.60rem !important; line-height: 1.2;"
+            class="neo-pill text-caption font-weight-bold bg-grey-lighten-2 text-black"
+            style="border: 1px solid #18181B; font-size: 0.60rem !important; line-height: 1.2; padding: 2px 4px !important;"
             :title="(conv.tags || []).slice(3).map(t => t.tag?.name).filter(Boolean).join(', ')"
           >
             +{{ conv.tags.length - 3 }}

@@ -19,16 +19,6 @@
           {{ conversation.threadType === 'group' ? (conversation.contact?.fullName || 'Nhóm') : (conversation.contact?.fullName || 'Khách hàng') }}
         </span>
         <v-chip
-          v-if="conversation.threadType === 'group'"
-          size="x-small"
-          color="info"
-          variant="tonal"
-          rounded="pill"
-          class="neo-pill"
-        >
-          Nhóm
-        </v-chip>
-        <v-chip
           v-if="conversation.zaloAccount?.branchTag"
           size="x-small"
           class="font-weight-bold neo-pill"
@@ -46,13 +36,14 @@
         <span
           v-for="assignment in (conversation.tags || []).slice(0, 3)"
           :key="assignment.tagId"
-          class="neo-pill px-2 py-0 text-caption font-weight-bold d-inline-flex align-center"
+          class="neo-pill text-caption font-weight-bold d-inline-flex align-center"
           :style="{
             backgroundColor: assignment.tag?.color || '#0068FF',
             color: getContrastTextColor(assignment.tag?.color),
             border: '1.5px solid var(--border-color)',
             fontSize: '0.65rem !important',
-            lineHeight: '1.3'
+            lineHeight: '1.3',
+            padding: '2px 4px !important'
           }"
           :title="assignment.tag?.name"
         >
@@ -61,8 +52,13 @@
         </span>
         <span
           v-if="(conversation.tags?.length || 0) > 3"
-          class="neo-pill px-1.5 py-0 text-caption font-weight-bold bg-surface-variant"
-          :style="{ border: '1.5px solid var(--border-color)', fontSize: '0.62rem !important', lineHeight: '1.3' }"
+          class="neo-pill text-caption font-weight-bold bg-surface-variant"
+          :style="{
+            border: '1.5px solid var(--border-color)',
+            fontSize: '0.62rem !important',
+            lineHeight: '1.3',
+            padding: '2px 4px !important'
+          }"
           :title="(conversation.tags || []).slice(3).map(t => t.tag?.name).join(', ')"
         >
           +{{ (conversation.tags?.length || 0) - 3 }}
